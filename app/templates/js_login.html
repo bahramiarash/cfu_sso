@@ -1,0 +1,19 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Redirecting to CFU SSO…</title>
+</head>
+<body>
+  <script>
+    // 1) Tell the browser to send `has_js=1` on sso.cfu.ac.ir
+    document.cookie = "has_js=1; Domain=sso.cfu.ac.ir; Path=/";
+
+    // 2) Now send the user to the real OAuth2 authorize URL
+    window.location = "{{ authorize_url|e }}";
+  </script>
+  <noscript>
+    <p>Please enable JavaScript to continue to SSO.</p>
+  </noscript>
+</body>
+</html>

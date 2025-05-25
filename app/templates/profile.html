@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="fa">
+<head>
+    <meta charset="UTF-8">
+    <title>پروفایل کاربر</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <style>
+        body {
+            font-family: 'Tahoma', sans-serif;
+            direction: rtl;
+            background-color: #f5f5f5;
+            margin: 0;
+            padding: 0;
+        }
+
+        .container {
+            max-width: 600px;
+            margin: 50px auto;
+            background-color: white;
+            padding: 30px;
+            box-shadow: 0 0 10px rgba(0,0,0,0.1);
+            border-radius: 8px;
+        }
+
+        h1 {
+            color: #333;
+            text-align: center;
+        }
+
+        .profile-item {
+            margin-bottom: 15px;
+            border-bottom: 1px solid #eee;
+            padding-bottom: 8px;
+        }
+
+        .label {
+            font-weight: bold;
+        }
+
+        .value {
+            color: #555;
+        }
+
+        .logout-btn {
+            display: block;
+            margin: 20px auto;
+            text-align: center;
+            padding: 10px 20px;
+            background-color: #e74c3c;
+            color: white;
+            text-decoration: none;
+            border-radius: 5px;
+        }
+
+        .logout-btn:hover {
+            background-color: #c0392b;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+<!-- templates/profile.html -->
+<h1>Welcome, {{ user["name"] }}</h1>
+<p>Email: {{ user["email"] }}</p>
+<p>Username: {{ user["preferred_username"] }}</p>
+<!-- Customize based on actual fields returned from your SSO server -->
+<hr/>
+<h2>User Profile</h2>
+<pre>{{ user | tojson(indent=2) }}</pre>
+<hr/>
+
+        <h1>پروفایل کاربر</h1>
+
+        {% if user %}
+            {% for key, value in user.items() %}
+                <div class="profile-item">
+                    <span class="label">{{ key }}:</span>
+                    <span class="value">{{ value }}</span>
+                </div>
+            {% endfor %}
+        {% else %}
+            <p>اطلاعات کاربر یافت نشد.</p>
+        {% endif %}
+
+        <a href="{{ url_for('logout') }}" class="logout-btn">خروج</a>
+    </div>
+</body>
+</html>

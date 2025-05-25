@@ -1,0 +1,196 @@
+import os
+import requests
+import logging
+import secrets
+import ssl
+from urllib.parse import quote_plus
+from flask import Flask, redirect, url_for, session, request, render_template, jsonify
+from authlib.integrations.flask_client import OAuth, OAuthError
+from functools import wraps
+from waitress import serve
+from flask_session import Session
+import jwt
+from requests.auth import HTTPBasicAuth
+
+
+# Configure logging
+logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
+logger = logging.getLogger(__name__)
+
+# Initialize Flask app
+app = Flask(__name__, template_folder="templates")
+app.secret_key = os.environ.get("SECRET_KEY", "your-secure-random-key")
+
+app.config["SESSION_TYPE"] = "filesystem"
+app.config["SESSION_COOKIE_SECURE"] = True      # Ensures cookies are only sent over HTTPS
+app.config["SESSION_COOKIE_HTTPONLY"] = True    # Prevents JavaScript access to cookies
+app.config["SESSION_COOKIE_SAMESITE"] = "Lax"   # Adjust as needed (Lax/Strict/None)
+
+Session(app)
+
+SSO_CONFIG = {
+    "client_id": os.getenv("SSO_CLIENT_ID", "bicfu"),
+    "client_secret": os.getenv("SSO_CLIENT_SECRET", "5r75G@t39!"),
+    "authorize_url": os.getenv("SSO_AUTH_URL", "https://sso.cfu.ac.ir/oauth2/authorize"),
+    "access_token_url": os.getenv("SSO_TOKEN_URL", "https://sso.cfu.ac.ir/oauth2/token"),
+    "userinfo_url": "https://sso.cfu.ac.ir/oauth2/userinfo",
+    "scope": os.getenv("SSO_SCOPE", "profile email"),
+    "redirect_uri": os.getenv("SSO_REDIRECT_URI", "https://bi.cfu.ac.ir/authorized"),
+}
+
+# Paths to SSL certificates (if needed)
+# SSL_CERT_PATH = "C:/nginx/certs/cfu.ac.ir-cert.pem"
+# SSL_KEY_PATH = "C:/nginx/certs/private.pem"
+
+# Initialize Authlib OAuth
+oauth = OAuth(app)
+oauth.register(
+    name="sso",
+    client_id=SSO_CONFIG["client_id"],
+    client_secret=SSO_CONFIG["client_secret"],
+    authorize_url=SSO_CONFIG["authorize_url"],
+    access_token_url=SSO_CONFIG["access_token_url"],
+    # api_base_url='https://sso.cfu.ac.ir/oauth2/',  # optional base
+    userinfo_endpoint='https://sso.cfu.ac.ir/oauth2/userinfo',  # ✅ add this
+    redirect_uri=SSO_CONFIG["redirect_uri"],
+    jwks={
+        'keys':[]
+    },
+    client_kwargs={
+        'scope': SSO_CONFIG["scope"]
+        
+    }
+)
+
+
+# Authentication decorator
+def requires_auth(f):
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        if "sso_token" not in session:
+            logger.info("User not authenticated, redirecting to login")
+            return redirect(url_for("login", next=request.path))
+        return f(*args, **kwargs)
+
+    return decorated
+
+@app.route("/")
+@requires_auth
+def index():
+    try:
+        user_info = session.get("user_info")
+        if not user_info:
+            token = session.get("sso_token")
+            if not token:
+                return redirect(url_for("login"))
+            access_token = token.get("access_token")
+            user_info = get_user_info(token)
+            session["user_info"] = user_info
+
+        logger.info("Fetched user info: %s", user_info)
+        return render_template("index.html", user_info=user_info)
+
+    except Exception as e:
+        logger.error("Failed to fetch user info: %s", e)
+        return render_template("error.html", error="Failed to fetch user information"), 500
+
+
+@app.route("/login")
+def login():
+    """Initiate SSO authentication."""
+    redirect_uri = SSO_CONFIG["redirect_uri"]
+    wants_url = request.args.get("next", url_for("index", _external=True))
+    sesskey = session.setdefault("sesskey", secrets.token_urlsafe(8))
+    user_id = session.setdefault("user_id", 1)  # Replace with proper user logic
+
+    inner = f"https://sso.cfu.ac.ir/oauth2/login.php?wantsurl={quote_plus(wants_url)}&sesskey={sesskey}&id={user_id}"
+    state = quote_plus(inner)
+    session["oauth_state"] = state
+
+    try:
+        logger.info("Initiating SSO login with state: %s", state)
+        return oauth.sso.authorize_redirect(redirect_uri, state=state)
+    except Exception as e:
+        logger.error("Error initiating SSO login: %s", e)
+        return render_template("error.html", error="Failed to initiate SSO login"), 500
+
+@app.route("/authorized")
+def authorized():
+    stored_state = session.get("oauth_state")
+    returned_state = request.args.get("state")
+    logger.info("Stored state: %s, Returned state: %s", stored_state, returned_state)
+
+    if stored_state != returned_state:
+        logger.error("CSRF Warning: State mismatch")
+        return render_template("error.html", error="Authorization error: CSRF Warning!"), 400
+
+    try:
+        # token = oauth.sso.authorize_access_token(include_client_id=True)  # Removed withhold_token=True
+        token = oauth.sso.authorize_access_token()
+
+        session["sso_token"] = token
+        session.pop("oauth_state", None)
+
+        access_token = token.get("access_token")
+        if not access_token:
+            return render_template("error.html", error="Access token missing")
+        logger.info("Access Token: %s", access_token)
+
+        # userinfo = get_user_info(access_token)
+        # userinfo = oauth.sso.get('userinfo').json()
+        userinfo = get_user_info(token)
+
+        if "error" in userinfo:
+            return render_template("error.html", error="Failed to fetch user info")
+
+        # access_token = token["access_token"]
+        session["access_token"] = access_token
+        # logger.info("Fetched and stored user info: %s", userinfo)
+
+        return render_template("profile.html", user=userinfo)
+
+    except OAuthError as e:
+        logger.error("OAuth error: %s", e.description)
+        return render_template("error.html", error=f"Authorization error: {e.description}"), 400
+    except Exception as e:
+        logger.exception("Unexpected error on authorized")
+        return render_template("error.html", error="Authorization error"), 500
+
+def get_user_info(token):
+    try:
+        # If token is a string, wrap it as a dict
+        if isinstance(token, str):
+            token = {"access_token": token, "token_type": "Bearer"}
+
+        userinfo = oauth.sso.get('https://sso.cfu.ac.ir/oauth2/userinfo', token=token).json()
+        logger.error(userinfo)
+        return userinfo
+    except Exception as e:
+        logger.error("Error fetching user info: %s", e)
+        return {"error": str(e)}
+
+
+@app.route("/logout")
+def logout():
+    """Log out the user."""
+    session.clear()
+    logger.info("User logged out, session cleared.")
+    return redirect(url_for("index"))
+
+@app.route("/debug-callback")
+def debug_callback():
+    """Debug route for inspecting callback parameters."""
+    logger.info("Debug callback params: %s", request.args)
+    return f"Callback received, params: {request.args}"
+
+def create_ssl_context():
+    """Create and configure SSL context."""
+    context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    context.load_cert_chain(certfile=SSL_CERT_PATH, keyfile=SSL_KEY_PATH)
+    logger.info("SSL context created successfully")
+    return context
+
+if __name__ == "__main__":
+    # logger.info("Starting Flask app on 0.0.0.0:5000")
+    # app.run(host="0.0.0.0", port=5000, debug=True)
+    serve(app, host="0.0.0.0", port=5000)
