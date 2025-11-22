@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>وظایف پروژه</title>
+
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+    <!-- Bootstrap RTL CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.rtl.min.css" rel="stylesheet" integrity="sha384-RWvIoBymqE+ZNyv4WjCh+E+FZd4L9QF8r9jkaG+hEEYX/7dU56Ns6WB6eAebfAy+" crossorigin="anonymous">
+
+    <!-- سبک‌های سفارشی -->
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body class="container py-4 bg-light">
+<div class="nav1 mb-3"><a href="/projects">برگشت به فهرست پروژه‌ها</a></div>
+
+{% extends 'base.html' %}
+{% block content %}
+
+{% with messages = get_flashed_messages(with_categories=true) %}
+  {% if messages %}
+    {% for category, message in messages %}
+      <div class="alert alert-{{ category }} alert-dismissible fade show mt-3" role="alert">
+        {{ message }}
+        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="بستن"></button>
+      </div>
+    {% endfor %}
+  {% endif %}
+{% endwith %}
+
+<div class="d-flex justify-content-between align-items-center mb-4 kanban_nav">
+  <div>
+    <h2>{{ project.title }}</h2>
+    <p class="text-muted">{{ project.description }}</p>
+  </div>
+  <div style="display: flex;flex-direction: row;justify-content: end;">
+  {% if current_user and current_user.id == project.creator_id %}
+    <a href="#add-column-form" class="btn btn-outline-primary my-2">+ افزودن ستون</a>
+    <a href="{{ url_for('kanban.create_task', project_id=project.id) }}" class="btn btn-outline-primary my-2">+ افزودن وظیفه</a>
+    <a href="{{ url_for('kanban.gantt_chart', project_id=project.id) }}" class="btn btn-outline-primary my-2">📊 نمودار گانت</a>
+  {% endif %}
+  </div>
+</div>
+
+<div class="row kanban-columns">
+  {% for col in columns %}
+    <div class="col-md-3 kanban-sec">
+      <div class="card mb-4 kanban-sec-body">
+        <div class="card-header d-flex justify-content-between align-items-center">
+          <strong>{{ col.title }}</strong>
+            <div class="btn-group btn-group-sm">
+              <a class="btn  btn-sm" href="{{ url_for('assign_users_to_column', project_id=project.id, column_id=col.id) }}">
+                  👥
+              </a>
+              {% if current_user and current_user.id == project.creator_id %}
+              <a href="{{ url_for('kanban.edit_column', project_id=project.id, column_id=col.id) }}" class="btn  btn-sm">✏️</a>
+              <form method="POST" action="{{ url_for('kanban.delete_column', project_id=project.id, column_id=col.id) }}" onsubmit="return confirm('آیا از حذف این ستون مطمئن هستید؟')" style="display:inline;">
+                <button type="submit" class="btn  btn-sm">🗑️</button>
+              </form>
+              {% endif %}
+            </div>
+        </div>
+        <ul class="list-group list-group-flush">
+          {% for task in tasks.get(col.id, []) %}
+            <li class="kanban-tasks list-group-item ">
+              <div class="task-text">{{ task.title }}</div>
+              <div class="task-nav">
+              <a alt="تخصیص کاربران" title="تخصیص کاربران" href="{{ url_for('assign_users_to_task', task_id=task.id) }}">
+                👥
+              </a>
+              <a href="{{ url_for('kanban.edit_task', project_id=project.id, task_id=task.id) }}" title="ویرایش وظیفه">
+                ✏️ 
+              </a>
+              </div>
+            </li>
+          {% endfor %}
+        </ul>
+      </div>
+    </div>
+  {% endfor %}
+</div>
+
+{% if current_user and current_user.id == project.creator_id %}
+<hr>
+<h4 id="add-column-form">افزودن ستون جدید</h4>
+<form method="POST" action="{{ url_for('kanban.add_column', project_id=project.id) }}">
+  <div class="input-group mb-3">
+    <input type="text" name="title" class="form-control" placeholder="عنوان ستون جدید" required>
+    <button type="submit" class="btn btn-success">افزودن</button>
+  </div>
+</form>
+{% endif %}
+
+{% endblock %}
+
+<!-- Bootstrap Bundle JS -->
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js" integrity="sha384-gKZ84Kr84U/9B5qX7mdGOSFaInGkNpe8pEqFQxdJkKr6ZsEr/1OpI3UxF8zINJ9c" crossorigin="anonymous"></script>
+</body>
+</html>

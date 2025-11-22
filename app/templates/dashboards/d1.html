@@ -1,0 +1,932 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1"> <!-- ✅ Required for responsiveness -->
+    <title>آمار اعضای هیئت علمی</title>
+    <script src="https://code.jquery.com/jquery-3.6.4.min.js"
+            integrity="sha256-oP6HI9z1XaZNBrJURtCoUT5SUnxFr8s3BzRl+cbzUq8="
+            crossorigin="anonymous"></script>
+    <!-- Bootstrap RTL CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.rtl.min.css" rel="stylesheet" integrity="sha384-RWvIoBymqE+ZNyv4WjCh+E+FZd4L9QF8r9jkaG+hEEYX/7dU56Ns6WB6eAebfAy+" crossorigin="anonymous">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0"></script>
+
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <!-- Custom Styles -->
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">    
+
+</head>
+<body class="bg-light text-dark">
+{% extends 'base.html' %}
+{% block content %}  
+<!-- Chart 1: Overall ratio -->
+ <script>
+function fetchFacultyDetails(markazName) {
+    fetch(`/api/faculty_by_markaz?markaz=${encodeURIComponent(markazName)}`)
+        .then(response => response.json())
+        .then(data => {
+            const tbody = document.querySelector('#facultyDetailsTable tbody');
+            tbody.innerHTML = ''; // Clear old rows
+            data.forEach(item => {
+                const row = document.createElement('tr');
+                row.innerHTML = `
+                    <td>${item.row_num}</td>
+                    <td>${item.name}</td>
+                    <td>${item.family}</td>
+                    <td>${item.sex}</td>
+                    <td>${item.field}</td>
+                    <td><a href="tel:+98${item.mobile}">${item.mobile}</a> - <a href="https://wa.me/98${item.mobile}"  target="_blank">WhatsApp</a></td>
+                    <td><a href="mailto:${item.email}">${item.email}</a></td>
+                    <td>${item.markaz}</td>
+                    <td>${item.city}</td>
+                    <td>${item.scope}</td>
+                    <td>${item.employ_state}</td>
+                    <td>${item.estekhdamtype_title}</td>
+
+                `;
+                tbody.appendChild(row);
+            });
+
+            document.getElementById('selectedMarkazName').textContent = markazName;
+            document.getElementById('facultyDetailsTitle').style.display = 'block';
+            document.getElementById('facultyDetailsContainer').style.display = 'block';
+        })
+        .catch(error => {
+            alert('خطا در دریافت اطلاعات');
+            console.error(error);
+        });
+}    
+</script>
+<div class="container py-4">
+    <h2 class="mb-0">آمار اعضای هیئت علمی</h2>
+      <div class="d-flex justify-content-between align-items-center mb-4">
+        <div class="d-flex gap-2 nav1">
+          <div>
+            <form action="https://bi.cfu.ac.ir/logout" method="get">
+              <button type="submit" class="btn btn-danger">خروج</button>
+            </form>
+          </div>
+          <div>
+            <form action="https://bi.cfu.ac.ir/dashboards" method="get">
+              <button type="submit" class="btn btn-primary">بازگشت به داشبرد</button>
+            </form>
+          </div>
+        </div>
+
+      </div>
+    <div class="mt-5 floating-box" id="floating-box">
+        <div class="modal_nav">
+            <h4 id="facultyDetailsTitle" class="mb-3" style="display:none;">جزئیات اعضای هیئت علمی در مرکز: <span id="selectedMarkazName"></span></h4>
+            <button class="btn btn-primary" id="closeme">برگشت</button>
+        </div>
+        <div id="facultyDetailsContainer" class="table-responsive" style="display:none;">
+            <table id="facultyDetailsTable" style="border: 1px;" class="table table-bordered table-striped">
+                <thead>
+                    <tr>
+                        <th>ردیف</th>
+                        <th>نام</th>
+                        <th>نام خانوادگی</th>
+                        <th>جنسیت</th>
+                        <th>رشته</th>
+                        <th>موبایل</th>
+                        <th>ایمیل</th>
+                        <th>پردیس</th>
+                        <th>شهر</th>
+                        <th>محل خدمت</th>
+                        <th>عنوان استخدامی</th>
+                        <th>نوع استخدام</th>
+                    </tr>
+                </thead>
+                <tbody></tbody>
+            </table>
+        </div>
+    </div>
+    
+    <!-- Chart 0: Pie Chart for Sex -->
+    <div class="mb-5">
+        <h4 class="mb-3">تعداد اعضای هیئت علمی به تفکیک جنسیت</h4>
+        <canvas id="sextype" class="w-100" style="max-width: 400px; margin: auto;"></canvas>
+    </div>
+    <!-- <div class="mb-5">
+        <h4 class="mb-3">تعداد اعضای هیئت علمی به تفکیک نوع دانشکده</h4>
+        <canvas id="facultytype" class="w-100" style="width: 100%; height: 600px;"></canvas>
+    </div> -->
+    <!-- Chart 3 -->
+    <div class="mb-5">
+        <h4 class="mb-3">تعداد اعضای هیئت علمی به تفکیک گروه آموزشی (گلستان)</h4>
+        <canvas id="facultyByEduGroup" style="height: {{ field_labels_edugroup|length * 22 }}px;" class="w-100"></canvas>
+    </div>
+
+    <!-- TreeMap Chart -->
+    <div class="mb-5">
+        <h4 class="mb-3">نمودار درختی اعضای هیئت علمی به تفکیک گروه آموزشی</h4>
+        <div id="tree_chart" style="width: 100%; height: 600px;" class="border rounded shadow-sm bg-white"></div>
+    </div>
+
+    <!-- Chart 1 -->
+    <div class="mb-5">
+        <h4 class="mb-3">تعداد اعضای هیئت علمی به تفکیک مرکز</h4>
+        <canvas id="facultyByMarkaz" style="height: {{ markaz_labels|length * 20 }}px;" class="w-100"></canvas>
+    </div>
+
+    <!-- Chart 2 -->
+    <div class="mb-5">
+        <h4 class="mb-3">تعداد اعضای هیئت علمی به تفکیک رشته</h4>
+        <canvas id="facultyByField" style="height: {{ field_labels|length * 22 }}px;" class="w-100"></canvas>
+    </div>
+
+
+    <!-- Chart 4: Pie Chart for Employment Type -->
+    <div class="mb-5">
+        <h4 class="mb-3">تعداد اعضای هیئت علمی به تفکیک نوع استخدام (مروارید)</h4>
+        <canvas id="facultyByEstekhdamType" class="w-100" style="width: 100%; height: 600px;"></canvas>
+    </div>
+    <div class="mb-5">
+        <h4 class="mb-3">تعداد اعضای هیئت علمی به تفکیک نوع استخدام (گلستان)</h4>
+        <canvas id="facultyByEstekhdamTypeGolestan" class="w-100" style="width: 100%; height: 600px;"></canvas>
+    </div>
+    <div class="mb-5">
+        <h4 class="mb-3">تعداد اعضای هیئت علمی به تفکیک مرتبه علمی (گلستان)</h4>
+        <canvas id="facultyByGrade" class="w-100" style="max-width: 400px; margin: auto;"></canvas>
+    </div>
+    <div class="mb-5">
+        <h4 class="mb-3">تعداد اعضای هیئت علمی به تفکیک مدرک تحصیلی (گلستان)</h4>
+        <canvas id="facultyByMadrak" class="w-100" style="width: 100%; height: 600px;"></canvas>
+    </div>
+
+
+    <!-- Chart 5: Pie Chart for Employment Type and Sex -->
+    <!-- <div class="mb-5">
+        <h4 class="mb-3">تعداد اعضای هیئت علمی به تفکیک نوع استخدام و جنسیت</h4>
+        <canvas id="multiLevelPieChart" class="w-100" style="max-width: 600px; margin: auto;"></canvas>
+    </div>     -->
+</div>
+
+<!-- Chart.js configuration -->
+<script>
+const chartFont = {
+    family: 'Vazir',
+    size: 14,
+    weight: 'Bold'
+};
+
+const ctxMarkaz = document.getElementById('facultyByMarkaz').getContext('2d');
+const markazChart = new Chart(ctxMarkaz, {
+    type: 'bar',
+    data: {
+        labels: {{ markaz_labels | tojson }},
+        datasets: [
+            {
+                label: 'مرد',
+                data: {{ male_counts | tojson }},
+                backgroundColor: 'rgba(54, 162, 235, 0.7)',
+                borderColor: 'rgba(54, 162, 235, 1)',
+                borderWidth: 2
+            },
+            {
+                label: 'زن',
+                data: {{ female_counts | tojson }},
+                backgroundColor: 'rgba(255, 99, 132, 0.7)',
+                borderColor: 'rgba(255, 99, 132, 1)',
+                borderWidth: 2
+            }
+        ]
+    },
+    options: {
+        responsive: true,
+        indexAxis: 'y',
+        onClick: (event, elements) => {
+            if (elements.length > 0) {
+                const index = elements[0].index;
+                const selectedMarkaz = markazChart.data.labels[index];
+                fetchFacultyDetails(selectedMarkaz);
+            }
+        },
+        plugins: {
+            legend: {
+                position: 'top',
+                labels: { font: chartFont }
+            }
+        },
+        scales: {
+            x: {
+                beginAtZero: true,
+                stacked: true,
+                ticks: { 
+                    font: chartFont,
+                    callback: function(value) {
+                        return value;
+                    }
+                }
+            },
+            y: {
+                stacked: true,
+                ticks: { font: chartFont }
+            }
+        }
+    },
+    plugins: [{
+        afterDraw: (chart) => {
+            const ctx = chart.ctx;
+            ctx.save();
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.font = chartFont;
+
+            chart.data.datasets.forEach((dataset, datasetIndex) => {
+                const meta = chart.getDatasetMeta(datasetIndex);
+                meta.data.forEach((bar, index) => {
+                    const value = dataset.data[index];
+                    if (value > 0) {
+                        // Calculate cumulative sum of previous datasets
+                        let prevSum = 0;
+                        for (let i = 0; i < datasetIndex; i++) {
+                            prevSum += chart.data.datasets[i].data[index];
+                        }
+                        
+                        // Calculate position in the center of this segment
+                        const segmentStart = prevSum;
+                        const segmentEnd = prevSum + value;
+                        const xPos = (segmentStart + segmentEnd) / 2;
+                        
+                        // Convert chart coordinate to pixel position
+                        const xPixel = chart.scales.x.getPixelForValue(xPos);
+                        
+                        // Use contrasting text color
+                        ctx.fillStyle = datasetIndex === 0 ? 'blue' : 'black';
+                        
+                        // Format number with Persian digits
+                        const formatted = new Intl.NumberFormat('fa-IR').format(value);
+                        ctx.fillText(formatted, xPixel, bar.y);
+                    }
+                });
+            });
+            ctx.restore();
+        }
+    }]
+});
+</script>
+
+<script>
+    // Chart 2: By Field
+    const ctxField = document.getElementById('facultyByField').getContext('2d');
+    new Chart(ctxField, {
+        type: 'bar',
+        data: {
+            labels: {{ field_labels|tojson }},
+            datasets: [{
+                label: 'تعداد اعضا',
+                data: {{ field_counts|tojson }},
+                backgroundColor: 'rgba(255, 159, 64, 0.6)',
+                borderColor: 'rgba(255, 159, 64, 1)',
+                borderWidth: 1
+            }]
+        },
+        options: {
+            responsive: true,
+            indexAxis: 'y',
+            plugins: {
+                legend: {
+                    labels: {
+                        font: chartFont
+                    }
+                },
+                datalabels: {
+                    anchor: 'start',
+                    align: 'right',
+                    clamp: true,
+                    clip: true,
+                    color: '#000',
+                    font: {
+                        size: 16,
+                        family: 'IRANSans'
+                    },
+                    formatter: function(value) {
+                        return value;
+                    }
+                }
+            },
+            scales: {
+                x: {
+                    beginAtZero: true,
+                    ticks: { font: chartFont }
+                },
+                y: {
+                    ticks: { font: chartFont }
+                }
+            }
+        }
+    });
+
+
+    // Chart 3: By EduGroup
+
+const ctxFieldEduGroup = document.getElementById('facultyByEduGroup').getContext('2d');
+new Chart(ctxFieldEduGroup, {
+    type: 'bar',
+    data: {
+        labels: {{ field_labels_edugroup|tojson }},
+        datasets: [{
+            label: 'تعداد اعضا',
+            data: {{ field_counts_edugroup|tojson }},
+            backgroundColor: 'rgba(255, 159, 64, 0.6)',
+            borderColor: 'rgba(255, 159, 64, 1)',
+            borderWidth: 1
+        }]
+    },
+    options: {
+        responsive: true,
+        indexAxis: 'y',
+        plugins: {
+            legend: {
+                labels: {
+                    font: chartFont
+                }
+            },
+            datalabels: {
+                anchor: 'start',
+                align: 'right',
+                clamp: false,
+                clip: true,
+                color: '#000',
+                font: {
+                    size: 16,
+                    family: 'IRANSans'
+                },
+                formatter: function(value) {
+                    return value;
+                }
+            }
+        },
+        scales: {
+            x: {
+                beginAtZero: true,
+                ticks: { font: chartFont }
+            },
+            y: {
+                ticks: { font: chartFont }
+            }
+        }
+    },
+    plugins: [ChartDataLabels]
+});
+
+
+</script>
+
+<!-- Google Charts -->
+<script type="text/javascript" src="https://www.gstatic.com/charts/loader.js"></script>
+<script type="text/javascript">
+google.charts.load('current', { packages: ['treemap'] });
+google.charts.setOnLoadCallback(drawTreeChart);
+
+function drawTreeChart() {
+    const data = google.visualization.arrayToDataTable([
+        ['Field', 'Parent', 'Count'],
+        ['گروه های آموزشی', null, 0],
+        {% set seen = {} %}
+        {% for i in range(field_labels_edugroup|length) %}
+            {% set label = field_labels_edugroup[i] %}
+            {% set count = seen.get(label, 0) + 1 %}
+            {% set _ = seen.update({label: count}) %}
+            // FIX: Use field_counts_edugroup for BOTH label and value
+            ['{{ label }} ({{ field_counts_edugroup[i] }}){% if count > 1 %} [{{ count }}]{% endif %}', 'گروه های آموزشی', {{ field_counts_edugroup[i] }}],
+        {% endfor %}
+    ]);
+
+    const tree = new google.visualization.TreeMap(document.getElementById('tree_chart'));
+
+    tree.draw(data, {
+        minColor: '#e0f2f1',
+        midColor: '#80cbc4',
+        maxColor: '#004d40',
+        headerHeight: 20,
+        fontColor: 'black',
+        fontFamily: 'Vazir',
+        showScale: true
+    });
+}
+</script>
+<script>
+    // Chart 4: Pie Chart - Faculty by Estekhdam Type
+<script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels"></script>
+
+<script>
+const ctxEstekhdam = document.getElementById('facultyByEstekhdamType').getContext('2d');
+new Chart(ctxEstekhdam, {
+    type: 'bar',
+    data: {
+        labels: {{ estekhdamtype_labels|tojson }},
+        datasets: [{
+            label: 'تعداد اعضا',
+            data: {{ estekhdamtype_counts|tojson }},
+            backgroundColor: [
+                'rgba(255, 99, 132, 0.6)',
+                'rgba(54, 162, 235, 0.6)',
+                'rgba(255, 206, 86, 0.6)',
+                'rgba(75, 192, 192, 0.6)',
+                'rgba(153, 102, 255, 0.6)',
+                'rgba(255, 159, 64, 0.6)',
+                'rgba(201, 203, 207, 0.6)'
+            ],
+            borderColor: 'rgba(255, 255, 255, 1)',
+            borderWidth: 1
+        }]
+    },
+    options: {
+        responsive: true,
+        plugins: {
+            legend: {
+                display: true,
+                position: 'top',
+                labels: {
+                    font: {
+                        family: 'Vazir',
+                        size: 12
+                    }
+                }
+            },
+            tooltip: {
+                callbacks: {
+                    label: function (context) {
+                        const label = context.dataset.label || '';
+                        const value = context.parsed.y;
+                        return `${label}: ${value} نفر`;
+                    }
+                }
+            },
+            datalabels: {
+                anchor: 'start',
+                align: 'end',   // Pushes inside bar
+                offset: 10,       // Adjust distance from top
+                color: '#000',
+                rotation: -90,    // Vertical text
+                font: {
+                    family: 'Vazir',
+                    size: 14,
+                    weight: 'bold'
+                },
+                formatter: function (value) {
+                    return value ;
+                }
+            }
+        },
+        scales: {
+            x: {
+                ticks: {
+                    font: {
+                        family: 'Vazir'
+                    }
+                }
+            },
+            y: {
+                beginAtZero: true,
+                title: {
+                    display: true,
+                    text: 'تعداد',
+                    font: {
+                        family: 'Vazir'
+                    }
+                }
+            }
+        }
+    },
+    plugins: [ChartDataLabels]
+});
+
+
+
+const ctxEstekhdamGolestan = document.getElementById('facultyByEstekhdamTypeGolestan').getContext('2d');
+new Chart(ctxEstekhdamGolestan, {
+    type: 'bar',
+    data: {
+        labels: {{ estekhdamtypeGolestan_labels|tojson }},
+        datasets: [{
+            label: 'تعداد اعضا',
+            data: {{ estekhdamtypeGolestan_counts|tojson }},
+            backgroundColor: [
+                'rgba(255, 99, 132, 0.6)',
+                'rgba(54, 162, 235, 0.6)',
+                'rgba(255, 206, 86, 0.6)',
+                'rgba(75, 192, 192, 0.6)',
+                'rgba(153, 102, 255, 0.6)',
+                'rgba(255, 159, 64, 0.6)',
+                'rgba(201, 203, 207, 0.6)'
+            ],
+            borderColor: 'rgba(255, 255, 255, 1)',
+            borderWidth: 1
+        }]
+    },
+    options: {
+        responsive: true,
+        plugins: {
+            legend: {
+                display: true,
+                position: 'top',
+                labels: {
+                    font: {
+                        family: 'Vazir',
+                        size: 12
+                    }
+                }
+            },
+            tooltip: {
+                callbacks: {
+                    label: function (context) {
+                        const label = context.dataset.label || '';
+                        const value = context.parsed.y;
+                        return `${label}: ${value} نفر`;
+                    }
+                }
+            },
+            datalabels: {
+                anchor: 'start',
+                align: 'center',   // put inside top
+                offset: 20,
+                color: '#000',
+                rotation: -90,    // vertical labels
+                font: {
+                    family: 'Vazir',
+                    size: 14,
+                    weight: 'bold'
+                },
+                formatter: function (value) {
+                    return value;
+                }
+            }
+        },
+        scales: {
+            x: {
+                ticks: {
+                    font: {
+                        family: 'Vazir'
+                    }
+                }
+            },
+            y: {
+                beginAtZero: true,
+                title: {
+                    display: true,
+                    text: 'تعداد',
+                    font: {
+                        family: 'Vazir'
+                    }
+                }
+            }
+        }
+    },
+    plugins: [ChartDataLabels]
+});
+
+
+    const ctxGrade = document.getElementById('facultyByGrade').getContext('2d');
+    new Chart(ctxGrade, {
+        type: 'pie',
+        data: {
+            labels: {{ grade_labels|tojson }},
+            datasets: [{
+                label: 'تعداد اعضا',
+                data: {{ grade_counts|tojson }},
+                backgroundColor: [
+                    'rgba(255, 99, 132, 0.6)',
+                    'rgba(54, 162, 235, 0.6)',
+                    'rgba(255, 206, 86, 0.6)',
+                    'rgba(75, 192, 192, 0.6)',
+                    'rgba(153, 102, 255, 0.6)',
+                    'rgba(255, 159, 64, 0.6)',
+                    'rgba(201, 203, 207, 0.6)'
+                ],
+                borderColor: 'rgba(255, 255, 255, 1)',
+                borderWidth: 1
+            }]
+        },
+        options: {
+            responsive: true,
+            plugins: {
+                legend: {
+                    position: 'bottom',
+                    align: 'end',
+                    labels: {
+                        font: {
+                            family: 'Vazir',
+                            size: 12
+                        },
+                        generateLabels: function(chart) {
+                        const data = chart.data;
+                        const dataset = data.datasets[0];
+                        return data.labels.map((label, i) => {
+                            const value = dataset.data[i];
+                            return {
+                                text: `(${value}) ${label}`,
+                                fillStyle: dataset.backgroundColor[i],
+                                strokeStyle: dataset.borderColor,
+                                lineWidth: dataset.borderWidth,
+                                hidden: !chart.getDataVisibility(i),
+                                index: i
+                            };
+                        });
+                    }
+                    }
+                },
+                tooltip: {
+                    callbacks: {
+                        label: function (context) {
+                            const label = context.label || '';
+                            const value = context.parsed;
+                            return `${label}: ${value} نفر`;
+                        }
+                    }
+                }
+            }
+        }
+    });
+
+
+const ctxMadrak = document.getElementById('facultyByMadrak').getContext('2d');
+new Chart(ctxMadrak, {
+    type: 'bar',
+    data: {
+        labels: {{ madrak_labels|tojson }},
+        datasets: [{
+            label: 'تعداد اعضا',
+            data: {{ madrak_counts|tojson }},
+            backgroundColor: [
+                'rgba(255, 99, 132, 0.6)',
+                'rgba(54, 162, 235, 0.6)',
+                'rgba(255, 206, 86, 0.6)',
+                'rgba(75, 192, 192, 0.6)',
+                'rgba(153, 102, 255, 0.6)',
+                'rgba(255, 159, 64, 0.6)',
+                'rgba(201, 203, 207, 0.6)'
+            ],
+            borderColor: 'rgba(255, 255, 255, 1)',
+            borderWidth: 1
+        }]
+    },
+    options: {
+        responsive: true,
+        plugins: {
+            legend: {
+                display: true,
+                position: 'top',
+                labels: {
+                    font: {
+                        family: 'Vazir',
+                        size: 12
+                    }
+                }
+            },
+            tooltip: {
+                callbacks: {
+                    label: function (context) {
+                        const label = context.dataset.label || '';
+                        const value = context.parsed.y;
+                        return `${label}: ${value} نفر`;
+                    }
+                }
+            },
+            datalabels: {
+                anchor: 'start',
+                align: 'center',   // place inside at top
+                offset: 20,
+                color: '#000',
+                rotation: -90,    // vertical labels
+                font: {
+                    family: 'Vazir',
+                    size: 14,
+                    weight: 'bold'
+                },
+                formatter: function (value) {
+                    return value ;
+                }
+            }
+        },
+        scales: {
+            x: {
+                ticks: {
+                    font: {
+                        family: 'Vazir'
+                    }
+                }
+            },
+            y: {
+                beginAtZero: true,
+                title: {
+                    display: true,
+                    text: 'تعداد',
+                    font: {
+                        family: 'Vazir'
+                    }
+                }
+            }
+        }
+    },
+    plugins: [ChartDataLabels]
+});
+
+</script>
+
+<script>
+    // Chart 0: Pie Chart - Faculty by Sex Type
+    const ctxsex = document.getElementById('sextype').getContext('2d');
+    new Chart(ctxsex, {
+        type: 'pie',
+        data: {
+            labels: {{ sex_labels|tojson }},
+            datasets: [{
+                label: 'تعداد اعضا',
+                data: {{ sex_counts|tojson }},
+                backgroundColor: [
+                    'rgba(255, 99, 132, 0.6)',
+                    'rgba(54, 162, 235, 0.6)',
+                    'rgba(255, 206, 86, 0.6)',
+                    'rgba(75, 192, 192, 0.6)',
+                    'rgba(153, 102, 255, 0.6)',
+                    'rgba(255, 159, 64, 0.6)',
+                    'rgba(201, 203, 207, 0.6)'
+                ],
+                borderColor: 'rgba(255, 255, 255, 1)',
+                borderWidth: 1
+            }]
+        },
+        options: {
+            responsive: true,
+            plugins: {
+                legend: {
+                    position: 'left',
+                    align: 'center',
+                    labels: {
+                        font: {
+                            family: 'Vazir',
+                            size: 12
+                        },
+                        generateLabels: function(chart) {
+                        const data = chart.data;
+                        const dataset = data.datasets[0];
+                        return data.labels.map((label, i) => {
+                            const value = dataset.data[i];
+                            return {
+                                text: `(${value}) ${label}`,
+                                fillStyle: dataset.backgroundColor[i],
+                                strokeStyle: dataset.borderColor,
+                                lineWidth: dataset.borderWidth,
+                                hidden: !chart.getDataVisibility(i),
+                                index: i
+                            };
+                        });
+                    }
+                    }
+                },
+                tooltip: {
+                    callbacks: {
+                        label: function (context) {
+                            const label = context.label || '';
+                            const value = context.parsed;
+                            return `${label}: ${value} نفر`;
+                        }
+                    }
+                }
+            }
+        }
+    });
+
+
+/*const ctxfacultytype = document.getElementById('facultytype').getContext('2d');
+new Chart(ctxfacultytype, {
+    type: 'bar',
+    data: {
+        labels: {{ facultytype_labels|tojson }},
+        datasets: [{
+            label: 'تعداد اعضا',
+            data: {{ facultytype_counts|tojson }},
+            backgroundColor: [
+                'rgba(255, 99, 132, 0.6)',
+                'rgba(54, 162, 235, 0.6)',
+                'rgba(255, 206, 86, 0.6)',
+                'rgba(75, 192, 192, 0.6)',
+                'rgba(153, 102, 255, 0.6)',
+                'rgba(255, 159, 64, 0.6)',
+                'rgba(201, 203, 207, 0.6)'
+            ],
+            borderColor: 'rgba(255, 255, 255, 1)',
+            borderWidth: 1
+        }]
+    },
+    options: {
+        responsive: true,
+        plugins: {
+            legend: {
+                display: true,
+                position: 'top',
+                labels: {
+                    font: {
+                        family: 'Vazir',
+                        size: 12
+                    }
+                }
+            },
+            tooltip: {
+                callbacks: {
+                    label: function (context) {
+                        const label = context.dataset.label || '';
+                        const value = context.parsed.y;
+                        return `${label}: ${value} نفر`;
+                    }
+                }
+            }
+        },
+        scales: {
+            x: {
+                ticks: {
+                    font: {
+                        family: 'Vazir'
+                    }
+                }
+            },
+            y: {
+                beginAtZero: true,
+                title: {
+                    display: true,
+                    text: 'تعداد',
+                    font: {
+                        family: 'Vazir'
+                    }
+                }
+            }
+        }
+    }
+});
+*/
+</script>
+
+<script>
+const ctx = document.getElementById('multiLevelPieChart').getContext('2d');
+
+new Chart(ctx, {
+    type: 'doughnut',
+    data: {
+        labels: {{ outer_labels | tojson }},
+        datasets: [
+            {
+                label: 'جنسیت در هر نوع استخدام',
+                data: {{ outer_data | tojson }},
+                backgroundColor: [
+                    '#ff6384', '#36a2eb', '#ffcd56', '#4bc0c0', '#9966ff',
+                    '#ff9f40', '#c9cbcf', '#84ff63', '#eb36a2', '#9fa8da'
+                ],
+                borderWidth: 1
+            },
+            {
+                label: 'نوع استخدام',
+                data: {{ inner_data | tojson }},
+                backgroundColor: [
+                    '#b71c1c', '#0d47a1', '#33691e', '#e65100', '#4a148c',
+                    '#263238', '#827717', '#1b5e20', '#01579b'
+                ],
+                borderWidth: 1
+            }
+        ]
+    },
+    options: {
+        responsive: true,
+        cutout: '50%',
+        plugins: {
+            legend: {
+                display: false // حذف legend
+            },
+            tooltip: {
+                callbacks: {
+                    label: function(context) {
+                        const label = context.label || '';
+                        const value = context.raw;
+                        return `${label}: ${value} نفر`;
+                    }
+                }
+            }
+        }
+    }
+});
+</script>
+
+<!-- Bootstrap JS Bundle -->
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js" integrity="sha384-gKZ84Kr84U/9B5qX7mdGOSFaInGkNpe8pEqFQxdJkKr6ZsEr/1OpI3UxF8zINJ9c" crossorigin="anonymous"></script>
+<script>
+    $(document).ready(function () {
+        $('#floating-box').css('display', 'none');
+        $('#closeme').click(()=>{
+            $('#floating-box').css('display', 'none');
+        });
+        $('#facultyByMarkaz').click(()=>{
+            $('#floating-box').css('display', 'flex');
+        });
+    });
+</script>
+</div>
+{% endblock %}
+
+<!-- Bootstrap JS Bundle -->
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js" integrity="sha384-gKZ84Kr84U/9B5qX7mdGOSFaInGkNpe8pEqFQxdJkKr6ZsEr/1OpI3UxF8zINJ9c" crossorigin="anonymous"></script>
+</body>
+</html>

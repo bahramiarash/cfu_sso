@@ -1,0 +1,14 @@
+<h2>Send Bulk SMS</h2>
+<form method="POST">
+    <label>Mobile Numbers (comma-separated or new lines):</label><br>
+    <textarea name="mobiles" rows="10" cols="50" required></textarea><br><br>
+
+    <label>Message:</label><br>
+    <textarea name="message" required></textarea><br><br>
+
+    <button type="submit">Send SMS to All</button>
+</form>
+
+{% if status %}
+    <p><strong>{{ status }}</strong></p>
+{% endif %}

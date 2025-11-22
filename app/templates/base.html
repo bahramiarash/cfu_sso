@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{% block title %}سامانه{% endblock %}</title>
+
+    <!-- Inside <head> -->
+    <link rel="stylesheet" href="{{ url_for('static', filename='bootstrap.rtl.min.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='kamadatepicker.css') }}">
+
+    <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.7.1/jquery.min.js"></script>
+    <script src="{{ url_for('static', filename='bootstrap.bundle.min.js') }}"></script>
+    <script src="{{ url_for('static', filename='kamadatepicker.js') }}"></script>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}" />
+
+
+</head>
+<body class="container py-4 bg-light">
+
+    <main>
+        {% block content %}{% endblock %}
+    </main>
+
+    <footer>
+        <p>© دانشگاه فرهنگیان</p>
+    </footer>
+
+</body>
+</html>

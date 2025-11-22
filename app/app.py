@@ -3,16 +3,45 @@ import requests
 import logging
 import secrets
 import ssl
+import sqlite3
 from urllib.parse import quote_plus
-from flask import Flask, redirect, url_for, session, request, render_template, jsonify
+from flask import Flask, redirect, url_for, session, request, render_template, jsonify, flash, abort
+from flask_login import login_user
+
+from models import *
 from authlib.integrations.flask_client import OAuth, OAuthError
 from functools import wraps
 from waitress import serve
 from flask_session import Session
-import jwt
 from requests.auth import HTTPBasicAuth
+from dashboard import dashboard_bp
+# from tools import tools_bp
+import json
+from auth_utils import requires_auth
+from fetch_data.faculty_main import get_faculty_details_by_markaz
+from flask import g
+from flask_login import current_user, login_required, LoginManager, UserMixin
+# from .forms import TaskForm
+from kanban import kanban_bp
+# from flask_migrate import Migrate
+from students_dashboard import students_bp
+from collections import defaultdict
+from dotenv import load_dotenv
+from extensions import db
+import hashlib
+import jdatetime
+from datetime import datetime, timedelta
+import datetime as dt
+from send_sms import get_sms_token, send_sms
 
-
+def get_color_for_key(key: str) -> str:
+    """Generate a bright color hex code based on a key string."""
+    # Use MD5 hash to get a consistent number
+    h = hashlib.md5(key.encode()).hexdigest()
+    # Take first 6 hex digits for color
+    color = f"#{h[:6]}"
+    return color
+    
 # Configure logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger(__name__)
@@ -20,13 +49,44 @@ logger = logging.getLogger(__name__)
 # Initialize Flask app
 app = Flask(__name__, template_folder="templates")
 app.secret_key = os.environ.get("SECRET_KEY", "your-secure-random-key")
+# load_dotenv()
+# app.secret_key = os.getenv("SECRET_KEY")
+
 
 app.config["SESSION_TYPE"] = "filesystem"
 app.config["SESSION_COOKIE_SECURE"] = True      # Ensures cookies are only sent over HTTPS
 app.config["SESSION_COOKIE_HTTPONLY"] = True    # Prevents JavaScript access to cookies
 app.config["SESSION_COOKIE_SAMESITE"] = "Lax"   # Adjust as needed (Lax/Strict/None)
+# app.secret_key = 'your_secret'
+BASE_DIR = os.path.abspath(os.path.dirname(__file__))  # Directory where this script lives
+DB_PATH = f"sqlite:///{os.path.join(BASE_DIR, 'access_control.db')}"
+
+app.config['SQLALCHEMY_DATABASE_URI'] = DB_PATH
+# app.config['UPLOAD_FOLDER'] = './uploads'
+app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+app.config['UPLOAD_FOLDER'] = os.path.join(BASE_DIR, 'static/uploads')
+
+db.init_app(app)
+from label_management import label_bp
+app.register_blueprint(label_bp)
+
+from task_label_assignment import assignment_bp
+app.register_blueprint(assignment_bp)
+
+# Register your dashboard routes
+app.register_blueprint(dashboard_bp)
+app.register_blueprint(students_bp)
+
 
 Session(app)
+# Initialize LoginManager
+login_manager = LoginManager()
+login_manager.login_view = 'login'  # the endpoint name for your login route
+login_manager.init_app(app)
+
+UPLOAD_FOLDER = os.path.join(BASE_DIR, 'exports')
+os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 
 SSO_CONFIG = {
     "client_id": os.getenv("SSO_CLIENT_ID", "bicfu"),
@@ -62,18 +122,6 @@ oauth.register(
     }
 )
 
-
-# Authentication decorator
-def requires_auth(f):
-    @wraps(f)
-    def decorated(*args, **kwargs):
-        if "sso_token" not in session:
-            logger.info("User not authenticated, redirecting to login")
-            return redirect(url_for("login", next=request.path))
-        return f(*args, **kwargs)
-
-    return decorated
-
 @app.route("/")
 @requires_auth
 def index():
@@ -87,13 +135,36 @@ def index():
             user_info = get_user_info(token)
             session["user_info"] = user_info
 
-        logger.info("Fetched user info: %s", user_info)
+        # logger.info("Fetched user info: %s", user_info)
         return render_template("index.html", user_info=user_info)
 
     except Exception as e:
         logger.error("Failed to fetch user info: %s", e)
         return render_template("error.html", error="Failed to fetch user information"), 500
 
+app.register_blueprint(kanban_bp)
+
+# def create_app():
+#     app = Flask(__name__)
+#     app.secret_key = 'your_secret'
+#     app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///access_control.db'
+#     app.config['UPLOAD_FOLDER'] = './uploads'
+
+#     db.init_app(app)
+#     app.register_blueprint(kanban_bp)
+
+#     @app.before_request
+#     def sso_authenticate():
+#         # Dummy SSO logic (Replace with your actual SSO logic)
+#         session['sso_id'] = 'user123'
+#         user = User.query.filter_by(sso_id=session['sso_id']).first()
+#         if not user:
+#             user = User(sso_id=session['sso_id'], name="Test User")
+#             db.session.add(user)
+#             db.session.commit()
+#         g.current_user = user
+
+#     return app
 
 @app.route("/login")
 def login():
@@ -134,7 +205,7 @@ def authorized():
         access_token = token.get("access_token")
         if not access_token:
             return render_template("error.html", error="Access token missing")
-        logger.info("Access Token: %s", access_token)
+        # logger.info("Access Token: %s", access_token)
 
         # userinfo = get_user_info(access_token)
         # userinfo = oauth.sso.get('userinfo').json()
@@ -144,10 +215,35 @@ def authorized():
             return render_template("error.html", error="Failed to fetch user info")
 
         # access_token = token["access_token"]
+        session["user_info"] = userinfo
         session["access_token"] = access_token
-        # logger.info("Fetched and stored user info: %s", userinfo)
 
-        return render_template("profile.html", user=userinfo)
+        # Get access level from userinfo
+        username = userinfo.get("username", "").lower()
+        access_level = userinfo.get("usertype", "").lower()
+        session["access_level"] = [access_level]
+
+        user = User.query.filter_by(sso_id=username).first()
+        if not user:
+            user = User(sso_id=username, name=userinfo.get("fullname", "Unnamed User"))
+            db.session.add(user)
+            db.session.commit()
+        # NEW: Tell Flask-Login to log the user in
+        login_user(user)
+
+        g.current_user = user
+
+        # logger.info(access_level)
+        if username in ["bahrami", "khodarahmi", "asef", "hosseinnezhad", "p.mehrtash"] and  access_level in ["staff"]:
+            return render_template("tools.html", user_info=userinfo)
+            # return redirect(url_for("dashboard.dashboard_list"))
+        else:
+            # return render_template("profile.html", user=userinfo)
+            SSO_LOGOUT_URL = "https://sso.cfu.ac.ir/logout?service=https://bi.cfu.ac.ir"
+            return redirect(SSO_LOGOUT_URL)
+
+        return redirect("https://sso.cfu.ac.ir/logout?service=https://bi.cfu.ac.ir")
+        # return render_template("profile.html", user=userinfo)
 
     except OAuthError as e:
         logger.error("OAuth error: %s", e.description)
@@ -175,22 +271,605 @@ def logout():
     """Log out the user."""
     session.clear()
     logger.info("User logged out, session cleared.")
-    return redirect(url_for("index"))
+    return redirect("https://sso.cfu.ac.ir/logout?service=https://bi.cfu.ac.ir")
+
+
+@app.route('/tools')
+def list_tools():
+    user_info = session.get("user_info")
+    return render_template("tools.html", user_info=user_info)
+
+# #######################################
+# Projects
+# #######################################
+@app.route('/projects')
+def all_project_list():
+    user_info = session.get("user_info")
+    sso_id = user_info["username"].lower()
+    user = User.query.filter_by(sso_id=sso_id).first()
+
+    if not user:
+        flash("کاربر یافت نشد.")
+        return redirect(url_for('index'))
+
+    created = Project.query.filter_by(creator_id=user.id).all()
+
+    try:
+        involved = Project.query.filter(Project.members.any(id=user.id)).all()
+    except Exception as e:
+        involved = []
+        app.logger.warning(f"Couldn't fetch involved projects: {e}")
+
+    return render_template("projects.html", projects=created, created=created, involved=involved)
+
+from flask import Flask, render_template, request, redirect, url_for
+from models import db, Project  # Your SQLAlchemy models
+
+
+@app.route('/projects/new', methods=['GET', 'POST'])
+def new_project():
+    if request.method == 'POST':
+        # Get all form fields from request.form
+        title = request.form.get('title')
+        description = request.form.get('description')
+        start_date = request.form.get('start_date')
+        end_date = request.form.get('end_date')
+        sso_id = request.form.get('sso_id')
+        attachment = request.form.get('attachment')
+        # created_at = request.form.get('created_at')
+        updated_at = request.form.get('updated_at')
+        creator_id = request.form.get('creator_id')
+        owner_id = request.form.get('owner_id')
+
+        # Validate required fields
+        # if not name:
+        #     return "Project name is required", 400
+
+        # Convert date strings to Python date/datetime objects if needed
+        # from datetime import datetime
+
+        def parse_date(date_str):
+            if not date_str:
+                return None
+            try:
+                return datetime.strptime(date_str, "%Y-%m-%d").date()
+            except ValueError:
+                return None
+
+        def parse_datetime(datetime_str):
+            if not datetime_str:
+                return None
+            try:
+                # datetime-local input format: 'YYYY-MM-DDTHH:MM'
+                return datetime.strptime(datetime_str, "%Y-%m-%dT%H:%M")
+            except ValueError:
+                return None
+
+        start_date = parse_date(start_date)
+        end_date = parse_date(end_date)
+        # created_at = parse_datetime(created_at) or datetime.utcnow()
+        updated_at = parse_datetime(updated_at) or datetime.utcnow()
+
+        # Convert numeric fields
+        try:
+            creator_id = int(creator_id) if creator_id else None
+            owner_id = int(owner_id) if owner_id else None
+        except ValueError:
+            return "Invalid creator_id or owner_id", 400
+
+        # Create new project object
+        new_proj = Project(
+            title=title,
+            description=description,
+            start_date=start_date,
+            end_date=end_date,
+            sso_id=sso_id,
+            attachment=attachment,
+            updated_at=updated_at,
+            creator_id=creator_id,
+            owner_id=owner_id
+        )
+
+        # Add and commit to DB
+        db.session.add(new_proj)
+        db.session.commit()
+
+        return redirect(url_for('all_project_list'))  # Redirect after successful insert
+
+    # GET request - render form
+    return render_template('project_form.html')
+
+def get_db_connection():
+    db_file = f"{os.path.join(BASE_DIR, 'access_control.db')}"
+    conn = sqlite3.connect(db_file)
+    conn.row_factory = sqlite3.Row  # Optional: allows accessing columns by name
+    return conn
+
+@app.route("/projects/delete/<int:project_id>", methods=["POST"])
+def delete_project(project_id):
+    conn = get_db_connection()
+    cur = conn.cursor()
+
+    # Check for related kanban columns
+    cur.execute("SELECT COUNT(*) FROM kanban_columns WHERE project_id = ?", (project_id,))
+    count = cur.fetchone()[0]
+
+    if count > 0:
+        flash("ابتدا اطلاعات مربوط به پروژه را حذف کنید", "danger")
+    else:
+        cur.execute("DELETE FROM projects WHERE id = ?", (project_id,))
+        conn.commit()
+        flash("پروژه با موفقیت حذف شد", "success")
+
+    conn.close()
+    return redirect(url_for('all_project_list'))
+
+    
+# ######################################
+# Tasks
+# ######################################
+@app.route('/project/<int:project_id>/tasks')
+@login_required
+def task_list(project_id):
+    project = Project.query.get_or_404(project_id)
+    tasks = Task.query.join(KanbanColumn).filter(KanbanColumn.project_id == project_id).all()
+    return render_template('task_list.html', project=project, tasks=tasks)
+
+# @app.route('/project/<int:project_id>/tasks/new', methods=['GET', 'POST'])
+# @login_required
+# def create_task(project_id):
+#     project = Project.query.get_or_404(project_id)
+#     if current_user.id not in [project.owner_id, project.creator_id]:
+#         abort(403)
+
+#     columns = KanbanColumn.query.filter_by(project_id=project.id).order_by(KanbanColumn.order).all()
+#     column = next((c for c in columns if c.order == 1), columns[0] if columns else None)
+#     if not column:
+#         flash("No column found to assign task to.", "error")
+#         return redirect(url_for('task_list', project_id=project_id))
+
+#     if request.method == 'POST':
+#         task = Task(
+#             title=request.form['title'],
+#             description=request.form['description'],
+#             column_id=column.id,
+#             assignee_id=request.form.get('assignee_id') or None,
+#             due_date=request.form.get('due_date') or None,
+#         )
+#         db.session.add(task)
+#         db.session.commit()
+#         flash("Task created successfully.")
+#         return redirect(url_for('task_list', project_id=project.id))
+
+#     users = User.query.all()
+#     return render_template('task_form.html', project=project, users=users, task=None)
+
+@app.route('/tasks/<int:task_id>/edit', methods=['GET', 'POST'])
+@login_required
+def edit_task(task_id):
+    task = Task.query.get_or_404(task_id)
+    project = task.kanban_column.project
+
+    # Permission checks
+    is_owner = current_user.id == project.owner_id
+    is_creator = current_user.id == project.creator_id
+    is_column_user = current_user in task.kanban_column.users
+    is_task_user = current_user in task.assigned_users
+
+    if not (is_owner or is_creator or is_column_user or is_task_user):
+        abort(403)
+
+    columns = KanbanColumn.query.filter_by(project_id=project.id).order_by(KanbanColumn.order).all()
+    users = User.query.all()
+
+    if request.method == 'POST':
+        if is_owner or is_creator:
+            task.title = request.form['title']
+            task.description = request.form['description']
+            task.due_date = request.form.get('due_date') or None
+        if is_owner or is_creator or is_column_user or is_task_user:
+            task.kanban_column_id = int(request.form['kanban_column_id'])
+            task.assignee_id = request.form.get('assignee_id') or None
+
+        db.session.commit()
+        flash("Task updated.")
+        return redirect(url_for('task_list', project_id=project.id))
+
+    return render_template('task_form.html', task=task, project=project, columns=columns, users=users)
+
+@app.route('/tasks/<int:task_id>/delete', methods=['POST'])
+@login_required
+def delete_task(task_id):
+    task = Task.query.get_or_404(task_id)
+    project = task.kanban_column.project
+
+    if current_user.id not in [project.owner_id, project.creator_id]:
+        abort(403)
+
+    db.session.delete(task)
+    db.session.commit()
+    flash("Task deleted successfully.")
+    return redirect(url_for('task_list', project_id=project.id))
+
+@app.route('/tasks/<int:task_id>/assign-users', methods=['GET', 'POST'])
+# @requires_auth
+@login_required  # <-- Make sure this is added
+def assign_users_to_task(task_id):
+    task = Task.query.get_or_404(task_id)
+    project = task.column.project
+    editable = (
+        current_user.id in [project.owner_id, project.creator_id] or
+        current_user in task.column.users
+    )
+
+    if not editable:
+        abort(403)
+
+    all_users = User.query.all()
+    assigned_user_ids = [u.id for u in task.assigned_users]
+
+    if request.method == 'POST':
+        selected_user_ids = request.form.getlist('user_ids')
+        task.assigned_users = User.query.filter(User.id.in_(selected_user_ids)).all()
+        db.session.commit()
+        flash('Users assigned to task successfully.', 'success')
+        return redirect(url_for('task_list', project_id=project.id))
+
+    return render_template('assign_users_to_task.html',
+                           task=task,
+                           project=project,
+                           all_users=all_users,
+                           assigned_user_ids=assigned_user_ids)
+
+# ########################################
+# aSSIGN USERS TO COLUMNS
+# ########################################
+@app.route('/projects/<int:project_id>')
+def project_detail(project_id):
+    project = Project.query.get_or_404(project_id)
+    return render_template('project_detail.html', project=project)
+
+@app.route('/projects/<int:project_id>/columns/<int:column_id>/assign-users', methods=['GET', 'POST'])
+def assign_users_to_column(project_id, column_id):
+    project = Project.query.get_or_404(project_id)
+    column = KanbanColumn.query.get_or_404(column_id)
+    all_users = User.query.all()
+
+    if request.method == 'POST':
+        selected_user_ids = request.form.getlist('user_ids')  # List of selected user IDs from the form
+        selected_user_ids = list(map(int, selected_user_ids))
+
+        # Detach users who were previously assigned but now unchecked
+        column.users = [user for user in column.users if user.id in selected_user_ids]
+
+        # Add new users who are checked now but weren't before
+        current_user_ids = {user.id for user in column.users}
+        for user in all_users:
+            if user.id in selected_user_ids and user.id not in current_user_ids:
+                column.users.append(user)
+
+        db.session.commit()
+        flash('User assignments updated successfully.', 'success')
+        return redirect(url_for('all_project_list'))
+
+    assigned_users = column.users
+    return render_template('assign_users_to_column.html',
+                           project=project,
+                           column=column,
+                           all_users=all_users,
+                           assigned_users=assigned_users)
+
+ # ###################################
+ # ###################################
+ # ###################################
+ 
+@app.route('/api/faculty_by_markaz', methods=['GET'])
+def faculty_by_markaz():
+    markaz_name = request.args.get('markaz')
+    # logger.info("--------------")
+    # logger.info(markaz_name)
+    if not markaz_name:
+        return jsonify({"error": "Missing markaz parameter"}), 400
+
+    data = get_faculty_details_by_markaz(markaz_name)
+    return jsonify(data)
 
 @app.route("/debug-callback")
 def debug_callback():
     """Debug route for inspecting callback parameters."""
-    logger.info("Debug callback params: %s", request.args)
+    # logger.info("Debug callback params: %s", request.args)
     return f"Callback received, params: {request.args}"
 
 def create_ssl_context():
     """Create and configure SSL context."""
     context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
     context.load_cert_chain(certfile=SSL_CERT_PATH, keyfile=SSL_KEY_PATH)
-    logger.info("SSL context created successfully")
+    # logger.info("SSL context created successfully")
     return context
 
+@app.before_request
+def load_current_user():
+    user_id = session.get('user_id')
+    if user_id:
+        g.current_user = db.session.get(User, user_id)
+    else:
+        g.current_user = None
+            
+    sso_id = session.get('user')
+    if sso_id:
+        user = User.query.filter_by(sso_id=sso_id).first()  # this fails if no context
+        g.user = user
+    else:
+        g.user = None
+
+@login_manager.user_loader
+def load_user(user_id):
+    return User.query.get(int(user_id))
+
+@app.route('/project/<int:project_id>/kanban')
+@login_required
+def project_kanban(project_id):
+    project = Project.query.get_or_404(project_id)
+    columns = KanbanColumn.query.filter_by(project_id=project_id).order_by(KanbanColumn.position).all()
+    form = TaskForm()  # make sure you have TaskForm imported
+
+    # Get all tasks related to this project
+    project_tasks = Task.query.filter_by(project_id=project_id).all()
+
+    # Group tasks by column_id
+    tasks_by_column = defaultdict(list)
+    for task in project_tasks:
+        tasks_by_column[task.column_id].append(task)
+
+    # ✅ Pass the grouped tasks to the template
+    return render_template(
+        'kanban_board.html',
+        project=project,
+        columns=columns,
+        form=form,
+        tasks=tasks_by_column
+    )
+
+
+
+@app.route('/charts-data')
+@login_required
+def charts_data():
+    time_range = request.args.get('time_range', '1h')
+    now = dt.datetime.now()
+
+    if time_range == '1h':
+        start_time = now - timedelta(hours=1)
+    elif time_range == '3h':
+        start_time = now - timedelta(hours=3)
+    elif time_range == '6h':
+        start_time = now - timedelta(hours=6)
+    elif time_range == '12h':
+        start_time = now - timedelta(hours=12)
+    elif time_range == '1d':
+        start_time = now - timedelta(days=1)
+    elif time_range == '1w':
+        start_time = now - timedelta(weeks=1)
+    elif time_range == '1m':
+        start_time = now - timedelta(days=30)
+    elif time_range == '1y':
+        start_time = now - timedelta(days=365)
+    else:
+        start_time = now - timedelta(hours=1)  # default
+
+    DB_PATH2 = "C:\\services\\cert2\\app\\fetch_data\\faculty_data.db"
+    conn = sqlite3.connect(DB_PATH2)
+    cursor = conn.cursor()
+
+    # === 1. Get all relevant rows ===
+    query = """
+        SELECT url, timestamp, key, value
+        FROM monitor_data
+        WHERE timestamp >= ?
+        ORDER BY url, timestamp ASC
+    """
+    cursor.execute(query, (start_time,))
+    rows = cursor.fetchall()
+    conn.close()
+
+    charts = {}
+    zones = {
+        "Zone1": "تهران، شهرستانهای تهران و البرز",
+        "Zone2": "گیلان، مازندران و گلستان",
+        "Zone3": "آذربایجان شرقی، آذربایجان غربی، اردبیل و زنجان",
+        "Zone4": "قم، قزوین، مرکزی و همدان",
+        "Zone5": "ایلام، کردستان، کرمانشاه و لرستان",
+        "Zone6": "اصفهان، چهارمحال و بختیاری و یزد",
+        "Zone7": "کهگیلویه و بویراحمد و فارس",
+        "Zone8": "سیستان و بلوچستان، کرمان، هرمزگان",
+        "Zone9": "خراسان رضوی، جنوبی و شمالی و سمنان",
+        "Zone10": "بوشهر و خوزستان",
+        "meeting": "سامانه جلسات"
+
+        }
+    chartlabels = {
+        "online_lms_user": "کاربران آنلاین LMS",
+        "online_adobe_class": "کلاس های درحال ضبط Adobe",
+        "online_adobe_user": "کاربران Adobe",
+        "online_quizes": "آزمونهای درحال برگزاری",
+        "online_users_in_quizes": "کاربران درحال برگزاری آزمون",
+        }        
+    if rows:
+        # === 2. Group data by URL and key ===
+        url_data = {}
+        for url, timestamp, key, value in rows:
+            if url not in url_data:
+                url_data[url] = {}
+            if key not in url_data[url]:
+                url_data[url][key] = {"timestamps": [], "values": []}
+
+            # Convert to Jalali date string
+            ts = timestamp
+            if isinstance(ts, str):
+                from datetime import datetime
+                ts = datetime.fromisoformat(ts)
+            jalali_ts = jdatetime.datetime.fromgregorian(datetime=ts).strftime("%Y/%m/%d %H:%M")
+           
+            url_data[url][key]["timestamps"].append(jalali_ts)
+            url_data[url][key]["values"].append(value)
+
+        # === 3. Build Chart.js structure for each URL ===
+        for url, keys in url_data.items():
+            datasets = []
+            labels = []  # we can take timestamps from first key
+            first_key = next(iter(keys))
+            labels = keys[first_key]["timestamps"]
+
+            for key, data in keys.items():
+                datasets.append({
+                    "label": chartlabels[key],
+                    "data": data["values"],
+                    "borderColor": get_color_for_key(key),
+                    "backgroundColor": get_color_for_key(key),
+                    "fill": False
+                })
+                for lms_user_count in data["values"]:
+                    if int(lms_user_count) >= 200:
+                        token = get_sms_token()
+                        send_sms(
+                            token,
+                            f"LMS User Countt Alert! {chartlabels[key]}: {int(lms_user_count)}",
+                            ["09123880167"]
+                        )
+                        break  # stop after first alert
+
+
+            charts[url] = {
+                "labels": labels,
+                "datasets": datasets,
+                "title": zones[url]
+            }
+
+    return jsonify(charts)
+
+@app.route('/tables-data')
+@login_required
+def tables_data():
+    DB_PATH2 = "C:\\services\\cert2\\app\\fetch_data\\faculty_data.db"
+    conn = sqlite3.connect(DB_PATH2)
+    cursor = conn.cursor()
+
+    # === 1. Get all relevant rows ===
+    query = """
+        SELECT url, timestamp, key, value
+        FROM monitor_data
+        ORDER BY url, timestamp ASC
+    """
+    cursor.execute(query)
+    rows = cursor.fetchall()
+    conn.close()
+
+    charts = {}
+    latest_values = {}
+    latest_zone_resources = {}
+    overall_sum = {}
+    SERVICE_URL = "http://127.0.0.1:6000/metrics"
+    zones = {
+        "Zone1": "تهران و البرز",
+        "Zone2": "گیلان، مازندران و گلستان",
+        "Zone3": "آذربایجان، اردبیل و زنجان",
+        "Zone4": "قم، قزوین، مرکزی و همران",
+        "Zone5": "ایلام، کردستان و کرمانشاه",
+        "Zone6": "اصفهان، چهارمحال و بختیاری و یزد",
+        "Zone7": "کهگیلویه و بویراحمد و فارس",
+        "Zone8": "سیستان و بلوچستان، کرمان، هرمزگان",
+        "Zone9": "خراسان و سمنان",
+        "Zone10": "بوشهر و خوزستان",
+        "Zone11": "سامانه جلسات"
+        }
+    hostnames = {
+        "Zone1": "lms1",
+        "Zone2": "lms2",
+        "Zone3": "lms3",
+        "Zone4": "lms4",
+        "Zone5": "lms5",
+        "Zone6": "lms6",
+        "Zone7": "lms7",
+        "Zone8": "lms8",
+        "Zone9": "lms9",
+        "Zone10": "lms10",
+        "Zone11": "meeting"
+        }        
+        
+    chartlabels = {
+        "online_lms_user": "کاربران آنلاین LMS",
+        "online_adobe_class": "کلاس های درحال ضبط Adobe",
+        "online_adobe_user": "کاربران Adobe",
+        "online_quizes": "آزمونهای درحال برگزاری",
+        "online_users_in_quizes": "کاربران درحال برگزاری آزمون",
+        }        
+    if rows:
+        # === 2. Group data by URL and key ===
+        url_data = {}
+        for url, timestamp, key, value in rows:
+            if url not in url_data:
+                url_data[url] = {}
+            if key not in url_data[url]:
+                url_data[url][key] = {"timestamps": [], "values": []}
+
+            # Convert to Jalali date string
+            ts = timestamp
+            if isinstance(ts, str):
+                from datetime import datetime
+                ts = datetime.fromisoformat(ts)
+            jalali_ts = jdatetime.datetime.fromgregorian(datetime=ts).strftime("%Y/%m/%d %H:%M")
+           
+            url_data[url][key]["timestamps"].append(jalali_ts)
+            url_data[url][key]["values"].append(value)
+
+        # === 3. Build Chart.js structure for each URL ===
+        for url, keys in url_data.items():
+            datasets = []
+            labels = []  # we can take timestamps from first key
+            first_key = next(iter(keys))
+            labels = keys[first_key]["timestamps"]
+            latest_values[url] = []
+            latest_zone_resources[url] = []
+
+            hostname = hostnames[url]
+            print(hostname)
+            response = requests.get(SERVICE_URL, params={"host": hostname})
+            if response.status_code == 200:
+                # print("Metrics:", response.json())
+                latest_zone_resources[url] = response.json()
+            else:
+                print("Error:", response.text)   
+            for key, data in keys.items():
+                datasets.append({
+                    "label": chartlabels[key],
+                    "data": data["values"],
+                    "borderColor": get_color_for_key(key),
+                    "backgroundColor": get_color_for_key(key),
+                    "fill": False
+                })
+                # latest value = last entry
+                latest_val = data["values"][-1]
+                latest_values[url].append({key: latest_val})
+
+                # update overall sum
+                overall_sum[key] = overall_sum.get(key, 0) + latest_val
+
+
+            charts[url] = {
+                "labels": labels,
+                "datasets": datasets,
+                "latest_values": latest_values[url],         # fixed: return per-url latest_values
+                "latest_zone_resources": latest_zone_resources[url],
+                "title": zones[url]
+            }
+
+    return jsonify({
+        "charts": charts,
+        "overall_sum": overall_sum
+    })
+
+
 if __name__ == "__main__":
-    # logger.info("Starting Flask app on 0.0.0.0:5000")
-    # app.run(host="0.0.0.0", port=5000, debug=True)
-    serve(app, host="0.0.0.0", port=5000)
+    with app.app_context():
+        # db.create_all()
+        serve(app, host="0.0.0.0", port=5000)

@@ -1,0 +1,84 @@
+{% extends "base.html" %}
+{% block title %}{{ form_title }}{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+
+    <div class="nav1 mb-3">
+        <a href="/project/{{ project.id }}/kanban" class="btn btn-link nav1">برگشت به پروژه‌</a>
+    </div>
+
+    <h2 class="mb-4">ایجاد تسک جدید</h2>
+
+    <form method="POST">
+        {{ form.hidden_tag() }}
+
+        <div class="mb-3">
+            {{ form.title.label(class="form-label") }}
+            {{ form.title(class="form-control") }}
+        </div>
+
+        <div class="mb-3">
+            {{ form.description.label(class="form-label") }}
+            {{ form.description(class="form-control") }}
+        </div>
+
+        <div class="mb-3">
+            {{ form.assignee_ids.label(class="form-label") }}
+            {{ form.assignee_ids(class="form-select", multiple=True) }}
+        </div>
+
+        <div class="row">
+            <!-- Start Date -->
+            <div class="col-md-6 mb-3">
+                <label for="datepickerr" class="form-label">تاریخ آغاز</label>
+                <input autocomplete="off" id="datepickerr" name="start_date" type="text" class="form-control" placeholder="تاریخ آغاز">
+                <!-- <input id="datepickerr" autocomplete="off" class="form-control" placeholder="تاریخ آغاز">
+                <input type="hidden" id="start_date" name="start_date"> -->
+            </div>
+
+            <!-- Due Date -->
+            <div class="col-md-6 mb-3">
+                <label for="datepickerr2" class="form-label">تاریخ پایان</label>
+                <input autocomplete="off" id="datepickerr2" name="due_date" type="text" class="form-control" placeholder="تاریخ پایان">
+                <!-- <input id="datepickerr2" autocomplete="off" class="form-control" placeholder="تاریخ پایان">
+                <input type="hidden" id="due_date" name="due_date"> -->
+            </div>
+        </div>
+
+        <div class="mb-3">
+            {{ form.column_id.label(class="form-label") }}
+            {{ form.column_id(class="form-select") }}
+        </div>
+
+        <div class="mt-4">
+            <button type="submit" class="btn btn-success">ذخیره</button>
+            <a href="{{ url_for('task_list', project_id=project.id) }}" class="btn btn-secondary">انصراف</a>
+        </div>
+    </form>
+</div>
+
+<!-- Jalali Datepicker Script -->
+<script>
+    kamaDatepicker('datepickerr', {
+        nextButtonIcon: "fa fa-arrow-circle-right",
+        previousButtonIcon: "fa fa-arrow-circle-left",
+        forceFarsiDigits: true,
+        markToday: true,
+        highlightSelectedDay: true,
+        gotoToday: true,
+        format: 'YYYY/MM/DD'
+
+    });
+
+    kamaDatepicker('datepickerr2', {
+        nextButtonIcon: "fa fa-arrow-circle-right",
+        previousButtonIcon: "fa fa-arrow-circle-left",
+        forceFarsiDigits: true,
+        markToday: true,
+        highlightSelectedDay: true,
+        gotoToday: true,
+        format: 'YYYY/MM/DD'
+    });
+</script>
+{% endblock %}

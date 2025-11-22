@@ -1,0 +1,174 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+pip-wheel-metadata/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual Environment
+myenv/
+venv/
+ENV/
+env/
+.venv
+
+# Database files (SQLite)
+*.db
+*.sqlite
+*.sqlite3
+app/access_control*.db
+app/fetch_data/*.db
+app/instance/*.db
+instance/*.db
+
+# Log files
+*.log
+app/*.log
+logs/
+
+# Flask
+instance/
+.webassets-cache
+flask_session/
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+*.env
+
+# Backup and copy files
+* - Copy.*
+* copy*
+*_backup*
+*_old*
+*.bak
+*.backup
+*.old
+app - Copy.py
+app copy*.py
+dashboard copy*.py
+app_correct_*
+app.py_*
+tools - Copy.html
+
+# Uploads and exports
+app/static/uploads/*
+app/exports/*
+!app/static/uploads/.gitkeep
+!app/exports/.gitkeep
+
+# Large data files (Shapefiles and geographic data)
+app/data/iran_shapefile/*
+*.shp
+*.shx
+*.dbf
+*.prj
+*.cpg
+*.sbn
+*.sbx
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+*.sublime-project
+*.sublime-workspace
+
+# OS
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+Desktop.ini
+
+# Jupyter Notebook
+.ipynb_checkpoints
+*.ipynb
+
+# pytest
+.pytest_cache/
+.coverage
+htmlcov/
+
+# mypy
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# Pyre type checker
+.pyre/
+
+# Temporary files
+*.tmp
+*.temp
+*.cache
+*.pid
+*.seed
+*.pid.lock
+
+# Compiled files
+*.com
+*.class
+*.dll
+*.exe
+*.o
+*.so
+
+# Archives
+*.7z
+*.dmg
+*.gz
+*.iso
+*.jar
+*.rar
+*.tar
+*.zip
+
+# Documentation builds
+docs/_build/
+site/
+
+# Test files
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.hypothesis/
+
+# Migration files (keep structure, ignore specific migrations if needed)
+# migrations/versions/*.py  # Uncomment if you want to ignore migration files
+
+# Large static files (uncomment if needed)
+# app/static/fonts/*
+# app/static/images/*
+
+# Keep important empty directories
+!app/static/uploads/.gitkeep
+!app/exports/.gitkeep
+!app/data/.gitkeep
+

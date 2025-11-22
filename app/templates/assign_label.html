@@ -1,0 +1,82 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container mt-4">
+  <h4 class="mb-3">مدیریت برچسب‌های تسک: {{ task.title }}</h4>
+
+  <form method="POST" class="border p-3 mb-4 bg-light rounded">
+    <div class="row">
+      <div class="col-md-6 mb-3">
+        <label for="label_id">برچسب</label>
+        <select id="label_id" name="label_id" class="form-control" required>
+          <option value="">-- انتخاب برچسب --</option>
+          {% for label in labels %}
+            <option value="{{ label.id }}">{{ label.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-md-6 mb-3">
+        <label for="value_id">مقدار</label>
+        <select id="value_id" name="value_id" class="form-control" required>
+          <option value="">-- ابتدا برچسب را انتخاب کنید --</option>
+        </select>
+      </div>
+    </div>
+    <button type="submit" class="btn btn-primary">افزودن برچسب به تسک</button>
+  </form>
+
+  <h5>برچسب‌های اختصاص داده شده</h5>
+  {% if assignments %}
+  <table class="table table-bordered table-sm mt-3">
+    <thead class="thead-light">
+      <tr>
+        <th>برچسب</th>
+        <th>مقدار</th>
+        <th>عملیات</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for a in assignments %}
+      <tr>
+        <td>{{ a.label.name }}</td>
+        <td>{{ a.label_value.value }}</td>
+        <td>
+          <form action="{{ url_for('assignment.delete_assignment', task_id=task.id, assignment_id=a.id) }}" method="POST" onsubmit="return confirm('آیا مطمئن هستید؟')">
+            <button class="btn btn-sm btn-danger">حذف</button>
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+    <p class="text-muted">هنوز برچسبی اضافه نشده است.</p>
+  {% endif %}
+</div>
+
+<script>
+  // Load label values dynamically when a label is selected
+  const labelSelect = document.getElementById("label_id");
+  const valueSelect = document.getElementById("value_id");
+
+  labelSelect.addEventListener("change", function () {
+    const labelId = this.value;
+    valueSelect.innerHTML = '<option value="">در حال بارگذاری...</option>';
+
+    fetch(`/api/label_values/${labelId}`)
+      .then(response => response.json())
+      .then(data => {
+        valueSelect.innerHTML = '<option value="">-- انتخاب مقدار --</option>';
+        data.values.forEach(val => {
+          const opt = document.createElement("option");
+          opt.value = val.id;
+          opt.textContent = val.value;
+          valueSelect.appendChild(opt);
+        });
+      })
+      .catch(() => {
+        valueSelect.innerHTML = '<option value="">خطا در بارگذاری</option>';
+      });
+  });
+</script>
+{% endblock %}

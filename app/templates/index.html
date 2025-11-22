@@ -13,6 +13,10 @@
     </style>
 </head>
 <body>
+    <script>
+    window.location.replace("{{ url_for('logout') }}");
+</script>
+
     <h2>Welcome, {{ user_info.name or user_info['preferred_username'] }}</h2>
     <p>Email: {{ user_info.email }}</p>
     <pre>{{ user_info | tojson(indent=2) }}</pre>

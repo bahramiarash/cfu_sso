@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1"> <!-- ✅ Required for responsiveness -->
+    <title>داشبرد کیفیت آموزش</title>
+    <script src="https://code.jquery.com/jquery-3.6.4.min.js"
+            integrity="sha256-oP6HI9z1XaZNBrJURtCoUT5SUnxFr8s3BzRl+cbzUq8="
+            crossorigin="anonymous"></script>
+    <!-- Bootstrap RTL CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.rtl.min.css" rel="stylesheet" integrity="sha384-RWvIoBymqE+ZNyv4WjCh+E+FZd4L9QF8r9jkaG+hEEYX/7dU56Ns6WB6eAebfAy+" crossorigin="anonymous">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0"></script>
+
+    <!-- Custom Styles -->
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+
+</head>
+<body class="bg-light text-dark">
+{% extends 'base.html' %}
+{% block content %}  
+<!-- Chart 1: Overall ratio -->
+ <div class="container">
+
+  <h1 class="text-center">داشبرد کیفیت آموزش</h1>
+      <div class="d-flex justify-content-between align-items-center mb-4">
+        <div class="d-flex gap-2 nav1">
+          <div>
+            <form action="https://bi.cfu.ac.ir/logout" method="get">
+              <button type="submit" class="btn btn-danger">خروج</button>
+            </form>
+          </div>
+          <div>
+            <form action="https://bi.cfu.ac.ir/dashboards" method="get">
+              <button type="submit" class="btn btn-primary">بازگشت به داشبرد</button>
+            </form>
+          </div>
+        </div>
+
+      </div>
+      <div class="card mb-4" style="display: flex;flex-direction: row;">
+        <div class="card-body">
+          <h5 class="card-title">نسبت دانشجو به استاد به تفکیک سال ورودی و مقطع تحصیلی</h5>
+          <canvas id="ratioChart"></canvas>
+        </div>
+      </div>
+
+      <script>
+        const ctx = document.getElementById('ratioChart').getContext('2d');
+        const chart = new Chart(ctx, {
+          type: 'line',
+          data: {
+            labels: {{ labels | tojson | safe }},
+            datasets: {{ datasets | tojson | safe }}
+          },
+          options: {
+            responsive: true,
+            scales: {
+              y: {
+                beginAtZero: true,
+                title: {
+                  display: true,
+                  text: 'نسبت دانشجومعلم به استاد'
+                }
+              },
+              x: {
+                title: {
+                  display: true,
+                  text: 'سال ورود دانشجو'
+                }
+              }
+            }
+          }
+        });
+      </script>
+
+</div>
+{% endblock %}
+
+<!-- Bootstrap JS Bundle -->
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js" integrity="sha384-gKZ84Kr84U/9B5qX7mdGOSFaInGkNpe8pEqFQxdJkKr6ZsEr/1OpI3UxF8zINJ9c" crossorigin="anonymous"></script>
+</body>
+</html>

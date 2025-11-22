@@ -1,0 +1,355 @@
+@font-face {
+  font-family: 'Vazir';
+  src: url('https://bi.cfu.ac.ir/static/fonts/Vazir.woff2') format('woff2'),
+       url('https://bi.cfu.ac.ir/static/fonts/Vazir.woff') format('woff');
+}
+@font-face {
+  font-family: 'VazirB';
+  src: url('https://bi.cfu.ac.ir/static/fonts/Vazir-Bold.woff2') format('woff2'),
+       url('https://bi.cfu.ac.ir/static/fonts/Vazir-Bold.woff') format('woff');
+}
+body, h2, .form-control, .btn {
+  font-family: 'Vazir', sans-serif !important;
+}
+body {
+    background-color: #f5f7fa;
+    margin: 0;
+    padding: 0;
+    direction: rtl;
+}
+.container {
+    max-width: 90vw;
+    margin: 40px auto;
+    padding: 20px;
+    background-color: #ffffff;
+    border-radius: 12px;
+    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.08);
+    text-align: right;
+}
+.btn{
+  cursor: pointer;
+  margin-right: 5px;
+}
+h2 {
+    direction: rtl;
+    font-family: VazirB;
+    font-size: 1rem;
+    word-wrap: break-word;
+    text-align: center;
+    filter: drop-shadow(drop-shadow(1px 1px 1px gray));
+    -webkit-user-select: none; /* Safari */
+    -ms-user-select: none; /* IE 10 and IE 11 */
+    user-select: none; /* Standard syntax */
+    color: #2c3e50;
+    margin-bottom: 24px;
+    border-bottom: 2px solid #ddd;
+    padding-bottom: 10px;    
+}
+div {
+    direction: rtl;
+    font-family: Vazir;
+    font-size: 0.8rem;
+    word-wrap: break-word;
+}
+canvas{
+  width:100%;
+  margin: auto;
+  font-family: Vazir;
+
+}
+* , body{
+    font-family: Vazir;
+}
+ol{
+  direction: rtl;
+}
+a:link,a:hover{
+  text-decoration: none;
+}
+ul {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+}
+
+li {
+    margin: 12px 0;
+    font-size: 1.1rem;
+    display: flex;
+}
+li div{
+  margin-right: 20px;
+}
+
+li a {
+    text-decoration: none;
+    color: #34495e;
+    transition: all 0.3s ease-in-out;
+}
+
+li a:hover {
+    color: #2980b9;
+    padding-right: 6px;
+}
+.pwt-datepicker-container {
+    z-index: 9999 !important;
+}
+.project-title{
+  font-family: Vazir;
+  font-size: 1.3rem;
+  font-weight: bold;
+  width: 60%;
+  border-bottom: #34495e dashed 1px;
+}
+.logout-button {
+    float: left;
+    background-color: #e74c3c;
+    color: white;
+    padding: 8px 14px;
+    border: none;
+    border-radius: 6px;
+    font-size: 0.95rem;
+    cursor: pointer;
+    transition: background-color 0.3s;
+}
+
+.logout-button:hover {
+    background-color: #c0392b;
+}
+.nav1{
+  display: flex;
+  flex-direction: row-reverse;
+}
+.primary{
+  background-color: #b3d8c7;
+}
+.facultyDetailsTable{
+  border: 1px solid black;
+  height: 80vh;
+  overflow-y: scroll;
+  width: 95%;
+  margin: auto;
+}
+table:not(.bd-table)  tbody tr td{
+  border:1px black solid;
+  font-size: 0.7rem;
+  font-family: Vazir;
+  padding: 3px;
+  border-radius: 5px;  
+}
+table:not(.bd-table)  tbody tr:nth-child(odd) {
+      background-color: #f68377c2; /* رنگ برای ردیف‌های فرد */
+  }
+table:not(.bd-table)  tbody tr:nth-child(even) {
+      background-color: #FBDB93; /* رنگ برای ردیف‌های زوج (اختیاری) */
+  }
+
+
+.my-task-nav{
+  float: right;
+  width: 95%;
+  margin: 5px;
+  background-color: #f3633d63!important;
+  border-color: #f27a25!important;
+}
+.task-text{
+  font-family: Vazir;
+  font-size: 1.2rem;
+  margin: 5px auto;
+
+}
+.list-group-flush{
+  overflow-y: scroll;
+  height: 49vh;
+
+}
+  /* width */
+  ::-webkit-scrollbar {    width: 10px;  }
+  /* Track */
+  ::-webkit-scrollbar-track {    box-shadow: inset 0 0 5px rgb(141, 141, 141);     border-radius: 10px;  }
+  /* Handle */
+  ::-webkit-scrollbar-thumb {    background: #c6c6c6;     border-radius: 10px;  }
+  /* Handle on hover */
+  ::-webkit-scrollbar-thumb:hover {   background: #979797;   }  
+footer{
+  float:left!important;
+}
+.task-nav{
+  width:98%;
+  margin:auto;
+  padding:3px;
+  display: flex;
+  flex-direction: row;
+  justify-content: end;
+}
+.kanban-sec:nth-of-type(5n+1) .card-header {
+    background-color: #ffee93;
+}
+.kanban-sec:nth-of-type(5n+2) .card-header {
+    background-color: #79addc;
+}
+.kanban-sec:nth-of-type(5n+3) .card-header {
+    background-color: #adf7b6;
+}
+.kanban-sec:nth-of-type(5n+4) .card-header {
+    background-color: #ffc09f;
+}
+.kanban-sec:nth-of-type(5n+5) .card-header {
+    background-color: #ff70a6;
+}
+@media  only screen and (max-width: 600px)  {
+  .kanban_nav{
+    display: flex;
+    flex-direction: column;
+  }
+
+  div.kanban-columns{
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: flex-start;
+    padding: 10px;
+    width: 100%;
+    flex-wrap: nowrap;    
+    justify-content: flex-start;
+  }
+  .kanban-sec{
+    display: flex;
+    flex-direction: row;
+    justify-content: flex-start;
+    align-items: flex-start;
+    background-color: #ffffff;
+    float: right;
+    margin: 10px;
+    padding: 0px;
+    width: 100% !important;
+    height: 60vh;
+    border-radius: 7px;
+  }
+  div.kanban-sec-body, .kanban-sec-body ul{
+    width: 99%;
+    min-height: 100%;
+    /* background-color: #b3d8c7; */
+    border: 0px;
+    filter: drop-shadow(0px 0px 1px gray);
+    margin: auto;
+    direction: ltr;
+  }  
+  li.kanban-tasks{
+    width: 95%;
+    margin: 7px auto;
+    padding: 3px;
+    filter: drop-shadow(1px 1px 2px rgb(67, 67, 67)); 
+    border-radius: 7px; 
+    background-color: #d6d6d6;
+  }
+  .floating-box{
+    position: fixed;
+    top: 0px;
+    left:0px;
+    width: 99vw;
+    height:100vh;
+    margin: auto;
+    background-color: #FAE3C6;
+    padding: 2px;
+    border-radius: 7px;
+    box-shadow: 3px 3px 3px rgb(85, 85, 85);
+    display: none;
+    z-index: 10;
+    flex-direction: column;
+    align-items: baseline;    
+  }  
+  .modal_nav{
+    display: flex;
+    flex-direction: row;
+    padding: 2px;
+    width: 97%;
+    align-items: anchor-center;
+  }  
+  
+  .btn-primary{
+    height: 45px;
+  }
+  #facultyDetailsContainer{
+    width:97%;
+    height: 90%;
+    overflow-y: scroll;
+    padding: 2px;
+    background-color: #caf1e4;
+
+  }  
+}
+@media  only screen and (min-width: 600px)  {
+  .kanban_nav{
+    display: flex;
+    flex-direction: row;
+  }
+  div.kanban-columns{
+    display: flex;
+    flex-direction: row;
+    justify-content: center;
+    align-items: flex-start;
+    padding: 10px;
+    width: 100%;
+    overflow-x: auto;
+    flex-wrap: nowrap;    
+    justify-content: flex-start;
+  }
+  .kanban-sec{
+    display: flex;
+    flex-direction: row;
+    justify-content: flex-start;
+    align-items: flex-start;
+    background-color: #ffffff;
+    float: right;
+    margin: 10px;
+    padding: 0px;
+    /* width: 30% !important; */
+    height: 60vh;
+    border-radius: 7px;
+  }
+  div.kanban-sec-body, .kanban-sec-body ul{
+    width: 99%;
+    min-height: 100%;
+    /* background-color: #b3d8c7; */
+    border: 0px;
+    filter: drop-shadow(0px 0px 1px gray);
+    margin: auto;
+    direction: ltr;
+  }
+  li.kanban-tasks{
+    width: 95%;
+    margin: 7px auto;
+    padding: 3px;
+    filter: drop-shadow(1px 1px 2px rgb(67, 67, 67)); 
+    border-radius: 7px; 
+    background-color: #d6d6d6;
+  }
+  .floating-box{
+    position: fixed;
+    top: 0px;
+    left:0px;
+    width: 99vw;
+    height:100vh;
+    margin: auto;
+    background-color: #FAE3C6;
+    padding: 20px;
+    border-radius: 7px;
+    box-shadow: 3px 3px 3px rgb(85, 85, 85);
+    display: none;
+    z-index: 10;
+    flex-direction: column;
+  }  
+  .modal_nav{
+    display: flex;
+    flex-direction: row;
+    padding: 2rem;
+  }
+  #facultyDetailsContainer{
+    height: 70vh;
+    overflow-y: scroll;
+    padding: 2rem;
+    background-color: #f3e7d9;
+
+  }  
+}
