@@ -17,6 +17,7 @@ from requests.auth import HTTPBasicAuth
 # from dashboard import dashboard_bp  # Disabled - using new architecture  # Legacy dashboard routes
 from dashboard_routes import dashboard_bp as new_dashboard_bp  # New dashboard architecture
 from dashboards.api import api_bp as dashboard_api_bp  # Dashboard API
+from admin import admin_bp  # Admin panel
 # from tools import tools_bp
 import json
 from auth_utils import requires_auth
@@ -84,6 +85,10 @@ app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.config['UPLOAD_FOLDER'] = os.path.join(BASE_DIR, 'static/uploads')
 
 db.init_app(app)
+
+# Import admin models to register them with SQLAlchemy
+from admin_models import DashboardAccess, AccessLog, DataSync, DashboardConfig
+
 from label_management import label_bp
 app.register_blueprint(label_bp)
 
@@ -94,6 +99,7 @@ app.register_blueprint(assignment_bp)
 # Note: Using new architecture only
 app.register_blueprint(new_dashboard_bp)  # New architecture routes
 app.register_blueprint(dashboard_api_bp)  # Dashboard API for filters
+app.register_blueprint(admin_bp)  # Admin panel
 # app.register_blueprint(dashboard_bp)  # Legacy routes - DISABLED (using new architecture)
 
 # Context processor to make dashboard list available in all templates
@@ -747,18 +753,24 @@ def charts_data():
     else:
         start_time = now - timedelta(hours=1)  # default
 
+    # Convert datetime to ISO format string for SQLite
+    # SQLite stores datetime as TEXT, format: 'YYYY-MM-DD HH:MM:SS.ffffff'
+    # Use strftime to ensure consistent format for comparison
+    start_time_str = start_time.strftime('%Y-%m-%d %H:%M:%S')
+
     DB_PATH2 = "C:\\services\\cert2\\app\\fetch_data\\faculty_data.db"
     conn = sqlite3.connect(DB_PATH2)
     cursor = conn.cursor()
 
     # === 1. Get all relevant rows ===
+    # SQLite datetime comparison - ensure both sides are in same format
     query = """
         SELECT url, timestamp, key, value
         FROM monitor_data
-        WHERE timestamp >= ?
+        WHERE datetime(timestamp) >= datetime(?)
         ORDER BY url, timestamp ASC
     """
-    cursor.execute(query, (start_time,))
+    cursor.execute(query, (start_time_str,))
     rows = cursor.fetchall()
     conn.close()
 
@@ -774,8 +786,8 @@ def charts_data():
         "Zone8": "سیستان و بلوچستان، کرمان، هرمزگان",
         "Zone9": "خراسان رضوی، جنوبی و شمالی و سمنان",
         "Zone10": "بوشهر و خوزستان",
+        "Zone11": "سامانه جلسات",
         "meeting": "سامانه جلسات"
-
         }
     chartlabels = {
         "online_lms_user": "کاربران آنلاین LMS",
@@ -811,8 +823,9 @@ def charts_data():
             labels = keys[first_key]["timestamps"]
 
             for key, data in keys.items():
+                label = chartlabels.get(key, key)  # Use key as fallback if label not found
                 datasets.append({
-                    "label": chartlabels[key],
+                    "label": label,
                     "data": data["values"],
                     "borderColor": get_color_for_key(key),
                     "backgroundColor": get_color_for_key(key),
@@ -823,7 +836,7 @@ def charts_data():
                         token = get_sms_token()
                         send_sms(
                             token,
-                            f"LMS User Countt Alert! {chartlabels[key]}: {int(lms_user_count)}",
+                            f"LMS User Countt Alert! {label}: {int(lms_user_count)}",
                             ["09123880167"]
                         )
                         break  # stop after first alert
@@ -832,7 +845,7 @@ def charts_data():
             charts[url] = {
                 "labels": labels,
                 "datasets": datasets,
-                "title": zones[url]
+                "title": zones.get(url, url)  # Use url as fallback if zone not found
             }
 
     return jsonify(charts)
