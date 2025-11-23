@@ -1,0 +1,63 @@
+{% extends "admin/base.html" %}
+
+{% block title %}تنظیمات داشبوردها{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <h1 class="mb-4"><i class="bi bi-grid"></i> تنظیمات داشبوردها</h1>
+
+    <div class="card">
+        <div class="card-body">
+            <div class="table-responsive">
+                <table class="table table-hover">
+                    <thead>
+                        <tr>
+                            <th>ID</th>
+                            <th>عنوان</th>
+                            <th>توضیحات</th>
+                            <th>وضعیت</th>
+                            <th>عمومی</th>
+                            <th>Cache TTL</th>
+                            <th>عملیات</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for item in dashboards %}
+                        <tr>
+                            <td><code>{{ item.dashboard.dashboard_id }}</code></td>
+                            <td>{{ item.config.title if item.config else item.dashboard.title }}</td>
+                            <td>{{ item.config.description if item.config and item.config.description else item.dashboard.description or '-' }}</td>
+                            <td>
+                                {% if item.config %}
+                                    {% if item.config.is_active %}
+                                        <span class="badge bg-success">فعال</span>
+                                    {% else %}
+                                        <span class="badge bg-secondary">غیرفعال</span>
+                                    {% endif %}
+                                {% else %}
+                                    <span class="badge bg-info">پیش‌فرض</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% if item.config and item.config.is_public %}
+                                    <span class="badge bg-primary">بله</span>
+                                {% else %}
+                                    <span class="badge bg-secondary">خیر</span>
+                                {% endif %}
+                            </td>
+                            <td>{{ item.config.cache_ttl_seconds if item.config else 300 }} ثانیه</td>
+                            <td>
+                                <a href="{{ url_for('admin.dashboard_config_edit', dashboard_id=item.dashboard.dashboard_id) }}" class="btn btn-sm btn-warning">
+                                    <i class="bi bi-gear"></i> تنظیمات
+                                </a>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+

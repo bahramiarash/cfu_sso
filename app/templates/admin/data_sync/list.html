@@ -1,0 +1,76 @@
+{% extends "admin/base.html" %}
+
+{% block title %}مدیریت همگام‌سازی داده{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <h1 class="mb-4"><i class="bi bi-arrow-repeat"></i> مدیریت همگام‌سازی داده</h1>
+
+    <div class="card">
+        <div class="card-body">
+            <div class="table-responsive">
+                <table class="table table-hover">
+                    <thead>
+                        <tr>
+                            <th>منبع داده</th>
+                            <th>وضعیت</th>
+                            <th>آخرین همگام‌سازی</th>
+                            <th>همگام‌سازی بعدی</th>
+                            <th>خودکار</th>
+                            <th>بازه زمانی (دقیقه)</th>
+                            <th>رکوردها</th>
+                            <th>عملیات</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for sync in syncs %}
+                        <tr>
+                            <td><strong>{{ sync.data_source }}</strong></td>
+                            <td>
+                                <span class="badge bg-{{ 'success' if sync.status == 'success' else 'warning' if sync.status == 'running' else 'danger' }}">
+                                    {{ sync.status }}
+                                </span>
+                            </td>
+                            <td>
+                                {% if sync.last_sync_at %}
+                                    {{ sync.get_jalali_date(sync.last_sync_at) }}
+                                {% else %}
+                                    <span class="text-muted">هنوز انجام نشده</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% if sync.next_sync_at %}
+                                    {{ sync.get_jalali_date(sync.next_sync_at) }}
+                                {% else %}
+                                    <span class="text-muted">-</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% if sync.auto_sync_enabled %}
+                                    <span class="badge bg-success">فعال</span>
+                                {% else %}
+                                    <span class="badge bg-secondary">غیرفعال</span>
+                                {% endif %}
+                            </td>
+                            <td>{{ sync.sync_interval_minutes }}</td>
+                            <td>{{ sync.records_synced }}</td>
+                            <td>
+                                <form method="POST" action="{{ url_for('admin.data_sync_trigger', sync_id=sync.id) }}" class="d-inline">
+                                    <button type="submit" class="btn btn-sm btn-primary">
+                                        <i class="bi bi-arrow-clockwise"></i> همگام‌سازی
+                                    </button>
+                                </form>
+                                <a href="{{ url_for('admin.data_sync_edit', sync_id=sync.id) }}" class="btn btn-sm btn-warning">
+                                    <i class="bi bi-gear"></i> تنظیمات
+                                </a>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+

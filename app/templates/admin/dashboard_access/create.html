@@ -1,0 +1,76 @@
+{% extends "admin/base.html" %}
+
+{% block title %}ایجاد دسترسی جدید{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <h1 class="mb-4"><i class="bi bi-plus-circle"></i> ایجاد دسترسی جدید</h1>
+
+    <div class="card">
+        <div class="card-body">
+            <form method="POST">
+                <div class="row">
+                    <div class="col-md-6">
+                        <div class="mb-3">
+                            <label class="form-label">کاربر <span class="text-danger">*</span></label>
+                            <select name="user_id" class="form-select" required>
+                                <option value="">انتخاب کاربر</option>
+                                {% for user in users %}
+                                <option value="{{ user.id }}">{{ user.name }} ({{ user.sso_id }})</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="mb-3">
+                            <label class="form-label">داشبورد <span class="text-danger">*</span></label>
+                            <select name="dashboard_id" class="form-select" required>
+                                <option value="">انتخاب داشبورد</option>
+                                {% for dashboard in dashboards %}
+                                <option value="{{ dashboard.dashboard_id }}">{{ dashboard.title }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="mb-3">
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" name="can_access" id="can_access" checked>
+                        <label class="form-check-label" for="can_access">
+                            دسترسی دارد
+                        </label>
+                    </div>
+                </div>
+
+                <div class="mb-3">
+                    <label class="form-label">محدودیت‌های فیلتر (JSON)</label>
+                    <textarea name="filter_restrictions" class="form-control" rows="3" placeholder='{"province_codes": [1, 2]}'></textarea>
+                    <small class="form-text text-muted">مثال: {"province_codes": [1, 2], "university_codes": [10]}</small>
+                </div>
+
+                <div class="row">
+                    <div class="col-md-6">
+                        <div class="mb-3">
+                            <label class="form-label">از تاریخ</label>
+                            <input type="datetime-local" name="date_from" class="form-control">
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="mb-3">
+                            <label class="form-label">تا تاریخ</label>
+                            <input type="datetime-local" name="date_to" class="form-control">
+                        </div>
+                    </div>
+                </div>
+
+                <div class="d-flex justify-content-between">
+                    <a href="{{ url_for('admin.dashboard_access_list') }}" class="btn btn-secondary">انصراف</a>
+                    <button type="submit" class="btn btn-primary">ایجاد دسترسی</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}
+

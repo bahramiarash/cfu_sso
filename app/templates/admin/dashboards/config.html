@@ -1,0 +1,89 @@
+{% extends "admin/base.html" %}
+
+{% block title %}تنظیمات داشبورد: {{ dashboard.dashboard_id }}{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <h1 class="mb-4"><i class="bi bi-gear"></i> تنظیمات داشبورد: {{ dashboard.dashboard_id }}</h1>
+
+    <div class="card">
+        <div class="card-body">
+            <form method="POST">
+                <div class="row">
+                    <div class="col-md-6">
+                        <div class="mb-3">
+                            <label class="form-label">عنوان <span class="text-danger">*</span></label>
+                            <input type="text" name="title" class="form-control" 
+                                   value="{{ config.title if config else dashboard.title }}" required>
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="mb-3">
+                            <label class="form-label">آیکون</label>
+                            <input type="text" name="icon" class="form-control" 
+                                   value="{{ config.icon if config else '' }}" 
+                                   placeholder="bi bi-grid">
+                        </div>
+                    </div>
+                </div>
+
+                <div class="mb-3">
+                    <label class="form-label">توضیحات</label>
+                    <textarea name="description" class="form-control" rows="3">{{ config.description if config and config.description else dashboard.description or '' }}</textarea>
+                </div>
+
+                <div class="row">
+                    <div class="col-md-4">
+                        <div class="mb-3">
+                            <label class="form-label">ترتیب نمایش</label>
+                            <input type="number" name="order" class="form-control" 
+                                   value="{{ config.order if config else 0 }}">
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="mb-3">
+                            <label class="form-label">Cache TTL (ثانیه)</label>
+                            <input type="number" name="cache_ttl_seconds" class="form-control" 
+                                   value="{{ config.cache_ttl_seconds if config else 300 }}" min="0">
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="mb-3">
+                            <label class="form-label">بازه به‌روزرسانی (ثانیه)</label>
+                            <input type="number" name="refresh_interval_seconds" class="form-control" 
+                                   value="{{ config.refresh_interval_seconds if config else '' }}" 
+                                   placeholder="خالی = غیرفعال">
+                        </div>
+                    </div>
+                </div>
+
+                <div class="mb-3">
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" name="is_active" id="is_active" 
+                               {% if not config or config.is_active %}checked{% endif %}>
+                        <label class="form-check-label" for="is_active">
+                            فعال
+                        </label>
+                    </div>
+                </div>
+
+                <div class="mb-3">
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" name="is_public" id="is_public" 
+                               {% if config and config.is_public %}checked{% endif %}>
+                        <label class="form-check-label" for="is_public">
+                            عمومی (قابل مشاهده برای همه کاربران)
+                        </label>
+                    </div>
+                </div>
+
+                <div class="d-flex justify-content-between">
+                    <a href="{{ url_for('admin.dashboards_list') }}" class="btn btn-secondary">انصراف</a>
+                    <button type="submit" class="btn btn-primary">ذخیره تغییرات</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}
+

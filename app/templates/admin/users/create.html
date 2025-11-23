@@ -1,0 +1,89 @@
+{% extends "admin/base.html" %}
+
+{% block title %}ایجاد کاربر جدید{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <h1 class="mb-4"><i class="bi bi-person-plus"></i> ایجاد کاربر جدید</h1>
+
+    <div class="card">
+        <div class="card-body">
+            <form method="POST">
+                <div class="row">
+                    <div class="col-md-6">
+                        <div class="mb-3">
+                            <label class="form-label">SSO ID <span class="text-danger">*</span></label>
+                            <input type="text" name="sso_id" class="form-control" required>
+                            <small class="form-text text-muted">شناسه یکتای کاربر در سیستم SSO</small>
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="mb-3">
+                            <label class="form-label">نام <span class="text-danger">*</span></label>
+                            <input type="text" name="name" class="form-control" required>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="row">
+                    <div class="col-md-6">
+                        <div class="mb-3">
+                            <label class="form-label">ایمیل</label>
+                            <input type="email" name="email" class="form-control">
+                        </div>
+                    </div>
+                </div>
+
+                <div class="row">
+                    <div class="col-md-4">
+                        <div class="mb-3">
+                            <label class="form-label">کد استان</label>
+                            <input type="number" name="province_code" class="form-control">
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="mb-3">
+                            <label class="form-label">کد دانشگاه</label>
+                            <input type="number" name="university_code" class="form-control">
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="mb-3">
+                            <label class="form-label">کد دانشکده</label>
+                            <input type="number" name="faculty_code" class="form-control">
+                        </div>
+                    </div>
+                </div>
+
+                <div class="mb-3">
+                    <label class="form-label">سطح دسترسی</label>
+                    <div>
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" name="access_levels" value="admin">
+                            <label class="form-check-label">مدیر سیستم (Admin)</label>
+                        </div>
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" name="access_levels" value="central_org">
+                            <label class="form-check-label">سازمان مرکزی</label>
+                        </div>
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" name="access_levels" value="province_university">
+                            <label class="form-check-label">دانشگاه استان</label>
+                        </div>
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" name="access_levels" value="faculty">
+                            <label class="form-check-label">دانشکده</label>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="d-flex justify-content-between">
+                    <a href="{{ url_for('admin.users_list') }}" class="btn btn-secondary">انصراف</a>
+                    <button type="submit" class="btn btn-primary">ایجاد کاربر</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
