@@ -14,7 +14,9 @@ from functools import wraps
 from waitress import serve
 from flask_session import Session
 from requests.auth import HTTPBasicAuth
-from dashboard import dashboard_bp
+# from dashboard import dashboard_bp  # Disabled - using new architecture  # Legacy dashboard routes
+from dashboard_routes import dashboard_bp as new_dashboard_bp  # New dashboard architecture
+from dashboards.api import api_bp as dashboard_api_bp  # Dashboard API
 # from tools import tools_bp
 import json
 from auth_utils import requires_auth
@@ -27,6 +29,16 @@ from kanban import kanban_bp
 from students_dashboard import students_bp
 from collections import defaultdict
 from dotenv import load_dotenv
+
+# Load environment variables from .env file FIRST, before importing modules that need them
+# Try multiple locations: project root, app directory, and current directory
+BASE_DIR_ENV = os.path.abspath(os.path.dirname(__file__))
+PROJECT_ROOT = os.path.dirname(BASE_DIR_ENV)  # Go up one level from app/ to project root
+# Try loading from multiple locations (order matters - first found wins)
+load_dotenv(dotenv_path=os.path.join(PROJECT_ROOT, '.env'))  # Project root
+load_dotenv(dotenv_path=os.path.join(BASE_DIR_ENV, '.env'))  # app/ directory
+load_dotenv()  # Current directory (fallback)
+
 from extensions import db
 import hashlib
 import jdatetime
@@ -48,9 +60,14 @@ logger = logging.getLogger(__name__)
 
 # Initialize Flask app
 app = Flask(__name__, template_folder="templates")
-app.secret_key = os.environ.get("SECRET_KEY", "your-secure-random-key")
-# load_dotenv()
-# app.secret_key = os.getenv("SECRET_KEY")
+# SECRET_KEY must be set as environment variable for security
+secret_key = os.environ.get("SECRET_KEY")
+if not secret_key:
+    raise ValueError(
+        "SECRET_KEY environment variable is not set. "
+        "Please set it in your .env file or environment variables."
+    )
+app.secret_key = secret_key
 
 
 app.config["SESSION_TYPE"] = "filesystem"
@@ -74,7 +91,53 @@ from task_label_assignment import assignment_bp
 app.register_blueprint(assignment_bp)
 
 # Register your dashboard routes
-app.register_blueprint(dashboard_bp)
+# Note: Using new architecture only
+app.register_blueprint(new_dashboard_bp)  # New architecture routes
+app.register_blueprint(dashboard_api_bp)  # Dashboard API for filters
+# app.register_blueprint(dashboard_bp)  # Legacy routes - DISABLED (using new architecture)
+
+# Context processor to make dashboard list available in all templates
+@app.context_processor
+def inject_dashboards():
+    """Make dashboard list and user info available in all templates"""
+    from dashboards.registry import DashboardRegistry
+    from dashboards.context import get_user_context
+    import jdatetime
+    from datetime import datetime
+    try:
+        if current_user.is_authenticated:
+            user_context = get_user_context()
+            dashboards = DashboardRegistry.get_accessible_dashboards(user_context)
+            user_info = session.get('user_info', {})
+            return {
+                'accessible_dashboards': dashboards,
+                'current_user_info': user_info,
+                'user_context': user_context.to_dict() if user_context else {},
+                'jdatetime': jdatetime,
+                'current_year': jdatetime.datetime.now().year
+            }
+    except Exception as e:
+        logger.warning(f"Error in context processor: {e}")
+    return {
+        'accessible_dashboards': [],
+        'current_user_info': {},
+        'user_context': {},
+        'jdatetime': jdatetime,
+        'current_year': jdatetime.datetime.now().year
+    }
+
+# Mock SSO for local testing (only in DEBUG mode)
+if app.config.get('DEBUG'):
+    from mock_sso import mock_sso_login
+    
+    @app.route('/mock_login')
+    def mock_login():
+        """Mock SSO login for local testing"""
+        username = request.args.get('username', 'test_central')
+        access_level = request.args.get('access_level', 'central_org')
+        province_code = request.args.get('province_code', type=int)
+        faculty_code = request.args.get('faculty_code', type=int)
+        return mock_sso_login(username, access_level, province_code, faculty_code)
 app.register_blueprint(students_bp)
 
 
@@ -88,9 +151,17 @@ UPLOAD_FOLDER = os.path.join(BASE_DIR, 'exports')
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 
+# SSO Configuration - all sensitive values must come from environment variables
+SSO_CLIENT_SECRET = os.getenv("SSO_CLIENT_SECRET")
+if not SSO_CLIENT_SECRET:
+    raise ValueError(
+        "SSO_CLIENT_SECRET environment variable is not set. "
+        "Please set it in your .env file or environment variables."
+    )
+
 SSO_CONFIG = {
     "client_id": os.getenv("SSO_CLIENT_ID", "bicfu"),
-    "client_secret": os.getenv("SSO_CLIENT_SECRET", "5r75G@t39!"),
+    "client_secret": SSO_CLIENT_SECRET,
     "authorize_url": os.getenv("SSO_AUTH_URL", "https://sso.cfu.ac.ir/oauth2/authorize"),
     "access_token_url": os.getenv("SSO_TOKEN_URL", "https://sso.cfu.ac.ir/oauth2/token"),
     "userinfo_url": "https://sso.cfu.ac.ir/oauth2/userinfo",
@@ -228,13 +299,32 @@ def authorized():
             user = User(sso_id=username, name=userinfo.get("fullname", "Unnamed User"))
             db.session.add(user)
             db.session.commit()
+        
+        # Check if user should have admin access (from database or environment variable)
+        # This allows migration from hardcoded list to database-based access control
+        admin_users_env = os.getenv("ADMIN_USERS", "").split(",")
+        admin_users_env = [u.strip().lower() for u in admin_users_env if u.strip()]
+        
+        # Check if user is admin in database
+        is_admin = user.is_admin()
+        
+        # If not in database but in environment variable, grant access
+        # This is for backward compatibility during migration
+        if not is_admin and username in admin_users_env:
+            # Grant admin access in database for future use
+            if access_level in ["staff"]:
+                admin_access = AccessLevel(level="admin", user_id=user.id)
+                db.session.add(admin_access)
+                db.session.commit()
+                is_admin = True
+        
         # NEW: Tell Flask-Login to log the user in
         login_user(user)
 
         g.current_user = user
 
-        # logger.info(access_level)
-        if username in ["bahrami", "khodarahmi", "asef", "hosseinnezhad", "p.mehrtash"] and  access_level in ["staff"]:
+        # Check access: user must be admin and have staff usertype
+        if is_admin and access_level in ["staff"]:
             return render_template("tools.html", user_info=userinfo)
             # return redirect(url_for("dashboard.dashboard_list"))
         else:

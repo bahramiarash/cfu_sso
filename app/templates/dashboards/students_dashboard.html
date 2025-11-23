@@ -1,43 +1,9 @@
-<!DOCTYPE html>
-<html lang="fa" dir="rtl">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1"> <!-- ✅ Required for responsiveness -->
-    <title>آمار دانشجو معلمان</title>
-    <script src="https://code.jquery.com/jquery-3.6.4.min.js"
-            integrity="sha256-oP6HI9z1XaZNBrJURtCoUT5SUnxFr8s3BzRl+cbzUq8="
-            crossorigin="anonymous"></script>
-    <!-- Bootstrap RTL CSS -->
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.rtl.min.css" rel="stylesheet" integrity="sha384-RWvIoBymqE+ZNyv4WjCh+E+FZd4L9QF8r9jkaG+hEEYX/7dU56Ns6WB6eAebfAy+" crossorigin="anonymous">
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0"></script>
+{% extends "dashboard_base.html" %}
 
-    <!-- Custom Styles -->
-    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+{% block title %}{{ dashboard_title|default('آمار دانشجو معلمان') }}{% endblock %}
 
-</head>
-<body class="bg-light text-dark">
-<!-- templates/dashboards/students_dashboard.html -->
-{% extends 'base.html' %}
 {% block content %}
 <div class="container">
-
-  <h1 class="text-center">داشبرد اطلاعات دانشجو معلمان</h1>
-      <div class="d-flex justify-content-between align-items-center mb-4">
-        <div class="d-flex gap-2 nav1">
-          <div>
-            <form action="https://bi.cfu.ac.ir/logout" method="get">
-              <button type="submit" class="btn btn-danger">خروج</button>
-            </form>
-          </div>
-          <div>
-            <form action="https://bi.cfu.ac.ir/dashboards" method="get">
-              <button type="submit" class="btn btn-primary">بازگشت به داشبرد</button>
-            </form>
-          </div>
-        </div>
-
-      </div>
   <!-- Gender Distribution -->
       <div class="card mb-4" style="display: flex;flex-direction: row;">
       <div class="card-body">
@@ -223,6 +189,16 @@
 
 <!-- Chart.js Integration -->
 <script>
+document.addEventListener('DOMContentLoaded', function() {
+  // Wait for Chart.js to be fully loaded
+  if (typeof Chart === 'undefined') {
+    console.error('Chart.js is not loaded! Waiting...');
+    setTimeout(arguments.callee, 100);
+    return;
+  }
+
+  // Parse JSON data - data is already JSON stringified from backend
+  // The data comes as JSON strings, so we need to parse them
   const genderData = {{ gender_data | safe }};
   const genderData404 = {{ gender_data_404 | safe }};
   const courseDataKardani = {{ course_data_kardani | safe }};
@@ -233,133 +209,194 @@
   const provinceData1 = {{ province_data | safe }};
   const provinceYearData1 = {{ province_year_data | safe }};
   const provinceSexData1 = {{ province_sex_data | safe }};
+  
+  // Debug: Log data to console
+  console.log('Gender Data:', genderData);
+  console.log('Course Data Kardani:', courseDataKardani);
+  console.log('Grade Data:', gradeData);
 
-  new Chart(document.getElementById('genderChart'), {
-    type: 'doughnut',
-    data: {
-      labels: genderData.labels,
-      datasets: [{ data: genderData.counts, backgroundColor: ['#36A2EB', '#FF6384'] }]
-    }
-  });
-
-  new Chart(document.getElementById('genderChart404'), {
-    type: 'doughnut',
-    data: {
-      labels: genderData404.labels,
-      datasets: [{ data: genderData404.counts, backgroundColor: ['#36A2EB', '#FF6384'] }]
-    }
-  });
-
-new Chart(document.getElementById('courseChartKardani'), {
-  type: 'bar',
-  data: {
-    labels: courseDataKardani.labels,
-    datasets: [{
-      label: 'Students',
-      data: courseDataKardani.counts,
-      backgroundColor: '#4BC0C0'
-    }]
-  },
-  options: {
-    indexAxis: 'y', // horizontal bars
-    responsive: true,
-    plugins: {
-      legend: { display: false },
-      datalabels: {
-        anchor: 'end',
-        align: 'end',     // push inside at end of bar
-        clamp: true,
-        offset: 15,
-        color: '#000',
-        rotation: 0,      // keep text horizontal (better for readability in horizontal bar)
-        font: {
-          family: 'Vazir',
-          size: 14,
-          weight: 'bold'
-        },
-        formatter: function (value) {
-          return value ;
-        }
+  // Check if data exists
+  if (!genderData || !genderData.labels || !genderData.counts) {
+    console.error('genderData is missing or invalid:', genderData);
+  } else {
+    const genderChart = new Chart(document.getElementById('genderChart'), {
+      type: 'doughnut',
+      data: {
+        labels: genderData.labels,
+        datasets: [{ data: genderData.counts, backgroundColor: ['#36A2EB', '#FF6384'] }]
       }
-    }
-  },
-  plugins: [ChartDataLabels]
-});
-
-new Chart(document.getElementById('courseChartPeyvaste'), {
-  type: 'bar',
-  data: {
-    labels: courseDataPeyvaste.labels,
-    datasets: [{
-      label: 'Students',
-      data: courseDataPeyvaste.counts,
-      backgroundColor: '#4BC0C0'
-    }]
-  },
-  options: {
-    indexAxis: 'y', // horizontal bars
-    responsive: true,
-    plugins: {
-      legend: { display: false },
-      datalabels: {
-        anchor: 'end',
-        align: 'end',     // position at the end of bar
-        clamp: true,      // force inside
-        offset: 15,
-        color: '#000',
-        rotation: 0,      // keep text horizontal
-        font: {
-          family: 'Vazir',
-          size: 14,
-          weight: 'bold'
-        },
-        formatter: function (value) {
-          return value ;
-        }
+    });
+    setTimeout(() => {
+      if (typeof window.addChartExportButtons === 'function') {
+        window.addChartExportButtons('genderChart', genderChart, 'توزیع_جنسیت_از_1400_تا_1404');
       }
-    }
-  },
-  plugins: [ChartDataLabels]
-});
+    }, 200);
+  }
 
-
-new Chart(document.getElementById('courseChartNapeyvaste'), {
-  type: 'bar',
-  data: {
-    labels: courseDataNapeyvaste.labels,
-    datasets: [{
-      label: 'Students',
-      data: courseDataNapeyvaste.counts,
-      backgroundColor: '#4BC0C0'
-    }]
-  },
-  options: {
-    indexAxis: 'y', // horizontal bars
-    responsive: true,
-    plugins: {
-      legend: { display: false },
-      datalabels: {
-        anchor: 'end',
-        align: 'end',     // position inside at end of bar
-        clamp: true,
-        offset: 15,
-        color: '#000',
-        rotation: 0,      // keep text horizontal for readability
-        font: {
-          family: 'Vazir',
-          size: 14,
-          weight: 'bold'
-        },
-        formatter: function (value) {
-          return value;
-        }
+  if (!genderData404 || !genderData404.labels || !genderData404.counts) {
+    console.error('genderData404 is missing or invalid:', genderData404);
+  } else {
+    const genderChart404 = new Chart(document.getElementById('genderChart404'), {
+      type: 'doughnut',
+      data: {
+        labels: genderData404.labels,
+        datasets: [{ data: genderData404.counts, backgroundColor: ['#36A2EB', '#FF6384'] }]
       }
-    }
-  },
-  plugins: [ChartDataLabels]
-});
+    });
+    setTimeout(() => {
+      if (typeof window.addChartExportButtons === 'function') {
+        window.addChartExportButtons('genderChart404', genderChart404, 'توزیع_جنسیت_1404');
+      }
+    }, 200);
+  }
 
-new Chart(document.getElementById('courseChartArshad'), {
+  // Course Chart Kardani
+  if (!courseDataKardani || !courseDataKardani.labels || !courseDataKardani.counts) {
+    console.error('courseDataKardani is missing or invalid:', courseDataKardani);
+  } else {
+
+    const courseChartKardani = new Chart(document.getElementById('courseChartKardani'), {
+      type: 'bar',
+      data: {
+        labels: courseDataKardani.labels,
+        datasets: [{
+          label: 'Students',
+          data: courseDataKardani.counts,
+          backgroundColor: '#4BC0C0'
+        }]
+      },
+      options: {
+        indexAxis: 'y', // horizontal bars
+        responsive: true,
+        plugins: {
+          legend: { display: false },
+          datalabels: {
+            anchor: 'end',
+            align: 'end',     // push inside at end of bar
+            clamp: true,
+            offset: 15,
+            color: '#000',
+            rotation: 0,      // keep text horizontal (better for readability in horizontal bar)
+            font: {
+              family: 'Vazir',
+              size: 14,
+              weight: 'bold'
+            },
+            formatter: function (value) {
+              return value ;
+            }
+          }
+        }
+      },
+      plugins: [ChartDataLabels]
+    });
+    setTimeout(() => {
+      if (typeof window.addChartExportButtons === 'function') {
+        window.addChartExportButtons('courseChartKardani', courseChartKardani, 'توزیع_رشته_تحصیلی_از_1400_تا_1404_مقطع_کاردانی');
+      }
+    }, 200);
+  }
+
+  // Course Chart Peyvaste
+  if (!courseDataPeyvaste || !courseDataPeyvaste.labels || !courseDataPeyvaste.counts) {
+    console.error('courseDataPeyvaste is missing or invalid:', courseDataPeyvaste);
+  } else {
+
+    const courseChartPeyvaste = new Chart(document.getElementById('courseChartPeyvaste'), {
+      type: 'bar',
+      data: {
+        labels: courseDataPeyvaste.labels,
+        datasets: [{
+          label: 'Students',
+          data: courseDataPeyvaste.counts,
+          backgroundColor: '#4BC0C0'
+        }]
+      },
+      options: {
+        indexAxis: 'y', // horizontal bars
+        responsive: true,
+        plugins: {
+          legend: { display: false },
+          datalabels: {
+            anchor: 'end',
+            align: 'end',     // position at the end of bar
+            clamp: true,      // force inside
+            offset: 15,
+            color: '#000',
+            rotation: 0,      // keep text horizontal
+            font: {
+              family: 'Vazir',
+              size: 14,
+              weight: 'bold'
+            },
+            formatter: function (value) {
+              return value ;
+            }
+          }
+        }
+      },
+      plugins: [ChartDataLabels]
+    });
+    setTimeout(() => {
+      if (typeof window.addChartExportButtons === 'function') {
+        window.addChartExportButtons('courseChartPeyvaste', courseChartPeyvaste, 'توزیع_رشته_تحصیلی_از_1400_تا_1404_مقطع_کارشناسی_پیوسته');
+      }
+    }, 200);
+  }
+
+  // Course Chart Napeyvaste
+  if (!courseDataNapeyvaste || !courseDataNapeyvaste.labels || !courseDataNapeyvaste.counts) {
+    console.error('courseDataNapeyvaste is missing or invalid:', courseDataNapeyvaste);
+  } else {
+
+
+    const courseChartNapeyvaste = new Chart(document.getElementById('courseChartNapeyvaste'), {
+      type: 'bar',
+      data: {
+        labels: courseDataNapeyvaste.labels,
+        datasets: [{
+          label: 'Students',
+          data: courseDataNapeyvaste.counts,
+          backgroundColor: '#4BC0C0'
+        }]
+      },
+      options: {
+        indexAxis: 'y', // horizontal bars
+        responsive: true,
+        plugins: {
+          legend: { display: false },
+          datalabels: {
+            anchor: 'end',
+            align: 'end',     // position inside at end of bar
+            clamp: true,
+            offset: 15,
+            color: '#000',
+            rotation: 0,      // keep text horizontal for readability
+            font: {
+              family: 'Vazir',
+              size: 14,
+              weight: 'bold'
+            },
+            formatter: function (value) {
+              return value;
+            }
+          }
+        }
+      },
+      plugins: [ChartDataLabels]
+    });
+    setTimeout(() => {
+      if (typeof window.addChartExportButtons === 'function') {
+        window.addChartExportButtons('courseChartNapeyvaste', courseChartNapeyvaste, 'توزیع_رشته_تحصیلی_از_1400_تا_1404_کارشناسی_ناپیوسته');
+      }
+    }, 200);
+  }
+
+  // Course Chart Arshad
+  if (!courseDataArshad || !courseDataArshad.labels || !courseDataArshad.counts) {
+    console.error('courseDataArshad is missing or invalid:', courseDataArshad);
+  } else {
+    const courseChartArshad = new Chart(document.getElementById('courseChartArshad'), {
   type: 'bar',
   data: {
     labels: courseDataArshad.labels,
@@ -392,9 +429,20 @@ new Chart(document.getElementById('courseChartArshad'), {
       }
     }
   },
-  plugins: [ChartDataLabels]
-});
-new Chart(document.getElementById('gradeChart'), {
+      plugins: [ChartDataLabels]
+    });
+    setTimeout(() => {
+      if (typeof window.addChartExportButtons === 'function') {
+        window.addChartExportButtons('courseChartArshad', courseChartArshad, 'توزیع_رشته_تحصیلی_از_1400_تا_1404_کارشناسی_ارشد');
+      }
+    }, 200);
+  }
+
+  // Grade Chart
+  if (!gradeData || !gradeData.labels || !gradeData.counts) {
+    console.error('gradeData is missing or invalid:', gradeData);
+  } else {
+    const gradeChart = new Chart(document.getElementById('gradeChart'), {
   type: 'bar',
   data: {
     labels: gradeData.labels,
@@ -440,11 +488,20 @@ new Chart(document.getElementById('gradeChart'), {
       }
     }
   },
-  plugins: [ChartDataLabels]
-});
+      plugins: [ChartDataLabels]
+    });
+    setTimeout(() => {
+      if (typeof window.addChartExportButtons === 'function') {
+        window.addChartExportButtons('gradeChart', gradeChart, 'توزیع_مقطع_تحصیلی_از_1400_تا_1404');
+      }
+    }, 200);
+  }
 
-  
-  new Chart(document.getElementById('provinceChart1'), {
+  // Province Chart
+  if (!provinceData1 || !provinceData1.labels || !provinceData1.counts) {
+    console.error('provinceData1 is missing or invalid:', provinceData1);
+  } else {
+    const provinceChart1 = new Chart(document.getElementById('provinceChart1'), {
     type: 'bar',
     data: {
       labels: provinceData1.labels,
@@ -472,20 +529,30 @@ new Chart(document.getElementById('gradeChart'), {
         }
       }
     },
-    plugins: [ChartDataLabels]
-  });
-  
-// Define a color for each year
-const colors = ["#9966FF", "#FF9933", "#33CC99", "#FF6666"];
+      plugins: [ChartDataLabels]
+    });
+    setTimeout(() => {
+      if (typeof window.addChartExportButtons === 'function') {
+        window.addChartExportButtons('provinceChart1', provinceChart1, 'توزیع_استانی_دانشجومعلمان');
+      }
+    }, 200);
+  }
 
-// Build datasets dynamically from years
-const datasets = provinceYearData1.years.map((year, idx) => ({
-    label: `ورودی ${year}`,
-    data: provinceYearData1.data[year],
-    backgroundColor: colors[idx % colors.length]
-}));
+  // Province Year Chart
+  if (!provinceYearData1 || !provinceYearData1.labels || !provinceYearData1.years || !provinceYearData1.data) {
+    console.error('provinceYearData1 is missing or invalid:', provinceYearData1);
+  } else {
+    // Define a color for each year
+    const colors = ["#9966FF", "#FF9933", "#33CC99", "#FF6666"];
 
-new Chart(document.getElementById('provinceYearChart1'), {
+    // Build datasets dynamically from years
+    const datasets = provinceYearData1.years.map((year, idx) => ({
+        label: `ورودی ${year}`,
+        data: provinceYearData1.data[year],
+        backgroundColor: colors[idx % colors.length]
+    }));
+
+    const provinceYearChart1 = new Chart(document.getElementById('provinceYearChart1'), {
     type: 'bar',
     data: {
         labels: provinceYearData1.labels, // Provinces on X-axis
@@ -523,22 +590,31 @@ new Chart(document.getElementById('provinceYearChart1'), {
             y: {
                 beginAtZero: true
             }
-        }
-    },
-    plugins: [ChartDataLabels]
-});  
+    }
+      },
+      plugins: [ChartDataLabels]
+    });
+    setTimeout(() => {
+      if (typeof window.addChartExportButtons === 'function') {
+        window.addChartExportButtons('provinceYearChart1', provinceYearChart1, 'توزیع_استانی_و_سال_ورود_دانشجو_معلمان');
+      }
+    }, 200);
+  }
 
-// /////////////////////////////////////
-// Define a color for each sex
-const colors_sex = ["#9966FF", "#FF9933"];
+  // Province Sex Chart
+  if (!provinceSexData1 || !provinceSexData1.labels || !provinceSexData1.sex_list || !provinceSexData1.data) {
+    console.error('provinceSexData1 is missing or invalid:', provinceSexData1);
+  } else {
+    // Define a color for each sex
+    const colors_sex = ["#9966FF", "#FF9933"];
 
-const datasets_sex = provinceSexData1.sex_list.map((sex, idx) => ({
-    label: `${sex}`,
-    data: provinceSexData1.data[sex],
-    backgroundColor: colors_sex[idx % colors_sex.length]
-}));
+    const datasets_sex = provinceSexData1.sex_list.map((sex, idx) => ({
+        label: `${sex}`,
+        data: provinceSexData1.data[sex],
+        backgroundColor: colors_sex[idx % colors_sex.length]
+    }));
 
-new Chart(document.getElementById('provinceSexChart1'), {
+    const provinceSexChart1 = new Chart(document.getElementById('provinceSexChart1'), {
     type: 'bar',
     data: {
         labels: provinceSexData1.labels, // Provinces on X-axis
@@ -578,14 +654,21 @@ new Chart(document.getElementById('provinceSexChart1'), {
             }
         }
     },
-    plugins: [ChartDataLabels]
-});  
+      plugins: [ChartDataLabels]
+    });
+    setTimeout(() => {
+      if (typeof window.addChartExportButtons === 'function') {
+        window.addChartExportButtons('provinceSexChart1', provinceSexChart1, 'توزیع_استانی_و_جنسیت_دانشجو_معلمان');
+      }
+    }, 200);
+  }
 
-
-// /////////////////////////////////////
-  
-const yearData = {{ year_data | safe }};
-new Chart(document.getElementById('entryYearChart'), {
+  // Entry Year Chart
+  const yearData = {{ year_data | safe }};
+  if (!yearData || !yearData.labels || !yearData.total) {
+    console.error('yearData is missing or invalid:', yearData);
+  } else {
+    const entryYearChart = new Chart(document.getElementById('entryYearChart'), {
   type: 'bar',
   data: {
     labels: yearData.labels,
@@ -613,17 +696,21 @@ new Chart(document.getElementById('entryYearChart'), {
       x: { stacked: true },
       y: { stacked: true }
     }
+      }
+    });
+    setTimeout(() => {
+      if (typeof window.addChartExportButtons === 'function') {
+        window.addChartExportButtons('entryYearChart', entryYearChart, 'توزیع_ورودی_ها_در_سال_بر_اساس_جنسیت');
+      }
+    }, 200);
   }
-});
 
-  const courseYearDataKardani = {{ course_year_data_kardani | safe }};
-  const courseYearDataKarshenasiNapeyvaste = {{ course_year_data_karshenasi_napeyvaste | safe }};
-  const courseYearDataKarshenasiPeyvaste = {{ course_year_data_karshenasi_peyvaste | safe }};
-  const courseYearDataArshad = {{ course_year_data_arshad | safe }};
-
-const yearDataGrade = {{ year_data_grade | safe }};
-
-new Chart(document.getElementById('entryYearChartGrade'), {
+  // Entry Year Grade Chart
+  const yearDataGrade = {{ year_data_grade | safe }};
+  if (!yearDataGrade || !yearDataGrade.labels) {
+    console.error('yearDataGrade is missing or invalid:', yearDataGrade);
+  } else {
+    const entryYearChartGrade = new Chart(document.getElementById('entryYearChartGrade'), {
   type: 'bar',
   data: {
     labels: yearDataGrade.labels,
@@ -656,14 +743,34 @@ new Chart(document.getElementById('entryYearChartGrade'), {
       x: { stacked: true },
       y: { stacked: true }
     }
+      }
+    });
+    setTimeout(() => {
+      if (typeof window.addChartExportButtons === 'function') {
+        window.addChartExportButtons('entryYearChartGrade', entryYearChartGrade, 'توزیع_ورودی_ها_در_سال_بر_اساس_مقطع');
+      }
+    }, 200);
   }
-});
 
+  // Scrollable Course Year Charts
+  const courseYearDataKardani = {{ course_year_data_kardani | safe }};
+  const courseYearDataKarshenasiNapeyvaste = {{ course_year_data_karshenasi_napeyvaste | safe }};
+  const courseYearDataKarshenasiPeyvaste = {{ course_year_data_karshenasi_peyvaste | safe }};
+  const courseYearDataArshad = {{ course_year_data_arshad | safe }};
 
-</script>
-<script>
-  const ctxKardani = document.getElementById('scrollableCourseYearChartKardani').getContext('2d');
-  const scrollableChartKardani = new Chart(ctxKardani, {
+  function getRandomColor() {
+    const r = Math.floor(Math.random() * 200);
+    const g = Math.floor(Math.random() * 200);
+    const b = Math.floor(Math.random() * 200);
+    return `rgba(${r}, ${g}, ${b}, 0.6)`;
+  }
+
+  // Scrollable Chart Kardani
+  if (!courseYearDataKardani || !courseYearDataKardani.labels || !courseYearDataKardani.datasets) {
+    console.error('courseYearDataKardani is missing or invalid:', courseYearDataKardani);
+  } else {
+    const ctxKardani = document.getElementById('scrollableCourseYearChartKardani').getContext('2d');
+    const scrollableChartKardani = new Chart(ctxKardani, {
     type: 'bar',
     data: {
       labels: courseYearDataKardani.labels,
@@ -708,9 +815,20 @@ new Chart(document.getElementById('entryYearChartGrade'), {
       y: { stacked: true }
     }
   }
-  });
-  const ctxKarshenasiNapeyvaste = document.getElementById('scrollableCourseYearChartKarshenasiNapeyvaste').getContext('2d');
-  const scrollableChartNapeyvaste = new Chart(ctxKarshenasiNapeyvaste, {
+    });
+    setTimeout(() => {
+      if (typeof window.addChartExportButtons === 'function') {
+        window.addChartExportButtons('scrollableCourseYearChartKardani', scrollableChartKardani, 'توزیع_دانشجومعلمان_بر_اساس_سال_ورود_و_رشته_تحصیلی_مقطع_کاردانی');
+      }
+    }, 200);
+  }
+
+  // Scrollable Chart Karshenasi Napeyvaste
+  if (!courseYearDataKarshenasiNapeyvaste || !courseYearDataKarshenasiNapeyvaste.labels || !courseYearDataKarshenasiNapeyvaste.datasets) {
+    console.error('courseYearDataKarshenasiNapeyvaste is missing or invalid:', courseYearDataKarshenasiNapeyvaste);
+  } else {
+    const ctxKarshenasiNapeyvaste = document.getElementById('scrollableCourseYearChartKarshenasiNapeyvaste').getContext('2d');
+    const scrollableChartNapeyvaste = new Chart(ctxKarshenasiNapeyvaste, {
     type: 'bar',
     data: {
       labels: courseYearDataKarshenasiNapeyvaste.labels,
@@ -755,10 +873,20 @@ new Chart(document.getElementById('entryYearChartGrade'), {
       y: { stacked: true }
     }
   }
-  });
+    });
+    setTimeout(() => {
+      if (typeof window.addChartExportButtons === 'function') {
+        window.addChartExportButtons('scrollableCourseYearChartKarshenasiNapeyvaste', scrollableChartNapeyvaste, 'توزیع_دانشجومعلمان_بر_اساس_سال_ورود_و_رشته_تحصیلی_مقطع_کارشناسی_ناپیوسته');
+      }
+    }, 200);
+  }
 
-  const ctxKarshenasiPeyvaste = document.getElementById('scrollableCourseYearChartKarshenasiPeyvaste').getContext('2d');
-  const scrollableChartPeyvaste = new Chart(ctxKarshenasiPeyvaste, {
+  // Scrollable Chart Karshenasi Peyvaste
+  if (!courseYearDataKarshenasiPeyvaste || !courseYearDataKarshenasiPeyvaste.labels || !courseYearDataKarshenasiPeyvaste.datasets) {
+    console.error('courseYearDataKarshenasiPeyvaste is missing or invalid:', courseYearDataKarshenasiPeyvaste);
+  } else {
+    const ctxKarshenasiPeyvaste = document.getElementById('scrollableCourseYearChartKarshenasiPeyvaste').getContext('2d');
+    const scrollableChartPeyvaste = new Chart(ctxKarshenasiPeyvaste, {
     type: 'bar',
     data: {
       labels: courseYearDataKarshenasiPeyvaste.labels,
@@ -803,10 +931,20 @@ new Chart(document.getElementById('entryYearChartGrade'), {
       y: { stacked: true }
     }
   }
-  });
+    });
+    setTimeout(() => {
+      if (typeof window.addChartExportButtons === 'function') {
+        window.addChartExportButtons('scrollableCourseYearChartKarshenasiPeyvaste', scrollableChartPeyvaste, 'توزیع_دانشجومعلمان_بر_اساس_سال_ورود_و_رشته_تحصیلی_مقطع_کارشناسی_پیوسته');
+      }
+    }, 200);
+  }
 
-  const ctxArshad = document.getElementById('scrollableCourseYearChartArshad').getContext('2d');
-  const scrollableChartArshad = new Chart(ctxArshad, {
+  // Scrollable Chart Arshad
+  if (!courseYearDataArshad || !courseYearDataArshad.labels || !courseYearDataArshad.datasets) {
+    console.error('courseYearDataArshad is missing or invalid:', courseYearDataArshad);
+  } else {
+    const ctxArshad = document.getElementById('scrollableCourseYearChartArshad').getContext('2d');
+    const scrollableChartArshad = new Chart(ctxArshad, {
     type: 'bar',
     data: {
       labels: courseYearDataArshad.labels,
@@ -851,20 +989,20 @@ new Chart(document.getElementById('entryYearChartGrade'), {
       y: { stacked: true }
     }
   }
-  });
-
-
-  function getRandomColor() {
-    const r = Math.floor(Math.random() * 200);
-    const g = Math.floor(Math.random() * 200);
-    const b = Math.floor(Math.random() * 200);
-    return `rgba(${r}, ${g}, ${b}, 0.6)`;
+    });
+    setTimeout(() => {
+      if (typeof window.addChartExportButtons === 'function') {
+        window.addChartExportButtons('scrollableCourseYearChartArshad', scrollableChartArshad, 'توزیع_دانشجومعلمان_بر_اساس_سال_ورود_و_رشته_تحصیلی_مقطع_کارشناسی_ارشد');
+      }
+    }, 200);
   }
-</script>
-<script>
-const vazeiyatData = {{ vazeiyat_data | safe }};
 
-new Chart(document.getElementById('vazeiyatChart'), {
+  // Vazeiyat Chart
+  const vazeiyatData = {{ vazeiyat_data | safe }};
+  if (!vazeiyatData || !vazeiyatData.labels || !vazeiyatData.counts) {
+    console.error('vazeiyatData is missing or invalid:', vazeiyatData);
+  } else {
+    const vazeiyatChart = new Chart(document.getElementById('vazeiyatChart'), {
   type: 'bar',
   data: {
     labels: vazeiyatData.labels,
@@ -913,14 +1051,21 @@ new Chart(document.getElementById('vazeiyatChart'), {
       }
     }
   },
-  plugins: [ChartDataLabels]
-});
-</script>
-<script>
-// 1404
-const vazeiyatData_404 = {{ vazeiyat_data_404 | safe }};
+      plugins: [ChartDataLabels]
+    });
+    setTimeout(() => {
+      if (typeof window.addChartExportButtons === 'function') {
+        window.addChartExportButtons('vazeiyatChart', vazeiyatChart, 'توزیع_وضعیت_دانشجو_معلمان');
+      }
+    }, 200);
+  }
 
-new Chart(document.getElementById('vazeiyatChart_404'), {
+  // Vazeiyat Chart 404
+  const vazeiyatData_404 = {{ vazeiyat_data_404 | safe }};
+  if (!vazeiyatData_404 || !vazeiyatData_404.labels || !vazeiyatData_404.counts) {
+    console.error('vazeiyatData_404 is missing or invalid:', vazeiyatData_404);
+  } else {
+    const vazeiyatChart404 = new Chart(document.getElementById('vazeiyatChart_404'), {
   type: 'bar',
   data: {
     labels: vazeiyatData_404.labels,
@@ -969,17 +1114,21 @@ new Chart(document.getElementById('vazeiyatChart_404'), {
       }
     }
   },
-  plugins: [ChartDataLabels]
-});
+      plugins: [ChartDataLabels]
+    });
+    setTimeout(() => {
+      if (typeof window.addChartExportButtons === 'function') {
+        window.addChartExportButtons('vazeiyatChart_404', vazeiyatChart404, 'توزیع_وضعیت_دانشجو_معلمان_ورودی_1404');
+      }
+    }, 200);
+  }
 
-
-</script>
-
-
-<script>
-const provinceVazeiyatData = {{ province_vazeiyat_data | safe }};
-
-new Chart(document.getElementById('provinceVazeiyatHorizontalChart'), {
+  // Province Vazeiyat Horizontal Chart
+  const provinceVazeiyatData = {{ province_vazeiyat_data | safe }};
+  if (!provinceVazeiyatData || !provinceVazeiyatData.labels || !provinceVazeiyatData.datasets) {
+    console.error('provinceVazeiyatData is missing or invalid:', provinceVazeiyatData);
+  } else {
+    const provinceVazeiyatHorizontalChart = new Chart(document.getElementById('provinceVazeiyatHorizontalChart'), {
   type: 'bar',
   data: provinceVazeiyatData,
   options: {
@@ -1037,13 +1186,15 @@ new Chart(document.getElementById('provinceVazeiyatHorizontalChart'), {
       }
     }
   },
-  plugins: [ChartDataLabels]
-});
+      plugins: [ChartDataLabels]
+    });
+    setTimeout(() => {
+      if (typeof window.addChartExportButtons === 'function') {
+        window.addChartExportButtons('provinceVazeiyatHorizontalChart', provinceVazeiyatHorizontalChart, 'توزیع_وضعیت_دانشجو_معلمان_بر_اساس_استان');
+      }
+    }, 200);
+  }
+}); // End of DOMContentLoaded
 </script>
 
 {% endblock %}
-
-<!-- Bootstrap JS Bundle -->
-<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js" integrity="sha384-gKZ84Kr84U/9B5qX7mdGOSFaInGkNpe8pEqFQxdJkKr6ZsEr/1OpI3UxF8zINJ9c" crossorigin="anonymous"></script>
-</body>
-</html>

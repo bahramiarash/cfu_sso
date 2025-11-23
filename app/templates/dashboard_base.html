@@ -1,0 +1,997 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}داشبورد{% endblock %} - سامانه مدیریت دانشگاه فرهنگیان</title>
+    
+    <!-- Bootstrap RTL CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.rtl.min.css" rel="stylesheet" crossorigin="anonymous">
+    
+    <!-- Bootstrap Icons -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet">
+    
+    <!-- Chart.js (for dashboards that need it) -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0"></script>
+    
+    <!-- Chart Export Functionality - Load early -->
+    <script>
+        /**
+         * Export Chart.js chart as image
+         * @param {Chart} chart - Chart.js instance
+         * @param {string} filename - Name for the downloaded file
+         * @param {string} format - Image format ('png' or 'jpeg')
+         */
+        window.exportChartJS = function(chart, filename, format = 'png') {
+            if (!chart) {
+                console.error('Chart instance not found');
+                return;
+            }
+            
+            try {
+                // Get the base64 image from Chart.js
+                const url = chart.toBase64Image(format === 'jpeg' ? 'image/jpeg' : 'image/png', 1.0);
+                
+                // Create a temporary link and trigger download
+                const link = document.createElement('a');
+                link.download = filename || `chart_${Date.now()}.${format}`;
+                link.href = url;
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+            } catch (error) {
+                console.error('Error exporting chart:', error);
+                alert('خطا در خروجی گرفتن نمودار. لطفاً دوباره تلاش کنید.');
+            }
+        };
+        
+        /**
+         * Create export buttons for a Chart.js chart
+         * @param {string} chartId - The canvas element ID
+         * @param {Chart} chartInstance - The Chart.js instance
+         * @param {string} chartTitle - Title for the chart (used in filename)
+         */
+        window.addChartExportButtons = function(chartId, chartInstance, chartTitle = '') {
+            try {
+                // Use setTimeout to ensure DOM is ready
+                setTimeout(() => {
+                    const canvas = document.getElementById(chartId);
+                    if (!canvas) {
+                        console.warn(`Canvas element with id "${chartId}" not found`);
+                        return;
+                    }
+                    
+                    if (!chartInstance) {
+                        console.warn(`Chart instance for "${chartId}" is not provided`);
+                        return;
+                    }
+                    
+                    // Find the parent container
+                    let container = canvas.closest('.card-body') || canvas.closest('.mb-5') || canvas.closest('.card') || canvas.parentElement;
+                    if (!container) {
+                        console.warn(`Container for chart "${chartId}" not found`);
+                        return;
+                    }
+                    
+                    // Check if buttons already exist
+                    if (container.querySelector('.chart-export-buttons')) {
+                        return;
+                    }
+                    
+                    // Make container relative if not already
+                    const containerStyle = getComputedStyle(container);
+                    if (containerStyle.position === 'static') {
+                        container.style.position = 'relative';
+                    }
+                    
+                    // Create export buttons container
+                    const buttonsContainer = document.createElement('div');
+                    buttonsContainer.className = 'chart-export-buttons';
+                    
+                    // Clean filename
+                    const cleanTitle = (chartTitle || 'chart').replace(/[^a-z0-9\u0600-\u06FF]/gi, '_').substring(0, 50);
+                    
+                    // PNG button
+                    const pngBtn = document.createElement('button');
+                    pngBtn.className = 'chart-export-btn';
+                    pngBtn.type = 'button';
+                    pngBtn.innerHTML = '<i class="bi bi-download"></i> PNG';
+                    pngBtn.title = 'دانلود به صورت PNG';
+                    pngBtn.onclick = function(e) {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        window.exportChartJS(chartInstance, `${cleanTitle}.png`, 'png');
+                    };
+                    
+                    // JPEG button
+                    const jpegBtn = document.createElement('button');
+                    jpegBtn.className = 'chart-export-btn';
+                    jpegBtn.type = 'button';
+                    jpegBtn.innerHTML = '<i class="bi bi-download"></i> JPEG';
+                    jpegBtn.title = 'دانلود به صورت JPEG';
+                    jpegBtn.onclick = function(e) {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        window.exportChartJS(chartInstance, `${cleanTitle}.jpg`, 'jpeg');
+                    };
+                    
+                    buttonsContainer.appendChild(pngBtn);
+                    buttonsContainer.appendChild(jpegBtn);
+                    container.insertBefore(buttonsContainer, container.firstChild);
+                    
+                    console.log(`Export buttons added for chart: ${chartId}`);
+                }, 100);
+            } catch (error) {
+                console.error(`Error adding export buttons for chart "${chartId}":`, error);
+            }
+        };
+    </script>
+    
+    <!-- jQuery -->
+    <script src="https://code.jquery.com/jquery-3.6.4.min.js" 
+            integrity="sha256-oP6HI9z1XaZNBrJURtCoUT5SUnxFr8s3BzRl+cbzUq8=" 
+            crossorigin="anonymous"></script>
+    
+    <!-- Custom Styles -->
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    
+    <style>
+        :root {
+            --primary-color: #0d6efd;
+            --secondary-color: #6c757d;
+            --success-color: #198754;
+            --danger-color: #dc3545;
+            --warning-color: #ffc107;
+            --info-color: #0dcaf0;
+            --light-color: #f8f9fa;
+            --dark-color: #212529;
+        }
+        
+        body {
+            font-family: 'IRANSans', 'Vazir', 'Tahoma', sans-serif;
+            background-color: #f5f5f5;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            margin: 0;
+            padding: 0;
+            padding-top: 60px; /* Space for fixed navbar */
+        }
+        
+        .navbar {
+            flex-shrink: 0;
+        }
+        
+        /* Navigation Bar */
+        .navbar-custom {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            padding: 0.5rem 0;
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            z-index: 1030;
+            width: 100%;
+        }
+        
+        .navbar-custom .container-fluid {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            justify-content: space-between;
+        }
+        
+        .navbar-custom .navbar-nav {
+            flex-direction: row !important;
+            align-items: center;
+        }
+        
+        .navbar-custom .navbar-nav .nav-item {
+            margin-left: 0.5rem;
+            margin-right: 0.5rem;
+        }
+        
+        /* Ensure navbar is horizontal, not vertical */
+        @media (min-width: 992px) {
+            .navbar-expand-lg .navbar-nav {
+                flex-direction: row !important;
+            }
+            
+            .navbar-expand-lg .navbar-collapse {
+                display: flex !important;
+                flex-basis: auto;
+            }
+        }
+        
+        .navbar-brand-custom {
+            color: white !important;
+            font-weight: bold;
+            font-size: 1.1rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        
+        .navbar-brand-custom:hover {
+            color: #f0f0f0 !important;
+        }
+        
+        .nav-link-custom {
+            color: rgba(255,255,255,0.9) !important;
+            padding: 0.4rem 0.75rem !important;
+            border-radius: 0.375rem;
+            transition: all 0.3s ease;
+            font-size: 0.95rem;
+        }
+        
+        .nav-link-custom:hover {
+            background-color: rgba(255,255,255,0.1);
+            color: white !important;
+        }
+        
+        .nav-link-custom.active {
+            background-color: rgba(255,255,255,0.2);
+            color: white !important;
+            font-weight: 600;
+        }
+        
+        /* User Info Dropdown */
+        .user-info-dropdown {
+            background-color: rgba(255,255,255,0.1);
+            border: 1px solid rgba(255,255,255,0.2);
+            border-radius: 0.5rem;
+            padding: 0.4rem 0.75rem;
+            color: white;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            font-size: 0.9rem;
+        }
+        
+        .user-info-dropdown:hover {
+            background-color: rgba(255,255,255,0.2);
+        }
+        
+        .user-info-dropdown i.bi-person-circle {
+            font-size: 1.3rem !important;
+        }
+        
+        .user-info-dropdown > div {
+            line-height: 1.3;
+        }
+        
+        .user-info-dropdown > div > div:first-child {
+            font-size: 0.9rem;
+        }
+        
+        .user-info-dropdown > div > div:last-child {
+            font-size: 0.75rem;
+        }
+        
+        /* Dashboard Menu */
+        .nav-item.dropdown {
+            position: relative;
+        }
+        
+        .dashboard-menu {
+            max-height: 60vh;
+            overflow-y: auto;
+            min-width: 280px;
+            max-width: 350px;
+            font-size: 0.9rem;
+        }
+        
+        .dashboard-menu-item {
+            padding: 0.5rem 0.75rem;
+            border-bottom: 1px solid rgba(0,0,0,0.05);
+            transition: all 0.2s ease;
+            text-decoration: none;
+            color: #333;
+            display: block;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            font-size: 0.875rem;
+        }
+        
+        .dashboard-menu-item i {
+            font-size: 0.9rem;
+            margin-left: 0.5rem;
+            width: 18px;
+            text-align: center;
+        }
+        
+        .dashboard-menu-item:hover {
+            background-color: #f8f9fa;
+            color: var(--primary-color);
+            padding-right: 1rem;
+        }
+        
+        .dashboard-menu-item.active {
+            background-color: #e7f1ff;
+            color: var(--primary-color);
+            font-weight: 600;
+            border-right: 3px solid var(--primary-color);
+        }
+        
+        .dropdown-divider {
+            margin: 0.25rem 0;
+        }
+        
+        /* Mega Menu for Filters */
+        .mega-menu {
+            position: absolute;
+            top: 100%;
+            right: 0;
+            background: white;
+            border-radius: 0.5rem;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+            padding: 1.5rem;
+            min-width: 500px;
+            max-width: 700px;
+            z-index: 1050;
+            display: none;
+            margin-top: 0.5rem;
+        }
+        
+        .mega-menu.show {
+            display: block;
+        }
+        
+        .mega-menu-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 1rem;
+            padding-bottom: 0.75rem;
+            border-bottom: 2px solid #e9ecef;
+        }
+        
+        .mega-menu-header h5 {
+            margin: 0;
+            color: #333;
+            font-size: 1.1rem;
+        }
+        
+        .mega-menu-close {
+            background: none;
+            border: none;
+            font-size: 1.5rem;
+            color: #6c757d;
+            cursor: pointer;
+            padding: 0;
+            width: 30px;
+            height: 30px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 50%;
+            transition: all 0.2s;
+        }
+        
+        .mega-menu-close:hover {
+            background: #f8f9fa;
+            color: #333;
+        }
+        
+        .mega-menu-body {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 1rem;
+        }
+        
+        .mega-menu-item {
+            display: flex;
+            flex-direction: column;
+        }
+        
+        .mega-menu-item label {
+            font-weight: 600;
+            margin-bottom: 0.5rem;
+            color: #495057;
+            font-size: 0.9rem;
+        }
+        
+        .mega-menu-item select {
+            padding: 0.5rem;
+            border: 1px solid #ced4da;
+            border-radius: 0.375rem;
+            font-size: 0.9rem;
+        }
+        
+        .mega-menu-footer {
+            margin-top: 1rem;
+            padding-top: 1rem;
+            border-top: 2px solid #e9ecef;
+            display: flex;
+            gap: 0.5rem;
+            justify-content: flex-end;
+        }
+        
+        @media (max-width: 768px) {
+            .mega-menu {
+                min-width: 90vw;
+                max-width: 95vw;
+                right: 5vw;
+            }
+            
+            .mega-menu-body {
+                grid-template-columns: 1fr;
+            }
+        }
+        
+        /* Main Content */
+        .main-content {
+            flex: 1;
+            padding: 2rem 0;
+            width: 100%;
+            overflow-x: hidden;
+            margin-top: 60px; /* Space for fixed navbar */
+        }
+        
+        /* Dashboard Header */
+        .dashboard-header {
+            background: white;
+            border-radius: 0.5rem;
+            padding: 1.5rem;
+            margin-bottom: 2rem;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        
+        .dashboard-title {
+            font-size: 1.75rem;
+            font-weight: 700;
+            color: #333;
+            margin: 0;
+        }
+        
+        .dashboard-description {
+            color: #6c757d;
+            margin-top: 0.5rem;
+            font-size: 0.95rem;
+        }
+        
+        /* Footer */
+        .footer-custom {
+            background-color: #343a40;
+            color: white;
+            padding: 1.5rem 0;
+            margin-top: auto;
+            text-align: center;
+        }
+        
+        /* Responsive */
+        @media (max-width: 768px) {
+            .navbar-brand-custom {
+                font-size: 1rem;
+            }
+            
+            .dashboard-title {
+                font-size: 1.5rem;
+            }
+            
+            .main-content {
+                padding: 1rem 0;
+                margin-top: 56px; /* Smaller margin on mobile */
+            }
+            
+            body {
+                padding-top: 56px; /* Smaller navbar height on mobile */
+            }
+            
+            .dashboard-header {
+                padding: 1rem;
+            }
+        }
+        
+        /* Scrollbar Styling */
+        .dashboard-menu::-webkit-scrollbar {
+            width: 8px;
+        }
+        
+        .dashboard-menu::-webkit-scrollbar-track {
+            background: #f1f1f1;
+        }
+        
+        .dashboard-menu::-webkit-scrollbar-thumb {
+            background: #888;
+            border-radius: 4px;
+        }
+        
+        .dashboard-menu::-webkit-scrollbar-thumb:hover {
+            background: #555;
+        }
+        
+        /* Chart Export Button Styles */
+        .chart-export-container {
+            position: relative;
+            margin-bottom: 1rem;
+        }
+        
+        .chart-export-buttons {
+            position: absolute;
+            top: 0;
+            left: 0;
+            z-index: 10;
+            display: flex;
+            gap: 0.5rem;
+            padding: 0.5rem;
+            background: rgba(255, 255, 255, 0.9);
+            border-radius: 0.375rem;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        
+        .chart-export-btn {
+            padding: 0.375rem 0.75rem;
+            font-size: 0.875rem;
+            border: 1px solid #dee2e6;
+            border-radius: 0.25rem;
+            background: white;
+            color: #495057;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            display: flex;
+            align-items: center;
+            gap: 0.25rem;
+        }
+        
+        .chart-export-btn:hover {
+            background: #f8f9fa;
+            border-color: #adb5bd;
+            color: #212529;
+        }
+        
+        .chart-export-btn i {
+            font-size: 1rem;
+        }
+        
+        .chart-container-wrapper {
+            position: relative;
+        }
+        
+        /* For charts inside cards */
+        .card .chart-export-buttons {
+            position: absolute;
+            top: 0.5rem;
+            left: 0.5rem;
+        }
+        
+        .card-body {
+            position: relative;
+        }
+    </style>
+    
+    {% block extra_css %}{% endblock %}
+</head>
+<body>
+    <!-- Navigation Bar -->
+    <nav class="navbar navbar-expand-lg navbar-custom">
+        <div class="container-fluid">
+            <!-- Brand -->
+            <a class="navbar-brand navbar-brand-custom" href="{{ url_for('dashboard.dashboard_list') }}">
+                <i class="bi bi-speedometer2"></i>
+                <span>سامانه داشبورد</span>
+            </a>
+            
+            <!-- Mobile Toggle Button -->
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav" 
+                    aria-controls="navbarNav" aria-expanded="false" aria-label="Toggle navigation"
+                    style="border: 1px solid rgba(255,255,255,0.3);">
+                <span class="navbar-toggler-icon" style="filter: invert(1);"></span>
+            </button>
+            
+            <!-- Navbar Content -->
+            <div class="collapse navbar-collapse" id="navbarNav">
+                <ul class="navbar-nav me-auto mb-0">
+                    <!-- Dashboard Dropdown Menu -->
+                    <li class="nav-item dropdown position-relative">
+                        <a class="nav-link nav-link-custom dropdown-toggle" href="#" id="dashboardDropdown" 
+                           role="button" data-bs-toggle="dropdown" aria-expanded="false">
+                            <i class="bi bi-grid-3x3-gap"></i>
+                            داشبوردها
+                        </a>
+                        <ul class="dropdown-menu dashboard-menu shadow-sm" aria-labelledby="dashboardDropdown">
+                            <li>
+                                <a class="dropdown-item dashboard-menu-item {% if request.endpoint == 'dashboard.dashboard_list' %}active{% endif %}" 
+                                   href="{{ url_for('dashboard.dashboard_list') }}">
+                                    <i class="bi bi-list-ul"></i> لیست همه داشبوردها
+                                </a>
+                            </li>
+                            <li><hr class="dropdown-divider"></li>
+                            {% for dash in accessible_dashboards %}
+                            <li>
+                                <a class="dropdown-item dashboard-menu-item {% if dashboard_id and dashboard_id == dash.dashboard_id %}active{% endif %}" 
+                                   href="{{ url_for('dashboard.show_dashboard', dashboard_id=dash.dashboard_id) }}"
+                                   title="{{ dash.dashboard_title }}">
+                                    <i class="bi bi-bar-chart-line"></i> 
+                                    <span>{{ dash.dashboard_title }}</span>
+                                </a>
+                            </li>
+                            {% endfor %}
+                        </ul>
+                    </li>
+                    
+                    <!-- Home Link -->
+                    <li class="nav-item">
+                        <a class="nav-link nav-link-custom" href="/tools">
+                            <i class="bi bi-house"></i>
+                            صفحه اصلی
+                        </a>
+                    </li>
+                    
+                    <!-- Filters Mega Menu -->
+                    {% if user_context and (user_context.can_filter_by_province or user_context.can_filter_by_university or user_context.can_filter_by_faculty) %}
+                    <li class="nav-item dropdown position-relative">
+                        <a class="nav-link nav-link-custom" href="#" id="filtersToggle" role="button" 
+                           onclick="event.preventDefault(); document.getElementById('filtersMegaMenu').classList.toggle('show');">
+                            <i class="bi bi-funnel"></i>
+                            فیلترها
+                        </a>
+                        <div class="mega-menu" id="filtersMegaMenu">
+                            <div class="mega-menu-header">
+                                <h5><i class="bi bi-funnel-fill"></i> فیلترهای داشبورد</h5>
+                                <button type="button" class="mega-menu-close" onclick="document.getElementById('filtersMegaMenu').classList.remove('show');">
+                                    <i class="bi bi-x"></i>
+                                </button>
+                            </div>
+                            <form method="GET" action="{{ url_for('dashboard.show_dashboard', dashboard_id=dashboard_id|default(request.endpoint.split('.')[-1] if request.endpoint else 'd1')) }}" id="navbarFilterForm">
+                                <div class="mega-menu-body">
+                                    {% if user_context.can_filter_by_province %}
+                                    <div class="mega-menu-item">
+                                        <label for="navbar_province_code">استان</label>
+                                        <select class="form-select" id="navbar_province_code" name="province_code">
+                                            <option value="">همه استان‌ها</option>
+                                        </select>
+                                    </div>
+                                    {% endif %}
+                                    
+                                    {% if user_context.can_filter_by_university %}
+                                    <div class="mega-menu-item">
+                                        <label for="navbar_university_code">دانشگاه</label>
+                                        <select class="form-select" id="navbar_university_code" name="university_code">
+                                            <option value="">همه دانشگاه‌ها</option>
+                                        </select>
+                                    </div>
+                                    {% endif %}
+                                    
+                                    {% if user_context.can_filter_by_faculty %}
+                                    <div class="mega-menu-item">
+                                        <label for="navbar_faculty_code">دانشکده</label>
+                                        <select class="form-select" id="navbar_faculty_code" name="faculty_code">
+                                            <option value="">همه دانشکده‌ها</option>
+                                        </select>
+                                    </div>
+                                    {% endif %}
+                                </div>
+                                <div class="mega-menu-footer">
+                                    <button type="button" class="btn btn-secondary btn-sm" onclick="document.getElementById('navbarFilterForm').reset(); loadFilterOptions();">
+                                        <i class="bi bi-x-circle"></i> پاک کردن
+                                    </button>
+                                    <button type="submit" class="btn btn-primary btn-sm">
+                                        <i class="bi bi-search"></i> اعمال فیلتر
+                                    </button>
+                                </div>
+                            </form>
+                        </div>
+                    </li>
+                    {% endif %}
+                </ul>
+                
+                <!-- User Info & Logout -->
+                <div class="d-flex align-items-center gap-3">
+                    {% if current_user_info %}
+                    <div class="dropdown">
+                        <div class="user-info-dropdown" id="userDropdown" role="button" 
+                             data-bs-toggle="dropdown" aria-expanded="false">
+                            <i class="bi bi-person-circle"></i>
+                            <div class="d-none d-md-block">
+                                <div style="font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 120px;">
+                                    {{ current_user_info.get('fullname', current_user_info.get('username', 'کاربر')) }}
+                                </div>
+                                <div style="opacity: 0.9; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 120px;">
+                                    {% if user_context.roles %}
+                                        {{ user_context.roles[0]|replace('_', ' ')|title }}
+                                    {% else %}
+                                        کاربر
+                                    {% endif %}
+                                </div>
+                            </div>
+                            <i class="bi bi-chevron-down" style="font-size: 0.8rem;"></i>
+                        </div>
+                        <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="userDropdown">
+                            <li>
+                                <h6 class="dropdown-header">
+                                    <i class="bi bi-person"></i> اطلاعات کاربر
+                                </h6>
+                            </li>
+                            <li><hr class="dropdown-divider"></li>
+                            <li>
+                                <div class="dropdown-item-text">
+                                    <small class="text-muted">نام کاربری:</small><br>
+                                    <strong>{{ current_user_info.get('username', 'نامشخص') }}</strong>
+                                </div>
+                            </li>
+                            {% if user_context.province_code %}
+                            <li>
+                                <div class="dropdown-item-text">
+                                    <small class="text-muted">استان:</small><br>
+                                    <strong>{{ user_context.province_code }}</strong>
+                                </div>
+                            </li>
+                            {% endif %}
+                            {% if user_context.faculty_code %}
+                            <li>
+                                <div class="dropdown-item-text">
+                                    <small class="text-muted">دانشکده:</small><br>
+                                    <strong>{{ user_context.faculty_code }}</strong>
+                                </div>
+                            </li>
+                            {% endif %}
+                            <li><hr class="dropdown-divider"></li>
+                            <li>
+                                <a class="dropdown-item text-danger" href="/logout">
+                                    <i class="bi bi-box-arrow-right"></i> خروج از سیستم
+                                </a>
+                            </li>
+                        </ul>
+                    </div>
+                    {% else %}
+                    <a class="btn btn-outline-light btn-sm" href="/logout">
+                        <i class="bi bi-box-arrow-right"></i> خروج
+                    </a>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </nav>
+    
+    <!-- Main Content -->
+    <div class="container-fluid main-content">
+        {% block dashboard_header %}
+        {% if dashboard_title %}
+        <div class="dashboard-header">
+            <h1 class="dashboard-title">
+                {% if dashboard_icon %}{{ dashboard_icon }} {% endif %}
+                {{ dashboard_title }}
+            </h1>
+            {% if dashboard_description %}
+            <p class="dashboard-description">{{ dashboard_description }}</p>
+            {% endif %}
+        </div>
+        {% endif %}
+        {% endblock %}
+        
+        {% block content %}{% endblock %}
+    </div>
+    
+    <!-- Footer -->
+    <footer class="footer-custom">
+        <div class="container">
+            <p class="mb-0">
+                <i class="bi bi-copyright"></i> 
+                {{ current_year }} دانشگاه فرهنگیان - تمامی حقوق محفوظ است
+            </p>
+        </div>
+    </footer>
+    
+    <!-- Bootstrap JS Bundle -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js" 
+            integrity="sha384-YvpcrYf0tY3lHB60NNkmXc5s9fDVZLESaAA55NDzOxhy9GkcIdslK1eN7N6jIeHz" 
+            crossorigin="anonymous"></script>
+    
+    <!-- Google Chart Export Functionality -->
+    <script>
+        /**
+         * Export Google Chart as image
+         * @param {HTMLElement} chartElement - The div element containing the Google Chart
+         * @param {string} filename - Name for the downloaded file
+         */
+        window.exportGoogleChart = function(chartElement, filename) {
+            if (!chartElement) {
+                console.error('Chart element not found');
+                return;
+            }
+            
+            try {
+                // Use html2canvas for Google Charts (since they don't have built-in export)
+                // For now, we'll use a simple canvas approach
+                const canvas = document.createElement('canvas');
+                const ctx = canvas.getContext('2d');
+                const img = new Image();
+                
+                // Get the SVG from Google Chart if available
+                const svg = chartElement.querySelector('svg');
+                if (svg) {
+                    const svgData = new XMLSerializer().serializeToString(svg);
+                    const svgBlob = new Blob([svgData], {type: 'image/svg+xml;charset=utf-8'});
+                    const url = URL.createObjectURL(svgBlob);
+                    
+                    img.onload = function() {
+                        canvas.width = img.width;
+                        canvas.height = img.height;
+                        ctx.drawImage(img, 0, 0);
+                        URL.revokeObjectURL(url);
+                        
+                        canvas.toBlob(function(blob) {
+                            const link = document.createElement('a');
+                            link.download = filename || `chart_${Date.now()}.png`;
+                            link.href = URL.createObjectURL(blob);
+                            document.body.appendChild(link);
+                            link.click();
+                            document.body.removeChild(link);
+                            URL.revokeObjectURL(link.href);
+                        });
+                    };
+                    img.src = url;
+                } else {
+                    // Fallback: use html2canvas if available, otherwise alert
+                    if (typeof html2canvas !== 'undefined') {
+                        html2canvas(chartElement).then(function(canvas) {
+                            canvas.toBlob(function(blob) {
+                                const link = document.createElement('a');
+                                link.download = filename || `chart_${Date.now()}.png`;
+                                link.href = URL.createObjectURL(blob);
+                                document.body.appendChild(link);
+                                link.click();
+                                document.body.removeChild(link);
+                                URL.revokeObjectURL(link.href);
+                            });
+                        });
+                    } else {
+                        alert('برای خروجی گرفتن از این نوع نمودار، لطفاً از ابزارهای مرورگر استفاده کنید (راست کلیک > ذخیره تصویر)');
+                    }
+                }
+            } catch (error) {
+                console.error('Error exporting Google Chart:', error);
+                alert('خطا در خروجی گرفتن نمودار. لطفاً دوباره تلاش کنید.');
+            }
+        };
+        
+        /**
+         * Create export buttons for a Google Chart
+         * @param {string} chartElementId - The div element ID containing the Google Chart
+         * @param {string} chartTitle - Title for the chart (used in filename)
+         */
+        window.addGoogleChartExportButtons = function(chartElementId, chartTitle = '') {
+            const chartElement = document.getElementById(chartElementId);
+            if (!chartElement) return;
+            
+            // Find the parent container
+            let container = chartElement.closest('.card-body') || chartElement.closest('.mb-5') || chartElement.parentElement;
+            if (!container) return;
+            
+            // Check if buttons already exist
+            if (container.querySelector('.chart-export-buttons')) return;
+            
+            // Make container relative if not already
+            if (getComputedStyle(container).position === 'static') {
+                container.style.position = 'relative';
+            }
+            
+            // Create export buttons container
+            const buttonsContainer = document.createElement('div');
+            buttonsContainer.className = 'chart-export-buttons';
+            
+            // Clean filename
+            const cleanTitle = chartTitle.replace(/[^a-z0-9\u0600-\u06FF]/gi, '_').substring(0, 50) || 'chart';
+            
+            // PNG button
+            const pngBtn = document.createElement('button');
+            pngBtn.className = 'chart-export-btn';
+            pngBtn.innerHTML = '<i class="bi bi-download"></i> PNG';
+            pngBtn.title = 'دانلود به صورت PNG';
+            pngBtn.onclick = function(e) {
+                e.preventDefault();
+                e.stopPropagation();
+                window.exportGoogleChart(chartElement, `${cleanTitle}.png`);
+            };
+            
+            buttonsContainer.appendChild(pngBtn);
+            container.insertBefore(buttonsContainer, container.firstChild);
+        };
+    </script>
+    
+    <!-- Filters Mega Menu JavaScript -->
+    {% if user_context and (user_context.can_filter_by_province or user_context.can_filter_by_university or user_context.can_filter_by_faculty) %}
+    <script>
+        // Close mega menu when clicking outside
+        document.addEventListener('click', function(event) {
+            const megaMenu = document.getElementById('filtersMegaMenu');
+            const filtersToggle = document.getElementById('filtersToggle');
+            if (megaMenu && filtersToggle && !megaMenu.contains(event.target) && !filtersToggle.contains(event.target)) {
+                megaMenu.classList.remove('show');
+            }
+        });
+        
+        // Load filter options
+        function loadFilterOptions() {
+            {% if user_context.can_filter_by_province %}
+            fetch('/api/dashboards/provinces')
+                .then(response => response.json())
+                .then(data => {
+                    const select = document.getElementById('navbar_province_code');
+                    if (select) {
+                        const currentProvince = new URLSearchParams(window.location.search).get('province_code');
+                        select.innerHTML = '<option value="">همه استان‌ها</option>';
+                        data.provinces.forEach(province => {
+                            const option = document.createElement('option');
+                            option.value = province.code;
+                            option.textContent = province.name;
+                            if (currentProvince == province.code) {
+                                option.selected = true;
+                            }
+                            select.appendChild(option);
+                        });
+                    }
+                })
+                .catch(error => console.error('Error loading provinces:', error));
+            {% endif %}
+            
+            {% if user_context.can_filter_by_university %}
+            fetch('/api/dashboards/universities')
+                .then(response => response.json())
+                .then(data => {
+                    const select = document.getElementById('navbar_university_code');
+                    if (select) {
+                        const currentUniversity = new URLSearchParams(window.location.search).get('university_code');
+                        select.innerHTML = '<option value="">همه دانشگاه‌ها</option>';
+                        data.universities.forEach(university => {
+                            const option = document.createElement('option');
+                            option.value = university.code;
+                            option.textContent = university.name;
+                            if (currentUniversity == university.code) {
+                                option.selected = true;
+                            }
+                            select.appendChild(option);
+                        });
+                    }
+                })
+                .catch(error => console.error('Error loading universities:', error));
+            {% endif %}
+            
+            {% if user_context.can_filter_by_faculty %}
+            fetch('/api/dashboards/faculties')
+                .then(response => response.json())
+                .then(data => {
+                    const select = document.getElementById('navbar_faculty_code');
+                    if (select) {
+                        const currentFaculty = new URLSearchParams(window.location.search).get('faculty_code');
+                        select.innerHTML = '<option value="">همه دانشکده‌ها</option>';
+                        data.faculties.forEach(faculty => {
+                            const option = document.createElement('option');
+                            option.value = faculty.code;
+                            option.textContent = faculty.name;
+                            if (currentFaculty == faculty.code) {
+                                option.selected = true;
+                            }
+                            select.appendChild(option);
+                        });
+                    }
+                })
+                .catch(error => console.error('Error loading faculties:', error));
+            {% endif %}
+        }
+        
+        // Load options on page load
+        document.addEventListener('DOMContentLoaded', loadFilterOptions);
+        
+        // Update form action when dashboard changes
+        const currentPath = window.location.pathname;
+        const filterForm = document.getElementById('navbarFilterForm');
+        if (filterForm && currentPath.includes('/dashboards/')) {
+            const dashboardId = currentPath.split('/dashboards/')[1].split('?')[0];
+            if (dashboardId) {
+                filterForm.action = '/dashboards/' + dashboardId;
+            }
+        }
+    </script>
+    {% endif %}
+    
+    {% block extra_js %}{% endblock %}
+</body>
+</html>
+

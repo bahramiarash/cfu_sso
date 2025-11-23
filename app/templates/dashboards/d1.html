@@ -1,26 +1,9 @@
-<!DOCTYPE html>
-<html lang="fa" dir="rtl">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1"> <!-- ✅ Required for responsiveness -->
-    <title>آمار اعضای هیئت علمی</title>
-    <script src="https://code.jquery.com/jquery-3.6.4.min.js"
-            integrity="sha256-oP6HI9z1XaZNBrJURtCoUT5SUnxFr8s3BzRl+cbzUq8="
-            crossorigin="anonymous"></script>
-    <!-- Bootstrap RTL CSS -->
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.rtl.min.css" rel="stylesheet" integrity="sha384-RWvIoBymqE+ZNyv4WjCh+E+FZd4L9QF8r9jkaG+hEEYX/7dU56Ns6WB6eAebfAy+" crossorigin="anonymous">
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0"></script>
+{% extends "dashboard_base.html" %}
 
-    <!-- Chart.js -->
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <!-- Custom Styles -->
-    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">    
+{% block title %}{{ dashboard_title|default('آمار اعضای هیئت علمی') }}{% endblock %}
 
-</head>
-<body class="bg-light text-dark">
-{% extends 'base.html' %}
-{% block content %}  
+{% block content %}
+<div class="container">
 <!-- Chart 1: Overall ratio -->
  <script>
 function fetchFacultyDetails(markazName) {
@@ -60,22 +43,6 @@ function fetchFacultyDetails(markazName) {
 }    
 </script>
 <div class="container py-4">
-    <h2 class="mb-0">آمار اعضای هیئت علمی</h2>
-      <div class="d-flex justify-content-between align-items-center mb-4">
-        <div class="d-flex gap-2 nav1">
-          <div>
-            <form action="https://bi.cfu.ac.ir/logout" method="get">
-              <button type="submit" class="btn btn-danger">خروج</button>
-            </form>
-          </div>
-          <div>
-            <form action="https://bi.cfu.ac.ir/dashboards" method="get">
-              <button type="submit" class="btn btn-primary">بازگشت به داشبرد</button>
-            </form>
-          </div>
-        </div>
-
-      </div>
     <div class="mt-5 floating-box" id="floating-box">
         <div class="modal_nav">
             <h4 id="facultyDetailsTitle" class="mb-3" style="display:none;">جزئیات اعضای هیئت علمی در مرکز: <span id="selectedMarkazName"></span></h4>
@@ -267,12 +234,18 @@ const markazChart = new Chart(ctxMarkaz, {
         }
     }]
 });
+// Add export buttons after chart is rendered
+setTimeout(() => {
+    if (typeof window.addChartExportButtons === 'function') {
+        window.addChartExportButtons('facultyByMarkaz', markazChart, 'تعداد_اعضای_هیئت_علمی_به_تفکیک_مرکز');
+    }
+}, 200);
 </script>
 
 <script>
     // Chart 2: By Field
     const ctxField = document.getElementById('facultyByField').getContext('2d');
-    new Chart(ctxField, {
+    const fieldChart = new Chart(ctxField, {
         type: 'bar',
         data: {
             labels: {{ field_labels|tojson }},
@@ -319,12 +292,18 @@ const markazChart = new Chart(ctxMarkaz, {
             }
         }
     });
+// Add export buttons after chart is rendered
+setTimeout(() => {
+    if (typeof window.addChartExportButtons === 'function') {
+        window.addChartExportButtons('facultyByField', fieldChart, 'تعداد_اعضای_هیئت_علمی_به_تفکیک_رشته');
+    }
+}, 200);
 
 
     // Chart 3: By EduGroup
 
 const ctxFieldEduGroup = document.getElementById('facultyByEduGroup').getContext('2d');
-new Chart(ctxFieldEduGroup, {
+const fieldEduGroupChart = new Chart(ctxFieldEduGroup, {
     type: 'bar',
     data: {
         labels: {{ field_labels_edugroup|tojson }},
@@ -372,6 +351,12 @@ new Chart(ctxFieldEduGroup, {
     },
     plugins: [ChartDataLabels]
 });
+// Add export buttons after chart is rendered
+setTimeout(() => {
+    if (typeof window.addChartExportButtons === 'function') {
+        window.addChartExportButtons('facultyByEduGroup', fieldEduGroupChart, 'تعداد_اعضای_هیئت_علمی_به_تفکیک_گروه_آموزشی');
+    }
+}, 200);
 
 
 </script>
@@ -407,6 +392,13 @@ function drawTreeChart() {
         fontFamily: 'Vazir',
         showScale: true
     });
+    
+    // Add export buttons for Google Chart
+    setTimeout(() => {
+        if (typeof window.addGoogleChartExportButtons === 'function') {
+            window.addGoogleChartExportButtons('tree_chart', 'نمودار_درختی_اعضای_هیئت_علمی_به_تفکیک_گروه_آموزشی');
+        }
+    }, 1000);
 }
 </script>
 <script>
@@ -415,7 +407,7 @@ function drawTreeChart() {
 
 <script>
 const ctxEstekhdam = document.getElementById('facultyByEstekhdamType').getContext('2d');
-new Chart(ctxEstekhdam, {
+const estekhdamChart = new Chart(ctxEstekhdam, {
     type: 'bar',
     data: {
         labels: {{ estekhdamtype_labels|tojson }},
@@ -495,11 +487,16 @@ new Chart(ctxEstekhdam, {
     },
     plugins: [ChartDataLabels]
 });
-
+// Add export buttons after chart is rendered
+setTimeout(() => {
+    if (typeof window.addChartExportButtons === 'function') {
+        window.addChartExportButtons('facultyByEstekhdamType', estekhdamChart, 'تعداد_اعضای_هیئت_علمی_به_تفکیک_نوع_استخدام_مروارید');
+    }
+}, 200);
 
 
 const ctxEstekhdamGolestan = document.getElementById('facultyByEstekhdamTypeGolestan').getContext('2d');
-new Chart(ctxEstekhdamGolestan, {
+const estekhdamGolestanChart = new Chart(ctxEstekhdamGolestan, {
     type: 'bar',
     data: {
         labels: {{ estekhdamtypeGolestan_labels|tojson }},
@@ -579,10 +576,16 @@ new Chart(ctxEstekhdamGolestan, {
     },
     plugins: [ChartDataLabels]
 });
+// Add export buttons after chart is rendered
+setTimeout(() => {
+    if (typeof window.addChartExportButtons === 'function') {
+        window.addChartExportButtons('facultyByEstekhdamTypeGolestan', estekhdamGolestanChart, 'تعداد_اعضای_هیئت_علمی_به_تفکیک_نوع_استخدام_گلستان');
+    }
+}, 200);
 
 
     const ctxGrade = document.getElementById('facultyByGrade').getContext('2d');
-    new Chart(ctxGrade, {
+    const gradeChart = new Chart(ctxGrade, {
         type: 'pie',
         data: {
             labels: {{ grade_labels|tojson }},
@@ -642,10 +645,16 @@ new Chart(ctxEstekhdamGolestan, {
             }
         }
     });
+// Add export buttons after chart is rendered
+setTimeout(() => {
+    if (typeof window.addChartExportButtons === 'function') {
+        window.addChartExportButtons('facultyByGrade', gradeChart, 'تعداد_اعضای_هیئت_علمی_به_تفکیک_مرتبه_علمی_گلستان');
+    }
+}, 200);
 
 
 const ctxMadrak = document.getElementById('facultyByMadrak').getContext('2d');
-new Chart(ctxMadrak, {
+const madrakChart = new Chart(ctxMadrak, {
     type: 'bar',
     data: {
         labels: {{ madrak_labels|tojson }},
@@ -725,13 +734,19 @@ new Chart(ctxMadrak, {
     },
     plugins: [ChartDataLabels]
 });
+// Add export buttons after chart is rendered
+setTimeout(() => {
+    if (typeof window.addChartExportButtons === 'function') {
+        window.addChartExportButtons('facultyByMadrak', madrakChart, 'تعداد_اعضای_هیئت_علمی_به_تفکیک_مدرک_تحصیلی_گلستان');
+    }
+}, 200);
 
 </script>
 
 <script>
     // Chart 0: Pie Chart - Faculty by Sex Type
     const ctxsex = document.getElementById('sextype').getContext('2d');
-    new Chart(ctxsex, {
+    const sexChart = new Chart(ctxsex, {
         type: 'pie',
         data: {
             labels: {{ sex_labels|tojson }},
@@ -791,6 +806,12 @@ new Chart(ctxMadrak, {
             }
         }
     });
+// Add export buttons after chart is rendered
+setTimeout(() => {
+    if (typeof window.addChartExportButtons === 'function') {
+        window.addChartExportButtons('sextype', sexChart, 'تعداد_اعضای_هیئت_علمی_به_تفکیک_جنسیت');
+    }
+}, 200);
 
 
 /*const ctxfacultytype = document.getElementById('facultytype').getContext('2d');
@@ -925,8 +946,3 @@ new Chart(ctx, {
 </script>
 </div>
 {% endblock %}
-
-<!-- Bootstrap JS Bundle -->
-<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js" integrity="sha384-gKZ84Kr84U/9B5qX7mdGOSFaInGkNpe8pEqFQxdJkKr6ZsEr/1OpI3UxF8zINJ9c" crossorigin="anonymous"></script>
-</body>
-</html>

@@ -1,46 +1,13 @@
-<!DOCTYPE html>
-<html lang="fa" dir="rtl">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>داشبورد کیفیت آموزش</title>
+{% extends "dashboard_base.html" %}
 
-    <!-- jQuery -->
-    <script src="https://code.jquery.com/jquery-3.6.4.min.js"
-            integrity="sha256-oP6HI9z1XaZNBrJURtCoUT5SUnxFr8s3BzRl+cbzUq8="
-            crossorigin="anonymous"></script>
+{% block title %}{{ dashboard_title|default('مانیتورینگ LMS') }}{% endblock %}
 
-    <!-- Bootstrap RTL CSS -->
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.rtl.min.css" rel="stylesheet"
-          integrity="sha384-RWvIoBymqE+ZNyv4WjCh+E+FZd4L9QF8r9jkaG+hEEYX/7dU56Ns6WB6eAebfAy+" crossorigin="anonymous">
-
-    <!-- Chart.js -->
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0"></script>
-
-    <!-- Custom Styles -->
-    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
-</head>
-<body class="bg-light text-dark">
-
-{% extends 'base.html' %}
-{% block content %}  
+{% block content %}
 <div class="container">
-    <h3 class="text-center my-4">داشبورد وضعیت کاربران در زون های LMS</h3>
+    <h2 class="mb-4">{{ dashboard_title|default('داشبورد وضعیت کاربران در زون های LMS') }}</h2>
 
-    <div class="d-flex justify-content-between align-items-center mb-4">
-        <div class="d-flex gap-2 nav1">
-            <form action="https://bi.cfu.ac.ir/logout" method="get">
-                <button type="submit" class="btn btn-danger">خروج</button>
-            </form>
-            <form action="https://bi.cfu.ac.ir/dashboards" method="get">
-                <button type="submit" class="btn btn-primary">بازگشت به داشبرد</button>
-            </form>
-        </div>
-    </div>
-
-        <div class="container my-4">
-        <h2 class="mb-3">آخرین وضعیت</h2>
+    <div class="container my-4">
+        <h3 class="mb-3">آخرین وضعیت</h3>
 
         <div class="container-fluid">
           <div class="row">
@@ -70,72 +37,69 @@
               </div>
             </div>
             
-    {% for url, chart in charts.items() %}
-    <div class="col-md-6 col-lg-4 mb-3">
-      <div class="card shadow-sm">
-        <div class="card-header bg-primary text-white">
-          {{ chart.title }}
-        </div>
-        <div class="card-body">
-          <!-- جدول اول -->
-          <table class="table table-sm table-bordered mb-3">
-            <thead>
-              <tr>
-                <th>شاخص</th>
-                <th>تعداد</th>
-              </tr>
-            </thead>
-            <tbody>
-              {% for key, value in latest_values[url].items() %}
-              <tr>
-                <td>{{ chartlabels[key] }}</td>
-                <td><strong>{{ value }}</strong></td>
-              </tr>
-              {% endfor %}
-            </tbody>
-          </table>
+            {% for url, chart in charts.items() %}
+            <div class="col-md-6 col-lg-4 mb-3">
+              <div class="card shadow-sm">
+                <div class="card-header bg-primary text-white">
+                  {{ chart.title }}
+                </div>
+                <div class="card-body">
+                  <!-- جدول اول -->
+                  <table class="table table-sm table-bordered mb-3">
+                    <thead>
+                      <tr>
+                        <th>شاخص</th>
+                        <th>تعداد</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {% for key, value in latest_values[url].items() %}
+                      <tr>
+                        <td>{{ chartlabels[key] }}</td>
+                        <td><strong>{{ value }}</strong></td>
+                      </tr>
+                      {% endfor %}
+                    </tbody>
+                  </table>
 
-          <!-- جدول دوم (زبیکس) -->
-          <table class="table table-sm table-bordered">
-            <thead>
-              <tr>
-                <th>منبع</th>
-                <th>مقدار</th>
-              </tr>
-            </thead>
-            <tbody id="tableBody_zabbix{{ loop.index }}">
-              {% for key, value in latest_zone_resources[url].items() %}
-              <tr>
-                <td>{{ key }}</td>
-                <td><strong>{{ value }}</strong></td>
-              </tr>
-              {% endfor %}
-            </tbody>
-          </table>
+                  <!-- جدول دوم (زبیکس) -->
+                  <table class="table table-sm table-bordered">
+                    <thead>
+                      <tr>
+                        <th>منبع</th>
+                        <th>مقدار</th>
+                      </tr>
+                    </thead>
+                    <tbody id="tableBody_zabbix{{ loop.index }}">
+                      {% for key, value in latest_zone_resources[url].items() %}
+                      <tr>
+                        <td>{{ key }}</td>
+                        <td><strong>{{ value }}</strong></td>
+                      </tr>
+                      {% endfor %}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+            {% endfor %}
+          </div>
         </div>
-
-      </div>
     </div>
-    {% endfor %}
 
-
-  </div>
-</div>
-
-
-<div class="d-flex justify-content-end align-items-center mb-3">
-    <label for="timeRange" class="me-2">نمایش داده‌ها از:</label>
-    <select id="timeRange" class="form-select w-auto">
-        <option value="1h">یک ساعت گذشته</option>
-        <option value="3h">سه ساعت گذشته</option>
-        <option value="6h">شش ساعت گذشته</option>
-        <option value="12h">۱۲ ساعت گذشته</option>
-        <option value="1d">یک روز گذشته</option>
-        <option value="1w">یک هفته گذشته</option>
-        <option value="1m">یک ماه گذشته</option>
-        <option value="1y">یک سال گذشته</option>
-    </select>
-</div>
+    <div class="d-flex justify-content-end align-items-center mb-3">
+        <label for="timeRange" class="me-2">نمایش داده‌ها از:</label>
+        <select id="timeRange" class="form-select w-auto">
+            <option value="1h">یک ساعت گذشته</option>
+            <option value="3h">سه ساعت گذشته</option>
+            <option value="6h">شش ساعت گذشته</option>
+            <option value="12h">۱۲ ساعت گذشته</option>
+            <option value="1d">یک روز گذشته</option>
+            <option value="1w">یک هفته گذشته</option>
+            <option value="1m">یک ماه گذشته</option>
+            <option value="1y">یک سال گذشته</option>
+        </select>
+    </div>
 
     <!-- Generate one chart per URL -->
     {% for url, chart in charts.items() %}
@@ -144,7 +108,6 @@
         <canvas id="chart_{{ loop.index }}"></canvas>
     </div>
     {% endfor %}
-
 </div>
 
 <script>
@@ -182,6 +145,12 @@ chartInstances["{{ url }}"] = new Chart(ctx{{ loop.index }}, {
         }
     }
 });
+// Add export buttons for each chart
+setTimeout(() => {
+    if (typeof window.addChartExportButtons === 'function') {
+        window.addChartExportButtons('chart_{{ loop.index }}', chartInstances["{{ url }}"], '{{ chart.title | replace(" ", "_") | replace("/", "_") }}');
+    }
+}, 300);
 {% endfor %}
 
 // Auto-refresh function
@@ -205,7 +174,7 @@ async function refreshCharts() {
 // Update charts when time range changes
 document.getElementById('timeRange').addEventListener('change', refreshCharts);
 
-// Auto-refresh every 5 minutes
+// Auto-refresh every 10 seconds
 setInterval(refreshCharts, 10000);
 </script>
 
@@ -217,47 +186,50 @@ async function refreshStatus() {
 
     // برو سراغ جدول کلی
     const overallTable = document.querySelector('.container-fluid table tbody');
-    overallTable.innerHTML = '';
-    for (const [key,value] of Object.entries(data.overall_sum)) {
-        overallTable.innerHTML += `
-            <tr>
-              <td>${key}</td>
-              <td>${value.toFixed(2)}</td>
-            </tr>
-        `;
+    if (overallTable) {
+        overallTable.innerHTML = '';
+        for (const [key,value] of Object.entries(data.overall_sum)) {
+            overallTable.innerHTML += `
+                <tr>
+                  <td>${key}</td>
+                  <td>${value.toFixed(2)}</td>
+                </tr>
+            `;
+        }
     }
 
     // برو سراغ جدول‌های هر زون
     {% for url, chart in charts.items() %}
     const tableBody{{ loop.index }} = document.querySelectorAll('.card-body table tbody')[{{ loop.index }}];
-    tableBody{{ loop.index }}.innerHTML = '';
-    const tableBody_zabbix{{ loop.index }} = document.getElementById('tableBody_zabbix{{ loop.index }}');
-    tableBody_zabbix{{ loop.index }}.innerHTML = '';
-    const zoneValues{{ loop.index }} = data.latest_values["{{ url }}"];
-    const latest_zone_resources{{ loop.index }} = data.latest_zone_resources["{{ url }}"];
-    for (const [key, value] of Object.entries(zoneValues{{ loop.index }})) {
-        tableBody{{ loop.index }}.innerHTML += `
-          <tr>
-            <td>${data.chartlabels[key]}</td>
-            <td><strong>${value}</strong></td>
-          </tr>`;
+    if (tableBody{{ loop.index }}) {
+        tableBody{{ loop.index }}.innerHTML = '';
+        const tableBody_zabbix{{ loop.index }} = document.getElementById('tableBody_zabbix{{ loop.index }}');
+        if (tableBody_zabbix{{ loop.index }}) {
+            tableBody_zabbix{{ loop.index }}.innerHTML = '';
+            const zoneValues{{ loop.index }} = data.latest_values["{{ url }}"];
+            const latest_zone_resources{{ loop.index }} = data.latest_zone_resources["{{ url }}"];
+            if (zoneValues{{ loop.index }}) {
+                for (const [key, value] of Object.entries(zoneValues{{ loop.index }})) {
+                    tableBody{{ loop.index }}.innerHTML += `
+                      <tr>
+                        <td>${data.chartlabels[key]}</td>
+                        <td><strong>${value}</strong></td>
+                      </tr>`;
+                }
+            }
+            if (latest_zone_resources{{ loop.index }}) {
+                for (const [key, value] of Object.entries(latest_zone_resources{{ loop.index }})) {
+                    tableBody_zabbix{{ loop.index }}.innerHTML += `
+                      <tr>
+                        <td>${key}</td>
+                        <td><strong>${value}</strong></td>
+                      </tr>`;
+                }
+            }
+        }
     }
-    for (const [key, value] of Object.entries(latest_zone_resources{{ loop.index }})) {
-        tableBody_zabbix{{ loop.index }}.innerHTML += `
-          <tr>
-            <td>${key}</td>
-            <td><strong>${value}</strong></td>
-          </tr>`;
-    }  
     {% endfor %}
 }
-//setInterval(refreshStatus, 10000); // هر ۵ دقیقه
+//setInterval(refreshStatus, 10000); // هر ۱۰ ثانیه
 </script>
-
 {% endblock %}
-
-<!-- Bootstrap JS Bundle -->
-<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js" 
-        integrity="sha384-gKZ84Kr84U/9B5qX7mdGOSFaInGkNpe8pEqFQxdJkKr6ZsEr/1OpI3UxF8zINJ9c" crossorigin="anonymous"></script>
-</body>
-</html>

@@ -60,6 +60,11 @@ class User(db.Model, UserMixin):
     name = Column(db.String, nullable=False)
     email = Column(db.String, unique=True)
     sso_id = Column(db.String, nullable=False)
+    
+    # Organizational context fields
+    province_code = Column(Integer, nullable=True)  # کد استان
+    university_code = Column(Integer, nullable=True)  # کد دانشگاه
+    faculty_code = Column(Integer, nullable=True)  # کد دانشکده (code_markaz)
 
     # Define relationship to KanbanColumn through association table
     kanban_columns = db.relationship(
@@ -82,6 +87,17 @@ class User(db.Model, UserMixin):
         secondary='task_assigned_users',
         back_populates='assigned_users'
     )
+
+    # Access levels relationship
+    access_levels = db.relationship('AccessLevel', backref='user', lazy=True, cascade='all, delete-orphan')
+
+    def has_role(self, role_name):
+        """Check if user has a specific role/access level"""
+        return any(access.level.lower() == role_name.lower() for access in self.access_levels)
+    
+    def is_admin(self):
+        """Check if user is an admin"""
+        return self.has_role('admin') or self.has_role('staff')
 
     # Other relationships as before...
 

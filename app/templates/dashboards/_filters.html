@@ -1,0 +1,65 @@
+<!-- Dashboard Filters Component -->
+{% if user_context.can_filter_by_province or user_context.can_filter_by_university or user_context.can_filter_by_faculty %}
+<div class="card mb-4">
+    <div class="card-header">
+        <h5 class="mb-0">فیلترها</h5>
+    </div>
+    <div class="card-body">
+        <form method="GET" action="{{ url_for('dashboard.show_dashboard', dashboard_id=dashboard_id) }}" id="filterForm">
+            <div class="row">
+                {% if user_context.can_filter_by_province %}
+                <div class="col-md-3 mb-3">
+                    <label for="province_code" class="form-label">استان</label>
+                    <select class="form-select" id="province_code" name="province_code">
+                        <option value="">همه استان‌ها</option>
+                        <!-- Provinces will be loaded via JavaScript or server-side -->
+                    </select>
+                </div>
+                {% endif %}
+                
+                {% if user_context.can_filter_by_university %}
+                <div class="col-md-3 mb-3">
+                    <label for="university_code" class="form-label">دانشگاه</label>
+                    <select class="form-select" id="university_code" name="university_code">
+                        <option value="">همه دانشگاه‌ها</option>
+                        <!-- Universities will be loaded via JavaScript -->
+                    </select>
+                </div>
+                {% endif %}
+                
+                {% if user_context.can_filter_by_faculty %}
+                <div class="col-md-3 mb-3">
+                    <label for="faculty_code" class="form-label">دانشکده</label>
+                    <select class="form-select" id="faculty_code" name="faculty_code">
+                        <option value="">همه دانشکده‌ها</option>
+                        <!-- Faculties will be loaded via JavaScript -->
+                    </select>
+                </div>
+                {% endif %}
+                
+                <div class="col-md-3 mb-3 d-flex align-items-end">
+                    <button type="submit" class="btn btn-primary me-2">اعمال فیلتر</button>
+                    <a href="{{ url_for('dashboard.show_dashboard', dashboard_id=dashboard_id) }}" class="btn btn-secondary">پاک کردن</a>
+                </div>
+            </div>
+        </form>
+    </div>
+</div>
+
+<script>
+// Load provinces on page load
+document.addEventListener('DOMContentLoaded', function() {
+    {% if user_context.can_filter_by_province %}
+    // Load provinces (can be done via API or server-side)
+    // For now, we'll use a simple approach
+    {% endif %}
+    
+    // Auto-submit on filter change (optional)
+    // document.getElementById('filterForm').addEventListener('change', function() {
+    //     this.submit();
+    // });
+});
+</script>
+{% endif %}
+
+
