@@ -45,6 +45,7 @@ import hashlib
 import jdatetime
 from datetime import datetime, timedelta
 import datetime as dt
+import pytz
 from send_sms import get_sms_token, send_sms
 
 def get_color_for_key(key: str) -> str:
@@ -70,6 +71,17 @@ if not secret_key:
     )
 app.secret_key = secret_key
 
+# Error handler for JSON requests
+@app.errorhandler(500)
+def handle_500_error(e):
+    """Handle 500 errors - return JSON for API requests, HTML for others"""
+    if request.path.startswith('/charts-data') or request.path.startswith('/tables-data') or request.accept_mimetypes.accept_json:
+        return jsonify({
+            "error": "خطا در دریافت داده‌ها",
+            "message": str(e) if hasattr(e, '__str__') else "خطای داخلی سرور"
+        }), 500
+    # For other requests, use default Flask error handling
+    return None
 
 app.config["SESSION_TYPE"] = "filesystem"
 app.config["SESSION_COOKIE_SECURE"] = True      # Ensures cookies are only sent over HTTPS
@@ -101,6 +113,15 @@ app.register_blueprint(new_dashboard_bp)  # New architecture routes
 app.register_blueprint(dashboard_api_bp)  # Dashboard API for filters
 app.register_blueprint(admin_bp)  # Admin panel
 # app.register_blueprint(dashboard_bp)  # Legacy routes - DISABLED (using new architecture)
+
+# Start auto-sync scheduler
+try:
+    with app.app_context():
+        from admin.scheduler import start_scheduler
+        start_scheduler()
+        logger.info("Auto-sync scheduler initialized")
+except Exception as e:
+    logger.error(f"Failed to start auto-sync scheduler: {e}", exc_info=True)
 
 # Context processor to make dashboard list available in all templates
 @app.context_processor
@@ -731,124 +752,290 @@ def project_kanban(project_id):
 @app.route('/charts-data')
 @login_required
 def charts_data():
-    time_range = request.args.get('time_range', '1h')
-    now = dt.datetime.now()
+    try:
+        now = dt.datetime.now()
+        max_start_time = now - timedelta(days=365)  # Maximum 1 year of data
+        
+        # Get filters - only apply one at a time
+        time_range = request.args.get('time_range')
+        date_from = request.args.get('date_from')
+        date_to = request.args.get('date_to')
+        time_from = request.args.get('time_from', '00:00')
+        time_to = request.args.get('time_to', '23:59')
+        
+        end_time_str = None
+        
+        # Priority: custom date range > time_range
+        # If custom date range is provided, ignore time_range
+        if date_from and date_to:
+            # Custom date range
+            try:
+                # Parse Persian calendar date (format: YYYY/MM/DD)
+                from_date_parts = list(map(int, date_from.split('/')))
+                to_date_parts = list(map(int, date_to.split('/')))
+                
+                # Parse time (format: HH:MM)
+                time_from_parts = list(map(int, time_from.split(':')))
+                time_to_parts = list(map(int, time_to.split(':')))
+                
+                # Create jdatetime objects
+                start_jd = jdatetime.datetime(
+                    from_date_parts[0], from_date_parts[1], from_date_parts[2],
+                    time_from_parts[0], time_from_parts[1]
+                )
+                end_jd = jdatetime.datetime(
+                    to_date_parts[0], to_date_parts[1], to_date_parts[2],
+                    time_to_parts[0], time_to_parts[1]
+                )
+                
+                # Convert to Gregorian datetime
+                start_time = start_jd.togregorian()
+                end_time = end_jd.togregorian()
+                
+                # Ensure we're working with Tehran timezone
+                tehran_tz = pytz.timezone('Asia/Tehran')
+                if start_time.tzinfo is None:
+                    start_time = tehran_tz.localize(start_time)
+                if end_time.tzinfo is None:
+                    end_time = tehran_tz.localize(end_time)
+                
+                # Convert to naive datetime for SQLite
+                start_time = start_time.replace(tzinfo=None)
+                end_time = end_time.replace(tzinfo=None)
+                
+                # Add 1 second to end_time to include the entire end day (23:59:59)
+                # This ensures we capture all data for the end date
+                end_time = end_time + timedelta(seconds=1)
+                
+                # Ensure not more than 1 year
+                if start_time < max_start_time:
+                    start_time = max_start_time
+                
+                start_time_str = start_time.strftime('%Y-%m-%d %H:%M:%S')
+                end_time_str = end_time.strftime('%Y-%m-%d %H:%M:%S')
+                
+            except (ValueError, IndexError, AttributeError) as e:
+                logging.error(f"Error parsing custom date range: {e}")
+                # Fallback to default 1 year
+                start_time_str = max_start_time.strftime('%Y-%m-%d %H:%M:%S')
+                end_time_str = None
+        elif time_range:
+            # Predefined time range (only if custom range is not provided)
+            if time_range == '1h':
+                start_time = now - timedelta(hours=1)
+            elif time_range == '3h':
+                start_time = now - timedelta(hours=3)
+            elif time_range == '6h':
+                start_time = now - timedelta(hours=6)
+            elif time_range == '12h':
+                start_time = now - timedelta(hours=12)
+            elif time_range == '1d':
+                start_time = now - timedelta(days=1)
+            elif time_range == '1w':
+                start_time = now - timedelta(weeks=1)
+            elif time_range == '1m':
+                start_time = now - timedelta(days=30)
+            elif time_range == '1y':
+                start_time = now - timedelta(days=365)
+            else:
+                start_time = max_start_time  # default to 1 year
 
-    if time_range == '1h':
-        start_time = now - timedelta(hours=1)
-    elif time_range == '3h':
-        start_time = now - timedelta(hours=3)
-    elif time_range == '6h':
-        start_time = now - timedelta(hours=6)
-    elif time_range == '12h':
-        start_time = now - timedelta(hours=12)
-    elif time_range == '1d':
-        start_time = now - timedelta(days=1)
-    elif time_range == '1w':
-        start_time = now - timedelta(weeks=1)
-    elif time_range == '1m':
-        start_time = now - timedelta(days=30)
-    elif time_range == '1y':
-        start_time = now - timedelta(days=365)
-    else:
-        start_time = now - timedelta(hours=1)  # default
+            # Ensure not more than 1 year
+            if start_time < max_start_time:
+                start_time = max_start_time
+            
+            start_time_str = start_time.strftime('%Y-%m-%d %H:%M:%S')
+        else:
+            # No filter, use default 1 year
+            start_time_str = max_start_time.strftime('%Y-%m-%d %H:%M:%S')
 
-    # Convert datetime to ISO format string for SQLite
-    # SQLite stores datetime as TEXT, format: 'YYYY-MM-DD HH:MM:SS.ffffff'
-    # Use strftime to ensure consistent format for comparison
-    start_time_str = start_time.strftime('%Y-%m-%d %H:%M:%S')
+        DB_PATH2 = "C:\\services\\cert2\\app\\fetch_data\\faculty_data.db"
+        try:
+            conn = sqlite3.connect(DB_PATH2)
+            cursor = conn.cursor()
 
-    DB_PATH2 = "C:\\services\\cert2\\app\\fetch_data\\faculty_data.db"
-    conn = sqlite3.connect(DB_PATH2)
-    cursor = conn.cursor()
+            # === 1. Get all relevant rows ===
+            # Optimize query for large date ranges - limit results to prevent timeout
+            try:
+                if end_time_str:
+                    # Custom range with both start and end
+                    # Use < instead of <= to include all data up to (but not including) end_time
+                    # Since we added 1 second to end_time, this will include all data for the end date
+                    query = """
+                        SELECT url, timestamp, key, value
+                        FROM monitor_data
+                        WHERE datetime(timestamp) >= datetime(?) AND datetime(timestamp) < datetime(?)
+                        ORDER BY url, timestamp ASC
+                        LIMIT 50000
+                    """
+                    cursor.execute(query, (start_time_str, end_time_str))
+                else:
+                    # Only start time (predefined ranges or default)
+                    # Limit results for large ranges to prevent timeout
+                    query = """
+                        SELECT url, timestamp, key, value
+                        FROM monitor_data
+                        WHERE datetime(timestamp) >= datetime(?)
+                        ORDER BY url, timestamp ASC
+                        LIMIT 50000
+                    """
+                    cursor.execute(query, (start_time_str,))
+                
+                rows = cursor.fetchall()
+            except Exception as e:
+                logging.error(f"Error executing query: {e}", exc_info=True)
+                rows = []
+            finally:
+                conn.close()
+        except Exception as e:
+            logging.error(f"Error connecting to database: {e}", exc_info=True)
+            rows = []
 
-    # === 1. Get all relevant rows ===
-    # SQLite datetime comparison - ensure both sides are in same format
-    query = """
-        SELECT url, timestamp, key, value
-        FROM monitor_data
-        WHERE datetime(timestamp) >= datetime(?)
-        ORDER BY url, timestamp ASC
-    """
-    cursor.execute(query, (start_time_str,))
-    rows = cursor.fetchall()
-    conn.close()
-
-    charts = {}
-    zones = {
-        "Zone1": "تهران، شهرستانهای تهران و البرز",
-        "Zone2": "گیلان، مازندران و گلستان",
-        "Zone3": "آذربایجان شرقی، آذربایجان غربی، اردبیل و زنجان",
-        "Zone4": "قم، قزوین، مرکزی و همدان",
-        "Zone5": "ایلام، کردستان، کرمانشاه و لرستان",
-        "Zone6": "اصفهان، چهارمحال و بختیاری و یزد",
-        "Zone7": "کهگیلویه و بویراحمد و فارس",
-        "Zone8": "سیستان و بلوچستان، کرمان، هرمزگان",
-        "Zone9": "خراسان رضوی، جنوبی و شمالی و سمنان",
-        "Zone10": "بوشهر و خوزستان",
-        "Zone11": "سامانه جلسات",
-        "meeting": "سامانه جلسات"
-        }
-    chartlabels = {
-        "online_lms_user": "کاربران آنلاین LMS",
-        "online_adobe_class": "کلاس های درحال ضبط Adobe",
-        "online_adobe_user": "کاربران Adobe",
-        "online_quizes": "آزمونهای درحال برگزاری",
-        "online_users_in_quizes": "کاربران درحال برگزاری آزمون",
-        }        
-    if rows:
-        # === 2. Group data by URL and key ===
-        url_data = {}
-        for url, timestamp, key, value in rows:
-            if url not in url_data:
-                url_data[url] = {}
-            if key not in url_data[url]:
-                url_data[url][key] = {"timestamps": [], "values": []}
-
-            # Convert to Jalali date string
-            ts = timestamp
-            if isinstance(ts, str):
-                from datetime import datetime
-                ts = datetime.fromisoformat(ts)
-            jalali_ts = jdatetime.datetime.fromgregorian(datetime=ts).strftime("%Y/%m/%d %H:%M")
-           
-            url_data[url][key]["timestamps"].append(jalali_ts)
-            url_data[url][key]["values"].append(value)
-
-        # === 3. Build Chart.js structure for each URL ===
-        for url, keys in url_data.items():
-            datasets = []
-            labels = []  # we can take timestamps from first key
-            first_key = next(iter(keys))
-            labels = keys[first_key]["timestamps"]
-
-            for key, data in keys.items():
-                label = chartlabels.get(key, key)  # Use key as fallback if label not found
-                datasets.append({
-                    "label": label,
-                    "data": data["values"],
-                    "borderColor": get_color_for_key(key),
-                    "backgroundColor": get_color_for_key(key),
-                    "fill": False
-                })
-                for lms_user_count in data["values"]:
-                    if int(lms_user_count) >= 200:
-                        token = get_sms_token()
-                        send_sms(
-                            token,
-                            f"LMS User Countt Alert! {label}: {int(lms_user_count)}",
-                            ["09123880167"]
-                        )
-                        break  # stop after first alert
-
-
-            charts[url] = {
-                "labels": labels,
-                "datasets": datasets,
-                "title": zones.get(url, url)  # Use url as fallback if zone not found
+        charts = {}
+        zones = {
+            "Zone1": "تهران، شهرستانهای تهران و البرز",
+            "Zone2": "گیلان، مازندران و گلستان",
+            "Zone3": "آذربایجان شرقی، آذربایجان غربی، اردبیل و زنجان",
+            "Zone4": "قم، قزوین، مرکزی و همدان",
+            "Zone5": "ایلام، کردستان، کرمانشاه و لرستان",
+            "Zone6": "اصفهان، چهارمحال و بختیاری و یزد",
+            "Zone7": "کهگیلویه و بویراحمد و فارس",
+            "Zone8": "سیستان و بلوچستان، کرمان، هرمزگان",
+            "Zone9": "خراسان رضوی، جنوبی و شمالی و سمنان",
+            "Zone10": "بوشهر و خوزستان",
+            "Zone11": "سامانه جلسات"
             }
+        chartlabels = {
+            "online_lms_user": "کاربران آنلاین LMS",
+            "online_adobe_class": "کلاس های درحال ضبط Adobe",
+            "online_adobe_user": "کاربران Adobe",
+            "online_quizes": "آزمونهای درحال برگزاری",
+            "online_users_in_quizes": "کاربران درحال برگزاری آزمون",
+            }        
+        if rows:
+            # === 2. Group data by URL and key ===
+            url_data = {}
+            for url, timestamp, key, value in rows:
+                if url not in url_data:
+                    url_data[url] = {}
+                if key not in url_data[url]:
+                    url_data[url][key] = {"timestamps": [], "values": []}
 
-    return jsonify(charts)
+                # Convert to Jalali date string
+                try:
+                    ts = timestamp
+                    if isinstance(ts, str):
+                        # Try different datetime parsing formats
+                        try:
+                            ts = datetime.fromisoformat(ts.replace('Z', '+00:00'))
+                        except ValueError:
+                            try:
+                                ts = datetime.strptime(ts, '%Y-%m-%d %H:%M:%S')
+                            except ValueError:
+                                ts = datetime.strptime(ts, '%Y-%m-%d %H:%M:%S.%f')
+                    
+                    # Convert to naive datetime if it has timezone info
+                    if hasattr(ts, 'tzinfo') and ts.tzinfo is not None:
+                        ts = ts.replace(tzinfo=None)
+                    
+                    jalali_ts = jdatetime.datetime.fromgregorian(datetime=ts).strftime("%Y/%m/%d %H:%M")
+                    url_data[url][key]["timestamps"].append(jalali_ts)
+                    url_data[url][key]["values"].append(value)
+                except Exception as e:
+                    logging.error(f"Error processing timestamp {timestamp} for {url}/{key}: {e}")
+                    # Skip this row if timestamp parsing fails
+                    continue
+
+            # === 3. Build Chart.js structure for each URL ===
+            # فقط Zone1 تا Zone11 را پردازش می‌کنیم (11 منطقه)
+            zone_order = ["Zone1", "Zone2", "Zone3", "Zone4", "Zone5", "Zone6", 
+                         "Zone7", "Zone8", "Zone9", "Zone10", "Zone11"]
+            
+            for url in zone_order:
+                if url not in url_data:
+                    continue
+                    
+                keys = url_data[url]
+                datasets = []
+                labels = []  # we can take timestamps from first key
+                first_key = next(iter(keys))
+                labels = keys[first_key]["timestamps"]
+
+                for key, data in keys.items():
+                    label = chartlabels.get(key, key)  # Use key as fallback if label not found
+                    datasets.append({
+                        "label": label,
+                        "data": data["values"],
+                        "borderColor": get_color_for_key(key),
+                        "backgroundColor": get_color_for_key(key),
+                        "fill": False
+                    })
+                    for lms_user_count in data["values"]:
+                        if int(lms_user_count) >= 200:
+                            token = get_sms_token()
+                            send_sms(
+                                token,
+                                f"LMS User Countt Alert! {label}: {int(lms_user_count)}",
+                                ["09123880167"]
+                            )
+                            break  # stop after first alert
+
+                charts[url] = {
+                    "labels": labels,
+                    "datasets": datasets,
+                    "title": zones.get(url, url)  # Use url as fallback if zone not found
+                }
+
+        return jsonify(charts)
+    except Exception as e:
+        logging.error(f"Error in charts_data endpoint: {e}", exc_info=True)
+        return jsonify({
+            "error": "خطا در دریافت داده‌ها",
+            "message": str(e)
+        }), 500
+
+@app.route('/sync-lms-now')
+@login_required
+def sync_lms_now():
+    """Manual LMS sync endpoint - stops continuous sync, performs manual sync, then restarts continuous sync if enabled"""
+    try:
+        from admin.sync_handlers import run_lms_sync
+        from admin_models import DataSync
+        
+        logger.info("Manual LMS sync triggered by user")
+        
+        # Get LMS sync configuration
+        sync = DataSync.query.filter_by(data_source='lms').first()
+        if not sync:
+            return jsonify({
+                "success": False,
+                "message": "پیکربندی همگام‌سازی LMS یافت نشد"
+            }), 404
+        
+        # Run manual sync (will stop continuous sync, perform sync, then restart if enabled)
+        success, records_count, error_message = run_lms_sync(
+            user_id=current_user.id,
+            sync_id=sync.id,
+            manual_sync=True
+        )
+        
+        if success:
+            return jsonify({
+                "success": True,
+                "message": f"همگام‌سازی با موفقیت انجام شد. {records_count} رکورد ثبت شد.",
+                "records_count": records_count
+            })
+        else:
+            return jsonify({
+                "success": False,
+                "message": error_message or "خطا در همگام‌سازی داده‌ها"
+            }), 500
+    except Exception as e:
+        logger.error(f"Error in manual LMS sync: {e}", exc_info=True)
+        return jsonify({
+            "success": False,
+            "message": f"خطا: {str(e)}"
+        }), 500
 
 @app.route('/tables-data')
 @login_required
@@ -873,15 +1060,15 @@ def tables_data():
     overall_sum = {}
     SERVICE_URL = "http://127.0.0.1:6000/metrics"
     zones = {
-        "Zone1": "تهران و البرز",
+        "Zone1": "تهران، شهرستانهای تهران و البرز",
         "Zone2": "گیلان، مازندران و گلستان",
-        "Zone3": "آذربایجان، اردبیل و زنجان",
-        "Zone4": "قم، قزوین، مرکزی و همران",
-        "Zone5": "ایلام، کردستان و کرمانشاه",
+        "Zone3": "آذربایجان شرقی، آذربایجان غربی، اردبیل و زنجان",
+        "Zone4": "قم، قزوین، مرکزی و همدان",
+        "Zone5": "ایلام، کردستان، کرمانشاه و لرستان",
         "Zone6": "اصفهان، چهارمحال و بختیاری و یزد",
         "Zone7": "کهگیلویه و بویراحمد و فارس",
         "Zone8": "سیستان و بلوچستان، کرمان، هرمزگان",
-        "Zone9": "خراسان و سمنان",
+        "Zone9": "خراسان رضوی، جنوبی و شمالی و سمنان",
         "Zone10": "بوشهر و خوزستان",
         "Zone11": "سامانه جلسات"
         }
@@ -926,25 +1113,35 @@ def tables_data():
             url_data[url][key]["values"].append(value)
 
         # === 3. Build Chart.js structure for each URL ===
-        for url, keys in url_data.items():
+        # فقط Zone1 تا Zone11 را پردازش می‌کنیم (11 منطقه)
+        zone_order = ["Zone1", "Zone2", "Zone3", "Zone4", "Zone5", "Zone6", 
+                     "Zone7", "Zone8", "Zone9", "Zone10", "Zone11"]
+        
+        for url in zone_order:
+            if url not in url_data:
+                continue
+                
+            keys = url_data[url]
             datasets = []
             labels = []  # we can take timestamps from first key
             first_key = next(iter(keys))
             labels = keys[first_key]["timestamps"]
-            latest_values[url] = []
-            latest_zone_resources[url] = []
+            latest_values[url] = {}
+            latest_zone_resources[url] = {}
 
-            hostname = hostnames[url]
-            print(hostname)
-            response = requests.get(SERVICE_URL, params={"host": hostname})
-            if response.status_code == 200:
-                # print("Metrics:", response.json())
-                latest_zone_resources[url] = response.json()
-            else:
-                print("Error:", response.text)   
+            hostname = hostnames.get(url)
+            if hostname:
+                print(hostname)
+                response = requests.get(SERVICE_URL, params={"host": hostname})
+                if response.status_code == 200:
+                    # print("Metrics:", response.json())
+                    latest_zone_resources[url] = response.json()
+                else:
+                    print("Error:", response.text)   
+            
             for key, data in keys.items():
                 datasets.append({
-                    "label": chartlabels[key],
+                    "label": chartlabels.get(key, key),
                     "data": data["values"],
                     "borderColor": get_color_for_key(key),
                     "backgroundColor": get_color_for_key(key),
@@ -952,23 +1149,25 @@ def tables_data():
                 })
                 # latest value = last entry
                 latest_val = data["values"][-1]
-                latest_values[url].append({key: latest_val})
+                latest_values[url][key] = latest_val
 
                 # update overall sum
                 overall_sum[key] = overall_sum.get(key, 0) + latest_val
-
 
             charts[url] = {
                 "labels": labels,
                 "datasets": datasets,
                 "latest_values": latest_values[url],         # fixed: return per-url latest_values
                 "latest_zone_resources": latest_zone_resources[url],
-                "title": zones[url]
+                "title": zones.get(url, url)
             }
 
     return jsonify({
         "charts": charts,
-        "overall_sum": overall_sum
+        "overall_sum": overall_sum,
+        "latest_values": latest_values,
+        "latest_zone_resources": latest_zone_resources,
+        "chartlabels": chartlabels
     })
 
 

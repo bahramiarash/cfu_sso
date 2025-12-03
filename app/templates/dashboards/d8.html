@@ -89,12 +89,12 @@
 
     <div class="d-flex justify-content-end align-items-center mb-3">
         <label for="timeRange" class="me-2">نمایش داده‌ها از:</label>
-        <select id="timeRange" class="form-select w-auto">
+        <select id="timeRange" class="form-select w-auto" style="pointer-events: auto; opacity: 1;">
             <option value="1h">یک ساعت گذشته</option>
             <option value="3h">سه ساعت گذشته</option>
             <option value="6h">شش ساعت گذشته</option>
             <option value="12h">۱۲ ساعت گذشته</option>
-            <option value="1d">یک روز گذشته</option>
+            <option value="1d" selected>یک روز گذشته</option>
             <option value="1w">یک هفته گذشته</option>
             <option value="1m">یک ماه گذشته</option>
             <option value="1y">یک سال گذشته</option>
@@ -161,18 +161,76 @@ async function refreshCharts() {
     const response = await fetch(`/charts-data?time_range=${timeRange}`);
     const newData = await response.json();
 
-    for (const url in newData) {
+    // Update all charts with new data
+    for (const url in chartInstances) {
         const chart = chartInstances[url];
         if (chart) {
-            chart.data.labels = newData[url].labels;
-            chart.data.datasets = newData[url].datasets;
-            chart.update();
+            if (newData[url]) {
+                // Update chart with new data
+                chart.data.labels = newData[url].labels;
+                chart.data.datasets = newData[url].datasets;
+                if (newData[url].title) {
+                    chart.options.plugins.title.text = newData[url].title;
+                }
+                chart.update();
+            } else {
+                // No data for this URL in the selected time range - clear the chart
+                chart.data.labels = [];
+                chart.data.datasets = [];
+                chart.update();
+            }
         }
     }
 }
 
 // Update charts when time range changes
-document.getElementById('timeRange').addEventListener('change', refreshCharts);
+// Ensure the select element is enabled and functional
+(function() {
+    let eventListenerAttached = false;
+    
+    function setupTimeRangeFilter() {
+        const timeRangeSelect = document.getElementById('timeRange');
+        if (timeRangeSelect) {
+            // Explicitly enable the select element - multiple ways to ensure it's enabled
+            timeRangeSelect.disabled = false;
+            timeRangeSelect.removeAttribute('disabled');
+            timeRangeSelect.setAttribute('aria-disabled', 'false');
+            timeRangeSelect.style.pointerEvents = 'auto';
+            timeRangeSelect.style.opacity = '1';
+            timeRangeSelect.style.cursor = 'pointer';
+            timeRangeSelect.style.userSelect = 'auto';
+            
+            // Attach event listener only once
+            if (!eventListenerAttached) {
+                timeRangeSelect.addEventListener('change', refreshCharts);
+                eventListenerAttached = true;
+                console.log('Time range filter enabled and event listener attached');
+            }
+        } else {
+            console.warn('Time range select element not found');
+        }
+    }
+    
+    // Setup immediately if DOM is ready, otherwise wait for DOMContentLoaded
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', setupTimeRangeFilter);
+    } else {
+        setupTimeRangeFilter();
+    }
+    
+    // Also ensure it stays enabled after a short delay (in case something disables it)
+    setTimeout(setupTimeRangeFilter, 100);
+    setTimeout(setupTimeRangeFilter, 500);
+    
+    // Monitor and re-enable if something disables it
+    setInterval(function() {
+        const timeRangeSelect = document.getElementById('timeRange');
+        if (timeRangeSelect && timeRangeSelect.disabled) {
+            console.warn('Time range filter was disabled, re-enabling...');
+            setupTimeRangeFilter();
+        }
+    }, 1000);
+})();
 
 // Auto-refresh every 10 seconds
 setInterval(refreshCharts, 10000);
