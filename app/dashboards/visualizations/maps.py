@@ -322,6 +322,27 @@ class MapBuilder:
         plt.close(fig)
         return img
     
+    def get_province_centroids(self) -> Dict[int, Dict[str, float]]:
+        """
+        Get centroid coordinates for each province (normalized 0-1)
+        Returns dict mapping province_code to {'x': float, 'y': float}
+        """
+        centroids = {}
+        for idx, row in self.iran_gdf.iterrows():
+            province_name_norm = row['NAME_1_normalized']
+            province_code = self.province_map_dict.get(province_name_norm)
+            if province_code:
+                centroid = row['geometry'].centroid
+                # Get bounds for normalization
+                bounds = self.iran_gdf.total_bounds
+                # Normalize coordinates (0-1)
+                x_norm = (centroid.x - bounds[0]) / (bounds[2] - bounds[0])
+                y_norm = (centroid.y - bounds[1]) / (bounds[3] - bounds[1])
+                # Invert y for screen coordinates (top-left origin)
+                y_norm = 1 - y_norm
+                centroids[province_code] = {'x': x_norm, 'y': y_norm}
+        return centroids
+    
     def create_province_table_data(
         self,
         province_data: Dict[int, Dict[str, int]]

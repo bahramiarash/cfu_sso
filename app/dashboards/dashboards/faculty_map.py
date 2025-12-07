@@ -161,12 +161,30 @@ class FacultyMapDashboard(BaseDashboard):
         img_bytesio.seek(0)
         encoded_img = base64.b64encode(img_bytesio.read()).decode('utf-8')
         
+        # Get province coordinates for tooltip detection
+        # We'll use centroid coordinates from shapefile
+        province_coords = self.map_builder.get_province_centroids()
+        
+        # Prepare province data for JavaScript (for tooltips)
+        province_data_json = {}
+        for row in data.get('table_data', []):
+            province_code = row['province_code']
+            province_data_json[province_code] = {
+                'name': row['province_name'],
+                'male': row['male_count'],
+                'female': row['female_count'],
+                'total': row['total'],
+                'x': province_coords.get(province_code, {}).get('x', 0),
+                'y': province_coords.get(province_code, {}).get('y', 0)
+            }
+        
         # Prepare template context
         template_context = self.get_template_context(data, context)
         template_context.update({
             "image_data": encoded_img,
             "table_data": data.get('table_data', []),
-            "total_country": data.get('total_country', 0)
+            "total_country": data.get('total_country', 0),
+            "province_data_json": province_data_json
         })
         
         # Render template
