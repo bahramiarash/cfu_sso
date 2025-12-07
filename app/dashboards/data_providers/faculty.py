@@ -166,6 +166,97 @@ class FacultyDataProvider(DataProvider):
         results = self.execute_query(query, (), context)
         return {row[0]: row[1] for row in results if row[0] is not None}
     
+    def get_faculty_list_by_province(
+        self, 
+        province_code: int, 
+        context: Optional[UserContext] = None,
+        filters: Optional[Dict] = None
+    ) -> List[Dict[str, Any]]:
+        """Get complete list of faculty members for a province"""
+        filters = filters or {}
+        filters['province_code'] = province_code
+        
+        where_clause, params = self.build_where_clause(filters, existing_where=False)
+        
+        # Use COALESCE for optional columns that might not exist
+        query = f"""
+            SELECT 
+                name,
+                family,
+                CASE sex WHEN 1 THEN 'مرد' WHEN 2 THEN 'زن' ELSE 'نامشخص' END AS sex_label,
+                sex,
+                field,
+                code,
+                mobile,
+                email,
+                markaz,
+                city,
+                COALESCE(scope, '') AS scope,
+                COALESCE(employ_state, '') AS employ_state,
+                COALESCE(estekhdamtype_title, '') AS estekhdamtype_title,
+                COALESCE(edugroup, '') AS edugroup,
+                COALESCE(grade, '') AS grade
+            FROM faculty
+            {where_clause}
+            ORDER BY name, family
+        """
+        
+        try:
+            results = self.execute_query(query, tuple(params), context)
+        except Exception as e:
+            # If query fails, try without optional columns
+            self.logger.warning(f"Query with all columns failed: {e}. Trying simplified query...")
+            query = f"""
+                SELECT 
+                    name,
+                    family,
+                    CASE sex WHEN 1 THEN 'مرد' WHEN 2 THEN 'زن' ELSE 'نامشخص' END AS sex_label,
+                    sex,
+                    field,
+                    code,
+                    mobile,
+                    email,
+                    markaz,
+                    city,
+                    COALESCE(scope, '') AS scope,
+                    COALESCE(employ_state, '') AS employ_state,
+                    COALESCE(estekhdamtype_title, '') AS estekhdamtype_title,
+                    '' AS edugroup,
+                    '' AS grade
+                FROM faculty
+                {where_clause}
+                ORDER BY name, family
+            """
+            results = self.execute_query(query, tuple(params), context)
+        
+        faculty_list = []
+        for idx, row in enumerate(results, 1):
+            # Handle variable number of columns
+            row_list = list(row) if row else []
+            while len(row_list) < 15:
+                row_list.append('')
+            
+            faculty_list.append({
+                'row_num': idx,
+                'name': row_list[0] or '',
+                'family': row_list[1] or '',
+                'sex_label': row_list[2] or 'نامشخص',
+                'sex': row_list[3],
+                'field': row_list[4] or '',
+                'code': row_list[5] or '',
+                'mobile': row_list[6] or '',
+                'email': row_list[7] or '',
+                'markaz': row_list[8] or '',
+                'city': row_list[9] or '',
+                'scope': row_list[10] or '',
+                'employ_state': row_list[11] or '',
+                'estekhdamtype_title': row_list[12] or '',
+                'edugroup': row_list[13] or '',
+                'grade': row_list[14] or ''
+            })
+        
+        return faculty_list
+    
     def get_faculty_by_type_and_sex(self, context: Optional[UserContext] = None, filters: Optional[Dict] = None) -> Dict[str, Any]:
         """Get faculty by employment type and sex (for nested pie chart)"""
         filters = filters or {}

@@ -217,4 +217,26 @@ def get_universities():
         logger.error(f"Error fetching universities: {e}", exc_info=True)
         return jsonify({"error": str(e), "universities": []}), 500
 
+@api_bp.route('/faculty-by-province/<int:province_code>')
+@login_required
+def get_faculty_by_province(province_code):
+    """Get complete list of faculty members for a specific province"""
+    try:
+        context = get_user_context()
+        
+        # Check if user has access to this province
+        if context.province_code and context.province_code != province_code:
+            return jsonify({"error": "شما دسترسی به این استان را ندارید"}), 403
+        
+        data_provider = FacultyDataProvider()
+        faculty_list = data_provider.get_faculty_list_by_province(province_code, context)
+        
+        return jsonify({
+            "faculty": faculty_list,
+            "count": len(faculty_list)
+        })
+    except Exception as e:
+        logger.error(f"Error fetching faculty by province: {e}", exc_info=True)
+        return jsonify({"error": str(e), "faculty": []}), 500
+
 
