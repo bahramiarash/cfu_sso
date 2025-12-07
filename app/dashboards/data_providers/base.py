@@ -138,18 +138,41 @@ class DataProvider(ABC):
         conditions = []
         params = []
         
+        # Support both single province_code and list of province_codes
         if filters.get('province_code'):
             conditions.append("province_code = ?")
             params.append(filters['province_code'])
+        elif filters.get('province_codes'):
+            # Support list of province codes (from filter_restrictions)
+            province_codes = filters['province_codes']
+            if isinstance(province_codes, list) and len(province_codes) > 0:
+                placeholders = ','.join(['?' for _ in province_codes])
+                conditions.append(f"province_code IN ({placeholders})")
+                params.extend(province_codes)
         
+        # Support both single university_code and list of university_codes
         if filters.get('university_code'):
             conditions.append("university_code = ?")
             params.append(filters['university_code'])
+        elif filters.get('university_codes'):
+            university_codes = filters['university_codes']
+            if isinstance(university_codes, list) and len(university_codes) > 0:
+                placeholders = ','.join(['?' for _ in university_codes])
+                conditions.append(f"university_code IN ({placeholders})")
+                params.extend(university_codes)
         
+        # Support both single faculty_code and list of faculty_codes
         if filters.get('faculty_code'):
             # Try multiple column names
             conditions.append("(code_markaz = ? OR faculty_code = ?)")
             params.extend([filters['faculty_code'], filters['faculty_code']])
+        elif filters.get('faculty_codes'):
+            faculty_codes = filters['faculty_codes']
+            if isinstance(faculty_codes, list) and len(faculty_codes) > 0:
+                placeholders = ','.join(['?' for _ in faculty_codes])
+                conditions.append(f"(code_markaz IN ({placeholders}) OR faculty_code IN ({placeholders}))")
+                params.extend(faculty_codes)
+                params.extend(faculty_codes)  # Add twice for both OR conditions
         
         if filters.get('date_from'):
             conditions.append("date >= ?")

@@ -9,12 +9,59 @@
 <body class="bg-light">
     <div class="container py-4">
         <h2 class="text-center mb-4">توزیع جنسیتی اعضای هیئت علمی به تفکیک استان</h2>
-        <div class="card shadow">
+        <div class="card shadow mb-4">
             <div class="card-body text-center">
-                <h2>Faculty Distribution by Province</h2>
                 <img src="data:image/png;base64,{{ image_data }}" style="width:100%;">
-<!-- 
-                <img src="{{ image_url }}" class="img-fluid rounded" alt="Iran Map with Faculty Gender Pies"> -->
+            </div>
+        </div>
+        
+        <!-- Statistics Table -->
+        <div class="card shadow">
+            <div class="card-header bg-primary text-white">
+                <h4 class="mb-0">جدول آمار اعضای هیئت علمی به تفکیک استان</h4>
+            </div>
+            <div class="card-body">
+                <div class="table-responsive">
+                    <table class="table table-striped table-hover table-bordered">
+                        <thead class="table-dark">
+                            <tr>
+                                <th>ردیف</th>
+                                <th>نام استان</th>
+                                <th>تعداد کل</th>
+                                <th>تعداد زن</th>
+                                <th>تعداد مرد</th>
+                                <th>درصد زن</th>
+                                <th>درصد مرد</th>
+                                <th>درصد از کل کشور</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for row in table_data %}
+                            <tr>
+                                <td>{{ loop.index }}</td>
+                                <td>{{ row.province_name }}</td>
+                                <td>{{ "{:,}".format(row.total) }}</td>
+                                <td>{{ "{:,}".format(row.female_count) }}</td>
+                                <td>{{ "{:,}".format(row.male_count) }}</td>
+                                <td>{{ "%.1f"|format(row.female_percent) }}%</td>
+                                <td>{{ "%.1f"|format(row.male_percent) }}%</td>
+                                <td>{{ "%.2f"|format(row.country_percent) }}%</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                        <tfoot class="table-secondary fw-bold">
+                            <tr>
+                                <td colspan="2">جمع کل کشور</td>
+                                <td>{{ "{:,}".format(total_country) }}</td>
+                                <td>{{ "{:,}".format(table_data|sum(attribute='female_count')) }}</td>
+                                <td>{{ "{:,}".format(table_data|sum(attribute='male_count')) }}</td>
+                                <td>{{ "%.1f"|format((table_data|sum(attribute='female_count') / total_country * 100) if total_country > 0 else 0) }}%</td>
+                                <td>{{ "%.1f"|format((table_data|sum(attribute='male_count') / total_country * 100) if total_country > 0 else 0) }}%</td>
+                                <td>100.00%</td>
+                            </tr>
+                        </tfoot>
+                    </table>
+                </div>
             </div>
         </div>
     </div>

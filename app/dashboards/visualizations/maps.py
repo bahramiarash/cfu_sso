@@ -164,8 +164,10 @@ class MapBuilder:
         
         fig, ax = plt.subplots(figsize=figsize)
         self.iran_gdf.plot(ax=ax, color='#eee', edgecolor='#ccc')
-        fig.subplots_adjust(top=1.37)
-        plt.tight_layout(rect=[0, 0.15, 1, 0.1])
+        # Reduce margins to minimize empty space
+        ax.set_xlim(self.iran_gdf.total_bounds[0], self.iran_gdf.total_bounds[2])
+        ax.set_ylim(self.iran_gdf.total_bounds[1], self.iran_gdf.total_bounds[3])
+        ax.axis('off')
         
         # Log input data
         import logging
@@ -176,6 +178,13 @@ class MapBuilder:
         if province_data:
             sample_province = list(province_data.keys())[0]
             logger.info(f"Sample province data (code {sample_province}): {province_data[sample_province]}")
+        
+        # Log Esfahan (province_code=4) data specifically
+        esfahan_data = province_data.get(4, {})
+        if esfahan_data:
+            logger.info(f"Esfahan (province_code=4) data: Male={esfahan_data.get('1', 0)}, Female={esfahan_data.get('2', 0)}, Total={esfahan_data.get('1', 0) + esfahan_data.get('2', 0)}")
+        else:
+            logger.warning("Esfahan (province_code=4) data not found in province_data!")
         
         # Add pie charts for each province
         matched_provinces = 0
@@ -199,11 +208,28 @@ class MapBuilder:
                 if province_code is None:
                     continue  # Skip provinces without mapping
             
+            # Log Esfahan mapping specifically
+            if province_code == 4 or 'esfahan' in province_name_norm:
+                logger.info(f"Esfahan mapping check: shapefile_name='{province_name_original}' (normalized='{province_name_norm}'), province_code={province_code}")
+            
             data = province_data.get(province_code, {})
-            values = [
-                int(data.get('1', 0)),
-                int(data.get('2', 0))
-            ]
+            # Ensure we get the correct values - '1' for male, '2' for female
+            male_count = int(data.get('1', 0))
+            female_count = int(data.get('2', 0))
+            values = [male_count, female_count]
+            
+            # Log Esfahan data specifically with detailed breakdown
+            if province_code == 4:
+                logger.info(f"Esfahan (code=4) detailed data check:")
+                logger.info(f"  - Raw data dict: {data}")
+                logger.info(f"  - Male (key '1'): {male_count}")
+                logger.info(f"  - Female (key '2'): {female_count}")
+                logger.info(f"  - Values array: {values}")
+                logger.info(f"  - Total: {sum(values)}")
+                if sum(values) > 0:
+                    logger.info(f"  - Expected percentages: Male={(male_count/sum(values)*100):.1f}%, Female={(female_count/sum(values)*100):.1f}%")
+                if sum(values) == 0:
+                    logger.warning("Esfahan (code=4) has no data! This should not happen.")
             
             # Skip if no data for this province
             if sum(values) == 0:
@@ -213,6 +239,10 @@ class MapBuilder:
             matched_provinces += 1
             centroid = row['geometry'].centroid
             try:
+                # Verify values before rendering (especially for Esfahan)
+                if province_code == 4:
+                    logger.info(f"Esfahan rendering: values={values}, sum={sum(values)}, male_pct={(values[0]/sum(values)*100) if sum(values) > 0 else 0:.1f}%, female_pct={(values[1]/sum(values)*100) if sum(values) > 0 else 0:.1f}%")
+                
                 pie_ax = inset_axes(
                     ax,
                     width=0.65,
@@ -222,6 +252,11 @@ class MapBuilder:
                     bbox_transform=ax.transData,
                     borderpad=15
                 )
+                
+                # matplotlib's pie() function automatically calculates percentages correctly from values
+                # For Esfahan: values=[29, 29] will show 50% and 50%
+                # The autopct='%1.0f%%' format string will display the percentage that matplotlib calculates
+                # which is based on the actual values, so it should be correct
                 pie_ax.pie(
                     values,
                     labels=None,
@@ -233,6 +268,8 @@ class MapBuilder:
                 pie_ax.axis('equal')
             except Exception as e:
                 logger.warning(f"Error rendering pie chart for {province_name_original} (code: {province_code}): {e}")
+                import traceback
+                logger.warning(f"Traceback: {traceback.format_exc()}")
                 continue
         
         # Log mapping statistics
@@ -250,8 +287,9 @@ class MapBuilder:
         ax.legend(
             handles=patches,
             loc='lower center',
-            bbox_to_anchor=(0.5, -0.05),
-            ncol=len(legend_labels)
+            bbox_to_anchor=(0.5, 0.02),
+            ncol=len(legend_labels),
+            frameon=True
         )
         
         # Add title
@@ -274,9 +312,12 @@ class MapBuilder:
         )
         ax.axis('off')
         
-        # Convert to BytesIO
+        # Apply tight layout before saving to minimize empty space
+        plt.tight_layout(pad=1.0)
+        
+        # Convert to BytesIO with tight bounding box to remove empty space
         img = io.BytesIO()
-        FigureCanvas(fig).print_png(img)
+        fig.savefig(img, format='png', bbox_inches='tight', pad_inches=0.2, dpi=100)
         img.seek(0)
         plt.close(fig)
         return img

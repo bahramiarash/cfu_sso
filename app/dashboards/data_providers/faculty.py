@@ -146,7 +146,25 @@ class FacultyDataProvider(DataProvider):
             sample_province = list(province_data.keys())[0]
             self.logger.info(f"Sample province {sample_province}: {province_data[sample_province]}")
         
+        # Log Esfahan (province_code=4) data specifically
+        esfahan_data = province_data.get(4, {})
+        if esfahan_data:
+            male = esfahan_data.get('1', 0)
+            female = esfahan_data.get('2', 0)
+            total = male + female
+            self.logger.info(f"Esfahan (province_code=4) data: Male={male}, Female={female}, Total={total}")
+            if total > 0:
+                self.logger.info(f"Esfahan percentages: Male={(male/total*100):.1f}%, Female={(female/total*100):.1f}%")
+        else:
+            self.logger.warning("Esfahan (province_code=4) data not found in province_data!")
+        
         return province_data
+    
+    def get_province_names(self, context: Optional[UserContext] = None) -> Dict[int, str]:
+        """Get province names mapped by province_code"""
+        query = "SELECT province_code, province_name FROM province ORDER BY province_name"
+        results = self.execute_query(query, (), context)
+        return {row[0]: row[1] for row in results if row[0] is not None}
     
     def get_faculty_by_type_and_sex(self, context: Optional[UserContext] = None, filters: Optional[Dict] = None) -> Dict[str, Any]:
         """Get faculty by employment type and sex (for nested pie chart)"""
