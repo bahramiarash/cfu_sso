@@ -1,0 +1,893 @@
+{% extends "admin/base.html" %}
+
+{% block title %}ویرایش تمپلیت: {{ template_name }}{% endblock %}
+
+{% block extra_css %}
+<!-- CodeMirror CSS -->
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/codemirror.min.css">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/theme/monokai.min.css">
+<style>
+    .CodeMirror {
+        border: 1px solid #ddd;
+        border-radius: 4px;
+        height: 600px;
+        font-size: 14px;
+        direction: ltr;
+        text-align: left;
+    }
+    .template-info {
+        background-color: #f8f9fa;
+        padding: 15px;
+        border-radius: 4px;
+        margin-bottom: 20px;
+    }
+    .save-status {
+        display: none;
+        margin-top: 10px;
+    }
+    /* Visual Editor Styles */
+    .chart-item {
+        background: #fff;
+        border: 2px solid #dee2e6;
+        border-radius: 8px;
+        padding: 15px;
+        margin-bottom: 15px;
+        cursor: move;
+        transition: all 0.3s ease;
+        position: relative;
+    }
+    .chart-item:hover {
+        border-color: #0d6efd;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+    }
+    .chart-item.dragging {
+        opacity: 0.5;
+        border-color: #0d6efd;
+    }
+    .chart-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 15px;
+    }
+    .chart-title-input {
+        flex: 1;
+        margin-left: 10px;
+        font-weight: bold;
+    }
+    .chart-order-badge {
+        background: #0d6efd;
+        color: white;
+        padding: 5px 10px;
+        border-radius: 20px;
+        font-size: 12px;
+        min-width: 40px;
+        text-align: center;
+    }
+    .chart-preview {
+        background: #f8f9fa;
+        border: 1px dashed #dee2e6;
+        border-radius: 4px;
+        padding: 20px;
+        min-height: 150px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        margin-bottom: 15px;
+    }
+    .chart-preview canvas {
+        max-width: 100%;
+        max-height: 200px;
+    }
+    .chart-settings {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+        gap: 15px;
+        margin-top: 15px;
+    }
+    .chart-setting-item {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+    }
+    .chart-type-select {
+        width: 100%;
+    }
+    .sortable-ghost {
+        opacity: 0.4;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h1><i class="bi bi-file-code"></i> ویرایش تمپلیت: <code>{{ template_name }}</code></h1>
+        <a href="{{ url_for('admin.dashboard_templates_list') }}" class="btn btn-secondary">
+            <i class="bi bi-arrow-right"></i> بازگشت به لیست
+        </a>
+    </div>
+
+    {% if dashboard %}
+    <div class="template-info">
+        <h5><i class="bi bi-info-circle"></i> اطلاعات داشبورد</h5>
+        <p class="mb-1"><strong>عنوان:</strong> {{ dashboard.title }}</p>
+        {% if dashboard.description %}
+        <p class="mb-0"><strong>توضیحات:</strong> {{ dashboard.description }}</p>
+        {% endif %}
+    </div>
+    {% endif %}
+
+    <div class="card">
+        <div class="card-header d-flex justify-content-between align-items-center">
+            <h5 class="mb-0">محتوای تمپلیت</h5>
+            <div>
+                <button type="button" class="btn btn-sm btn-info" onclick="previewTemplate()">
+                    <i class="bi bi-eye"></i> پیش‌نمایش
+                </button>
+                <button type="button" class="btn btn-sm btn-success" onclick="saveTemplate()">
+                    <i class="bi bi-save"></i> ذخیره
+                </button>
+            </div>
+        </div>
+        <div class="card-body">
+            <form id="templateForm">
+                <div class="mb-3">
+                    <textarea id="templateContent" name="content">{{ content }}</textarea>
+                </div>
+                <div class="save-status alert" id="saveStatus"></div>
+            </form>
+        </div>
+    </div>
+
+    <div class="mt-3">
+        <small class="text-muted">
+            <i class="bi bi-info-circle"></i>
+            قبل از ذخیره، یک نسخه پشتیبان (.backup) از فایل فعلی ایجاد می‌شود.
+            اندازه فایل: {% if file_size %}{{ "%.2f"|format(file_size / 1024.0) }} KB{% else %}نامشخص{% endif %}
+            {% if modified_time %}
+            | آخرین تغییر: {{ modified_time.strftime('%Y/%m/%d %H:%M') }}
+            {% endif %}
+        </small>
+    </div>
+
+    <!-- طراحی گرافیک تمپلیت -->
+    <div class="card mt-4" id="visual-editor">
+        <div class="card-header d-flex justify-content-between align-items-center">
+            <h5 class="mb-0"><i class="bi bi-palette"></i> طراحی گرافیک تمپلیت</h5>
+            <div>
+                <button type="button" class="btn btn-sm btn-primary" onclick="loadCharts()">
+                    <i class="bi bi-arrow-clockwise"></i> بارگذاری مجدد
+                </button>
+                <button type="button" class="btn btn-sm btn-success" onclick="saveChartSettings(event)">
+                    <i class="bi bi-save"></i> ذخیره
+                </button>
+                <button type="button" class="btn btn-sm btn-info" onclick="showVersions()">
+                    <i class="bi bi-clock-history"></i> نسخه‌های قبلی
+                </button>
+            </div>
+        </div>
+        <div class="card-body">
+            <!-- Status message for save operation -->
+            <div class="save-status alert" id="chartSaveStatus" style="display: none; margin-bottom: 1rem;"></div>
+            <div id="chartsContainer">
+                <div class="text-center py-5">
+                    <div class="spinner-border text-primary" role="status">
+                        <span class="visually-hidden">در حال بارگذاری...</span>
+                    </div>
+                    <p class="mt-3">در حال بارگذاری نمودارها...</p>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<!-- CodeMirror JS -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/codemirror.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/mode/htmlmixed/htmlmixed.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/mode/xml/xml.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/mode/javascript/javascript.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/mode/css/css.min.js"></script>
+<!-- SortableJS for Drag & Drop -->
+<script src="https://cdn.jsdelivr.net/npm/sortablejs@latest/Sortable.min.js"></script>
+<!-- Chart.js for preview -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js@latest/dist/chart.umd.js"></script>
+
+<script>
+    // Initialize CodeMirror
+    const editor = CodeMirror.fromTextArea(document.getElementById('templateContent'), {
+        mode: 'htmlmixed',
+        theme: 'monokai',
+        lineNumbers: true,
+        lineWrapping: true,
+        indentUnit: 4,
+        indentWithTabs: false,
+        autoCloseTags: true,
+        matchTags: true,
+        autoCloseBrackets: true,
+        foldGutter: true,
+        gutters: ["CodeMirror-linenumbers", "CodeMirror-foldgutter"]
+    });
+
+    function saveTemplate() {
+        const content = editor.getValue();
+        const saveBtn = event.target;
+        const originalText = saveBtn.innerHTML;
+        
+        // Show loading
+        saveBtn.disabled = true;
+        saveBtn.innerHTML = '<i class="bi bi-hourglass-split"></i> در حال ذخیره...';
+        
+        // Hide previous status
+        const statusDiv = document.getElementById('saveStatus');
+        statusDiv.style.display = 'none';
+        
+        // Send request
+        fetch('{{ url_for("admin.dashboard_template_save", template_name=template_name) }}', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ content: content })
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                statusDiv.className = 'save-status alert alert-success';
+                statusDiv.innerHTML = '<i class="bi bi-check-circle"></i> ' + data.message;
+                statusDiv.style.display = 'block';
+                
+                // Scroll to status
+                statusDiv.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+            } else {
+                statusDiv.className = 'save-status alert alert-danger';
+                statusDiv.innerHTML = '<i class="bi bi-exclamation-circle"></i> ' + data.message;
+                statusDiv.style.display = 'block';
+            }
+        })
+        .catch(error => {
+            statusDiv.className = 'save-status alert alert-danger';
+            statusDiv.innerHTML = '<i class="bi bi-exclamation-circle"></i> خطا در ذخیره: ' + error.message;
+            statusDiv.style.display = 'block';
+        })
+        .finally(() => {
+            saveBtn.disabled = false;
+            saveBtn.innerHTML = originalText;
+        });
+    }
+
+    function previewTemplate() {
+        const content = editor.getValue();
+        const previewWindow = window.open('', '_blank');
+        previewWindow.document.write(content);
+        previewWindow.document.close();
+    }
+
+    // Warn before leaving with unsaved changes
+    let isDirty = false;
+    editor.on('change', function() {
+        isDirty = true;
+    });
+
+    window.addEventListener('beforeunload', function(e) {
+        if (isDirty) {
+            e.preventDefault();
+            e.returnValue = 'تغییرات ذخیره نشده‌ای دارید. آیا می‌خواهید صفحه را ترک کنید؟';
+            return e.returnValue;
+        }
+    });
+
+    // Reset dirty flag after save
+    const originalSave = saveTemplate;
+    saveTemplate = function() {
+        originalSave();
+        setTimeout(() => {
+            if (document.getElementById('saveStatus').className.includes('alert-success')) {
+                isDirty = false;
+            }
+        }, 1000);
+    };
+
+    // ==================== Visual Chart Editor ====================
+    let chartsData = [];
+    let sortableInstance = null;
+
+    // Load charts on page load
+    document.addEventListener('DOMContentLoaded', function() {
+        loadCharts();
+        
+        // Scroll to visual editor if anchor is present
+        if (window.location.hash === '#visual-editor') {
+            setTimeout(function() {
+                const visualEditor = document.getElementById('visual-editor');
+                if (visualEditor) {
+                    visualEditor.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                }
+            }, 500); // Wait a bit for page to fully load
+        }
+    });
+
+    async function loadCharts() {
+        const container = document.getElementById('chartsContainer');
+        container.innerHTML = '<div class="text-center py-5"><div class="spinner-border text-primary" role="status"><span class="visually-hidden">در حال بارگذاری...</span></div><p class="mt-3">در حال بارگذاری نمودارها...</p></div>';
+        
+        try {
+            const templateName = '{{ template_name|e }}';
+            const response = await fetch(`/admin/dashboards/templates/${templateName}/charts`);
+            const data = await response.json();
+            
+            if (data.success) {
+                chartsData = data.charts;
+                renderCharts();
+            } else {
+                container.innerHTML = `<div class="alert alert-danger">${data.message || 'خطا در بارگذاری نمودارها'}</div>`;
+            }
+        } catch (error) {
+            container.innerHTML = `<div class="alert alert-danger">خطا: ${error.message}</div>`;
+        }
+    }
+
+    function renderCharts() {
+        const container = document.getElementById('chartsContainer');
+        
+        if (chartsData.length === 0) {
+            container.innerHTML = '<div class="alert alert-info">هیچ نموداری در این تمپلیت یافت نشد. لطفاً از بخش ویرایش HTML نمودارها را اضافه کنید.</div>';
+            return;
+        }
+
+        // Sort by display_order
+        chartsData.sort((a, b) => (a.display_order || 0) - (b.display_order || 0));
+
+        let html = '<div id="chartsList">';
+        chartsData.forEach((chart, index) => {
+            html += `
+                <div class="chart-item" data-chart-id="${chart.chart_id}" data-index="${index}">
+                    <div class="chart-header">
+                        <span class="chart-order-badge">${index + 1}</span>
+                        <input type="text" class="form-control chart-title-input" value="${chart.title || chart.chart_id}" 
+                               data-chart-id="${chart.chart_id}" onchange="updateChartTitle('${chart.chart_id}', this.value)">
+                    </div>
+                    <div class="chart-preview" id="preview_${chart.chart_id}">
+                        <canvas id="canvas_${chart.chart_id}"></canvas>
+                    </div>
+                    <div class="chart-settings">
+                        <div class="chart-setting-item">
+                            <label class="form-check-label">
+                                <input type="checkbox" class="form-check-input" ${chart.show_labels ? 'checked' : ''} 
+                                       onchange="updateChartSetting('${chart.chart_id}', 'show_labels', this.checked)">
+                                نمایش Labelها
+                            </label>
+                        </div>
+                        <div class="chart-setting-item">
+                            <label class="form-check-label">
+                                <input type="checkbox" class="form-check-input" ${chart.show_legend ? 'checked' : ''} 
+                                       onchange="updateChartSetting('${chart.chart_id}', 'show_legend', this.checked)">
+                                نمایش راهنمای رنگ‌بندی
+                            </label>
+                        </div>
+                        <div class="chart-setting-item">
+                            <label class="form-check-label">
+                                <input type="checkbox" class="form-check-input" ${chart.allow_export ? 'checked' : ''} 
+                                       onchange="updateChartSetting('${chart.chart_id}', 'allow_export', this.checked)">
+                                امکان خروجی تصویر
+                            </label>
+                        </div>
+                        <div class="chart-setting-item">
+                            <label>نوع نمودار:</label>
+                            <select class="form-select chart-type-select" onchange="updateChartType('${chart.chart_id}', this.value)">
+                                <option value="line" ${chart.chart_type === 'line' ? 'selected' : ''}>خطی</option>
+                                <option value="bar" ${chart.chart_type === 'bar' ? 'selected' : ''}>ستونی</option>
+                                <option value="pie" ${chart.chart_type === 'pie' ? 'selected' : ''}>دایره‌ای</option>
+                                <option value="doughnut" ${chart.chart_type === 'doughnut' ? 'selected' : ''}>حلقه‌ای</option>
+                                <option value="radar" ${chart.chart_type === 'radar' ? 'selected' : ''}>راداری</option>
+                                <option value="polarArea" ${chart.chart_type === 'polarArea' ? 'selected' : ''}>قطبی</option>
+                            </select>
+                        </div>
+                        <div class="chart-setting-item">
+                            <label>اولویت نمایش:</label>
+                            <input type="number" class="form-control chart-order-input" data-chart-id="${chart.chart_id}" 
+                                   value="${chart.display_order || index}" min="0" 
+                                   onchange="updateChartOrder('${chart.chart_id}', parseInt(this.value))">
+                        </div>
+                    </div>
+                </div>
+            `;
+        });
+        html += '</div>';
+        container.innerHTML = html;
+
+        // Initialize Sortable
+        if (sortableInstance) {
+            sortableInstance.destroy();
+        }
+        const chartsList = document.getElementById('chartsList');
+        if (chartsList) {
+            sortableInstance = new Sortable(chartsList, {
+                animation: 150,
+                handle: '.chart-item',
+                ghostClass: 'sortable-ghost',
+                onEnd: function(evt) {
+                    updateChartOrders();
+                }
+            });
+        }
+
+        // Render preview charts
+        renderChartPreviews();
+    }
+
+    function renderChartPreviews() {
+        chartsData.forEach(chart => {
+            const canvas = document.getElementById(`canvas_${chart.chart_id}`);
+            if (!canvas) return;
+
+            const ctx = canvas.getContext('2d');
+            
+            // Get sample data from chart options or use defaults
+            const chartOptions = chart.chart_options || {};
+            const sampleLabels = chartOptions.sample_labels || ['فروردین', 'اردیبهشت', 'خرداد', 'تیر', 'مرداد'];
+            const sampleDatasets = chartOptions.sample_datasets || [{
+                label: 'نمونه داده',
+                data: [12, 19, 3, 5, 2],
+                backgroundColor: 'rgba(54, 162, 235, 0.2)',
+                borderColor: 'rgba(54, 162, 235, 1)',
+                borderWidth: 1
+            }];
+            
+            // Prepare datasets - ensure they have proper structure
+            const datasets = sampleDatasets.map((ds, idx) => {
+                if (typeof ds === 'object' && ds.data) {
+                    return {
+                        label: ds.label || `نمونه داده ${idx + 1}`,
+                        data: ds.data,
+                        backgroundColor: ds.backgroundColor || (chart.chart_type === 'pie' || chart.chart_type === 'doughnut' 
+                            ? ['#36A2EB', '#FF6384', '#FFCE56', '#4BC0C0', '#9966FF', '#FF9F40']
+                            : 'rgba(54, 162, 235, 0.2)'),
+                        borderColor: ds.borderColor || 'rgba(54, 162, 235, 1)',
+                        borderWidth: ds.borderWidth || 1
+                    };
+                } else if (Array.isArray(ds)) {
+                    // If it's just an array of numbers
+                    return {
+                        label: `نمونه داده ${idx + 1}`,
+                        data: ds,
+                        backgroundColor: chart.chart_type === 'pie' || chart.chart_type === 'doughnut'
+                            ? ['#36A2EB', '#FF6384', '#FFCE56', '#4BC0C0', '#9966FF']
+                            : 'rgba(54, 162, 235, 0.2)',
+                        borderColor: 'rgba(54, 162, 235, 1)',
+                        borderWidth: 1
+                    };
+                }
+                return ds;
+            });
+            
+            // Sample data for preview
+            const sampleData = {
+                labels: sampleLabels,
+                datasets: datasets
+            };
+
+            const options = {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    title: {
+                        display: true,
+                        text: chart.title || chart.chart_id
+                    },
+                    legend: {
+                        display: chart.show_legend !== false
+                    },
+                    datalabels: {
+                        display: chart.show_labels !== false
+                    }
+                }
+            };
+
+            // Destroy existing chart if exists
+            if (window[`chart_${chart.chart_id}`]) {
+                window[`chart_${chart.chart_id}`].destroy();
+            }
+
+            window[`chart_${chart.chart_id}`] = new Chart(ctx, {
+                type: chart.chart_type || 'line',
+                data: sampleData,
+                options: options
+            });
+        });
+    }
+
+    function updateChartTitle(chartId, title) {
+        const chart = chartsData.find(c => c.chart_id === chartId);
+        if (chart) {
+            chart.title = title;
+            // Update preview chart title
+            if (window[`chart_${chartId}`]) {
+                window[`chart_${chartId}`].options.plugins.title.text = title;
+                window[`chart_${chartId}`].update();
+            }
+        }
+    }
+
+    function updateChartSetting(chartId, setting, value) {
+        const chart = chartsData.find(c => c.chart_id === chartId);
+        if (chart) {
+            chart[setting] = value;
+            // Update preview
+            renderChartPreviews();
+        }
+    }
+
+    function updateChartType(chartId, type) {
+        const chart = chartsData.find(c => c.chart_id === chartId);
+        if (chart) {
+            chart.chart_type = type;
+            // Re-render preview
+            renderChartPreviews();
+        }
+    }
+
+    function updateChartOrder(chartId, order) {
+        const chart = chartsData.find(c => c.chart_id === chartId);
+        if (chart) {
+            chart.display_order = order;
+        }
+    }
+
+    function updateChartOrders() {
+        // This function is called when drag & drop happens
+        // It updates display_order based on DOM position
+        const items = document.querySelectorAll('.chart-item');
+        items.forEach((item, index) => {
+            const chartId = item.dataset.chartId;
+            const chart = chartsData.find(c => c.chart_id === chartId);
+            if (chart) {
+                // Update display_order from drag & drop position
+                chart.display_order = index;
+                // Also update the input field to reflect the new position
+                const orderInput = item.querySelector('.chart-order-input');
+                if (orderInput) {
+                    orderInput.value = index;
+                }
+            }
+            // Update order badge
+            const badge = item.querySelector('.chart-order-badge');
+            if (badge) {
+                badge.textContent = index + 1;
+            }
+        });
+    }
+
+    function updateChartOrderBadges() {
+        // Update only the badge numbers without changing display_order values
+        // This is used when collecting data to show current visual position
+        const items = document.querySelectorAll('.chart-item');
+        items.forEach((item, index) => {
+            const badge = item.querySelector('.chart-order-badge');
+            if (badge) {
+                badge.textContent = index + 1;
+            }
+        });
+    }
+
+    function collectAllChartData() {
+        // Collect all chart data from DOM inputs before saving
+        console.log('Collecting chart data from DOM...');
+        chartsData.forEach(chart => {
+            const chartItem = document.querySelector(`[data-chart-id="${chart.chart_id}"]`);
+            if (!chartItem) {
+                console.warn(`Chart item not found for: ${chart.chart_id}`);
+                return;
+            }
+            
+            // Get title from input
+            const titleInput = chartItem.querySelector('.chart-title-input');
+            if (titleInput) {
+                const newTitle = titleInput.value.trim();
+                if (newTitle) {
+                    chart.title = newTitle;
+                    console.log(`Updated title for ${chart.chart_id}: ${newTitle}`);
+                }
+            } else {
+                console.warn(`Title input not found for: ${chart.chart_id}`);
+            }
+            
+            // Get display_order from number input with class chart-order-input
+            // Priority: Use the value from input field (user's manual change) over drag & drop position
+            const orderInput = chartItem.querySelector('.chart-order-input');
+            if (orderInput) {
+                const orderValue = parseInt(orderInput.value);
+                if (!isNaN(orderValue)) {
+                    chart.display_order = orderValue;
+                    console.log(`Updated display_order for ${chart.chart_id} from input: ${orderValue}`);
+                }
+            } else {
+                console.warn(`Order input not found for: ${chart.chart_id}`);
+            }
+            
+            // Get chart_type from select
+            const typeSelect = chartItem.querySelector('.chart-type-select');
+            if (typeSelect) {
+                chart.chart_type = typeSelect.value || 'line';
+                console.log(`Updated chart_type for ${chart.chart_id}: ${chart.chart_type}`);
+            } else {
+                console.warn(`Type select not found for: ${chart.chart_id}`);
+            }
+            
+            // Get show_labels from checkbox - find by onchange attribute
+            const allCheckboxes = chartItem.querySelectorAll('input[type="checkbox"]');
+            const labelsCheckbox = Array.from(allCheckboxes).find(
+                cb => {
+                    const onchange = cb.getAttribute('onchange');
+                    return onchange && onchange.includes('show_labels');
+                }
+            );
+            if (labelsCheckbox) {
+                chart.show_labels = labelsCheckbox.checked;
+                console.log(`Updated show_labels for ${chart.chart_id}: ${labelsCheckbox.checked}`);
+            } else {
+                console.warn(`Labels checkbox not found for: ${chart.chart_id}`);
+            }
+            
+            // Get show_legend from checkbox
+            const legendCheckbox = Array.from(allCheckboxes).find(
+                cb => {
+                    const onchange = cb.getAttribute('onchange');
+                    return onchange && onchange.includes('show_legend');
+                }
+            );
+            if (legendCheckbox) {
+                chart.show_legend = legendCheckbox.checked;
+                console.log(`Updated show_legend for ${chart.chart_id}: ${legendCheckbox.checked}`);
+            } else {
+                console.warn(`Legend checkbox not found for: ${chart.chart_id}`);
+            }
+            
+            // Get allow_export from checkbox
+            const exportCheckbox = Array.from(allCheckboxes).find(
+                cb => {
+                    const onchange = cb.getAttribute('onchange');
+                    return onchange && onchange.includes('allow_export');
+                }
+            );
+            if (exportCheckbox) {
+                chart.allow_export = exportCheckbox.checked;
+                console.log(`Updated allow_export for ${chart.chart_id}: ${exportCheckbox.checked}`);
+            } else {
+                console.warn(`Export checkbox not found for: ${chart.chart_id}`);
+            }
+        });
+        
+        // Update orders from drag & drop position only if user hasn't manually changed input values
+        // This will update the badge numbers but won't override manual input values
+        updateChartOrderBadges();
+        
+        console.log('Final chartsData:', JSON.stringify(chartsData, null, 2));
+    }
+
+    async function saveChartSettings(event) {
+        const statusDiv = document.getElementById('chartSaveStatus');
+        const saveBtn = event ? event.target.closest('button') : document.querySelector('button[onclick*="saveChartSettings"]');
+        if (!saveBtn) {
+            console.error('Save button not found');
+            return;
+        }
+        const originalText = saveBtn.innerHTML;
+        
+        // Show loading state
+        saveBtn.disabled = true;
+        saveBtn.innerHTML = '<i class="bi bi-hourglass-split"></i> در حال ذخیره...';
+        statusDiv.style.display = 'none';
+        
+        try {
+            // Collect all data from DOM inputs
+            collectAllChartData();
+
+            const templateName = '{{ template_name|e }}';
+            
+            // Log data before sending
+            console.log('Sending chart data to server:', JSON.stringify(chartsData, null, 2));
+            
+            const response = await fetch(`/admin/dashboards/templates/${templateName}/charts`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ charts: chartsData })
+            });
+
+            const data = await response.json();
+            
+            if (data.success) {
+                statusDiv.className = 'save-status alert alert-success';
+                statusDiv.innerHTML = '<i class="bi bi-check-circle"></i> ' + (data.message || 'تنظیمات با موفقیت ذخیره شد');
+                statusDiv.style.display = 'block';
+                // Scroll to show the message near the save button
+                setTimeout(() => {
+                    statusDiv.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+                }, 100);
+            } else {
+                statusDiv.className = 'save-status alert alert-danger';
+                statusDiv.innerHTML = '<i class="bi bi-exclamation-circle"></i> ' + (data.message || 'خطا در ذخیره تنظیمات');
+                statusDiv.style.display = 'block';
+                // Scroll to show the message near the save button
+                setTimeout(() => {
+                    statusDiv.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+                }, 100);
+            }
+        } catch (error) {
+            statusDiv.className = 'save-status alert alert-danger';
+            statusDiv.innerHTML = '<i class="bi bi-exclamation-circle"></i> خطا در ذخیره: ' + error.message;
+            statusDiv.style.display = 'block';
+            // Scroll to show the message near the save button
+            setTimeout(() => {
+                statusDiv.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+            }, 100);
+        } finally {
+            // Restore button state
+            saveBtn.disabled = false;
+            saveBtn.innerHTML = originalText;
+        }
+    }
+
+    // Version management
+    async function showVersions() {
+        const templateName = '{{ template_name|e }}';
+        try {
+            const response = await fetch(`/admin/dashboards/templates/${templateName}/versions`);
+            const data = await response.json();
+            
+            if (data.success) {
+                displayVersionsModal(data.versions);
+            } else {
+                alert('خطا در دریافت نسخه‌ها: ' + data.message);
+            }
+        } catch (error) {
+            alert('خطا در دریافت نسخه‌ها: ' + error.message);
+        }
+    }
+
+    function displayVersionsModal(versions) {
+        let modalHtml = `
+            <div class="modal fade" id="versionsModal" tabindex="-1">
+                <div class="modal-dialog modal-lg">
+                    <div class="modal-content">
+                        <div class="modal-header">
+                            <h5 class="modal-title">نسخه‌های قبلی تمپلیت</h5>
+                            <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                        </div>
+                        <div class="modal-body">
+                            <div class="table-responsive">
+                                <table class="table table-striped">
+                                    <thead>
+                                        <tr>
+                                            <th>نسخه</th>
+                                            <th>تاریخ ایجاد</th>
+                                            <th>توضیحات</th>
+                                            <th>حجم</th>
+                                            <th>عملیات</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+        `;
+        
+        versions.forEach(version => {
+            modalHtml += `
+                <tr>
+                    <td><strong>${version.version_number}</strong></td>
+                    <td>${version.created_at_jalali || version.created_at}</td>
+                    <td>${version.description || '-'}</td>
+                    <td>${(version.content_length / 1024).toFixed(2)} KB</td>
+                    <td>
+                        <button class="btn btn-sm btn-warning me-1" onclick="restoreVersion(${version.version_number})">
+                            <i class="bi bi-arrow-counterclockwise"></i> بازگردانی
+                        </button>
+                        <button class="btn btn-sm btn-danger" onclick="deleteVersion(${version.version_number})">
+                            <i class="bi bi-trash"></i> حذف
+                        </button>
+                    </td>
+                </tr>
+            `;
+        });
+        
+        modalHtml += `
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                        <div class="modal-footer">
+                            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">بستن</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `;
+        
+        // Remove existing modal if any
+        const existingModal = document.getElementById('versionsModal');
+        if (existingModal) {
+            existingModal.remove();
+        }
+        
+        // Add modal to body
+        document.body.insertAdjacentHTML('beforeend', modalHtml);
+        
+        // Show modal
+        const modal = new bootstrap.Modal(document.getElementById('versionsModal'));
+        modal.show();
+    }
+
+    async function restoreVersion(versionNumber) {
+        if (!confirm(`آیا مطمئن هستید که می‌خواهید تمپلیت را به نسخه ${versionNumber} بازگردانید؟\n\nاین عمل یک نسخه پشتیبان از وضعیت فعلی ایجاد می‌کند.`)) {
+            return;
+        }
+        
+        const templateName = '{{ template_name|e }}';
+        try {
+            const response = await fetch(`/admin/dashboards/templates/${templateName}/versions/${versionNumber}/restore`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                }
+            });
+            
+            const data = await response.json();
+            
+            if (data.success) {
+                alert('تمپلیت با موفقیت بازگردانده شد. لطفاً صفحه را رفرش کنید.');
+                // Close modal
+                const modal = bootstrap.Modal.getInstance(document.getElementById('versionsModal'));
+                if (modal) {
+                    modal.hide();
+                }
+                // Reload page after 1 second
+                setTimeout(() => {
+                    window.location.reload();
+                }, 1000);
+            } else {
+                alert('خطا در بازگردانی: ' + data.message);
+            }
+        } catch (error) {
+            alert('خطا در بازگردانی: ' + error.message);
+        }
+    }
+
+    async function deleteVersion(versionNumber) {
+        if (!confirm(`آیا مطمئن هستید که می‌خواهید نسخه ${versionNumber} را حذف کنید؟\n\nاین عمل غیرقابل بازگشت است.`)) {
+            return;
+        }
+        
+        const templateName = '{{ template_name|e }}';
+        try {
+            const response = await fetch(`/admin/dashboards/templates/${templateName}/versions/${versionNumber}/delete`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                }
+            });
+            
+            const data = await response.json();
+            
+            if (data.success) {
+                alert('نسخه با موفقیت حذف شد.');
+                // Close modal
+                const modal = bootstrap.Modal.getInstance(document.getElementById('versionsModal'));
+                if (modal) {
+                    modal.hide();
+                }
+                // Reload versions list
+                setTimeout(() => {
+                    showVersions();
+                }, 500);
+            } else {
+                alert('خطا در حذف: ' + data.message);
+            }
+        } catch (error) {
+            alert('خطا در حذف: ' + error.message);
+        }
+    }
+</script>
+{% endblock %}
+
