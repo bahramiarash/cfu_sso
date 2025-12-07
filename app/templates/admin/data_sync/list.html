@@ -6,6 +6,44 @@
 <div class="container-fluid">
     <h1 class="mb-4"><i class="bi bi-arrow-repeat"></i> مدیریت همگام‌سازی داده</h1>
 
+    {% if scheduler_running %}
+    <div class="alert alert-success">
+        <div class="d-flex justify-content-between align-items-center">
+            <div>
+                <i class="bi bi-check-circle"></i> <strong>سیستم همگام‌سازی خودکار فعال است</strong>
+            </div>
+            <div>
+                <form method="POST" action="{{ url_for('admin.scheduler_stop') }}" class="d-inline" onsubmit="return confirm('آیا مطمئن هستید که می‌خواهید سیستم همگام‌سازی خودکار را متوقف کنید؟');">
+                    <button type="submit" class="btn btn-sm btn-danger me-2">
+                        <i class="bi bi-stop-circle"></i> توقف Scheduler
+                    </button>
+                </form>
+                <a href="{{ url_for('admin.sync_logs') }}" class="btn btn-sm btn-outline-primary">
+                    <i class="bi bi-clock-history"></i> مشاهده لاگ همگام‌سازی‌های خودکار
+                </a>
+            </div>
+        </div>
+    </div>
+    {% else %}
+    <div class="alert alert-warning">
+        <div class="d-flex justify-content-between align-items-center">
+            <div>
+                <i class="bi bi-exclamation-triangle"></i> <strong>سیستم همگام‌سازی خودکار غیرفعال است</strong>
+            </div>
+            <div>
+                <form method="POST" action="{{ url_for('admin.scheduler_start') }}" class="d-inline" onsubmit="return confirm('آیا مطمئن هستید که می‌خواهید سیستم همگام‌سازی خودکار را فعال کنید؟');">
+                    <button type="submit" class="btn btn-sm btn-success me-2">
+                        <i class="bi bi-play-circle"></i> شروع Scheduler
+                    </button>
+                </form>
+                <a href="{{ url_for('admin.sync_logs') }}" class="btn btn-sm btn-outline-primary">
+                    <i class="bi bi-clock-history"></i> مشاهده لاگ همگام‌سازی‌های خودکار
+                </a>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+
     <div class="card">
         <div class="card-body">
             <div class="table-responsive">
@@ -23,24 +61,38 @@
                         </tr>
                     </thead>
                     <tbody>
+                        {% if syncs %}
                         {% for sync in syncs %}
                         <tr>
-                            <td><strong>{{ sync.data_source }}</strong></td>
+                            <td><strong>{{ sync.data_source or '-' }}</strong></td>
                             <td>
-                                <span class="badge bg-{{ 'success' if sync.status == 'success' else 'warning' if sync.status == 'running' else 'danger' }}">
-                                    {{ sync.status }}
-                                </span>
+                                {% if sync.status == 'success' %}
+                                    <span class="badge bg-success">موفق</span>
+                                {% elif sync.status == 'running' %}
+                                    <span class="badge bg-warning">در حال اجرا</span>
+                                {% elif sync.status == 'stopped' %}
+                                    <span class="badge bg-secondary">متوقف شده</span>
+                                {% elif sync.status == 'failed' %}
+                                    <span class="badge bg-danger">خطا</span>
+                                {% elif sync.status == 'pending' %}
+                                    <span class="badge bg-info">در انتظار</span>
+                                {% else %}
+                                    <span class="badge bg-secondary">{{ sync.status or 'unknown' }}</span>
+                                {% endif %}
                             </td>
                             <td>
                                 {% if sync.last_sync_at %}
-                                    {{ sync.get_jalali_date(sync.last_sync_at) }}
+                                    {{ sync.get_jalali_date(sync.last_sync_at) or sync.last_sync_at }}
+                                    {% if sync.sync_duration_seconds %}
+                                        <br><small class="text-muted">مدت زمان: {{ "%.1f"|format(sync.sync_duration_seconds) }} ثانیه</small>
+                                    {% endif %}
                                 {% else %}
                                     <span class="text-muted">هنوز انجام نشده</span>
                                 {% endif %}
                             </td>
                             <td>
                                 {% if sync.next_sync_at %}
-                                    {{ sync.get_jalali_date(sync.next_sync_at) }}
+                                    {{ sync.get_jalali_date(sync.next_sync_at) or sync.next_sync_at }}
                                 {% else %}
                                     <span class="text-muted">-</span>
                                 {% endif %}
@@ -52,25 +104,242 @@
                                     <span class="badge bg-secondary">غیرفعال</span>
                                 {% endif %}
                             </td>
-                            <td>{{ sync.sync_interval_minutes }}</td>
-                            <td>{{ sync.records_synced }}</td>
+                            <td>{{ sync.get_interval_display() or '-' }}</td>
                             <td>
-                                <form method="POST" action="{{ url_for('admin.data_sync_trigger', sync_id=sync.id) }}" class="d-inline">
-                                    <button type="submit" class="btn btn-sm btn-primary">
-                                        <i class="bi bi-arrow-clockwise"></i> همگام‌سازی
+                                {{ sync.records_synced or 0 }}
+                                {% if sync.error_message %}
+                                    <br><small class="text-danger" title="{{ sync.error_message }}">خطا: {{ sync.error_message[:50] }}...</small>
+                                {% endif %}
+                            </td>
+                            <td>
+                                <div class="d-flex gap-1 flex-wrap align-items-center">
+                                    {% if sync.status == 'running' %}
+                                    <button type="button" class="btn btn-sm btn-info" data-bs-toggle="modal" data-bs-target="#progressModal{{ sync.id }}">
+                                        <i class="bi bi-hourglass-split"></i> مشاهده پیشرفت
                                     </button>
-                                </form>
-                                <a href="{{ url_for('admin.data_sync_edit', sync_id=sync.id) }}" class="btn btn-sm btn-warning">
-                                    <i class="bi bi-gear"></i> تنظیمات
-                                </a>
+                                    <button type="button" class="btn btn-sm btn-danger" 
+                                            onclick="if(confirm('آیا مطمئن هستید که می‌خواهید همگام‌سازی {{ sync.data_source }} را متوقف کنید؟{% if sync.data_source == 'lms' %} این کار همگام‌سازی مداوم را متوقف خواهد کرد.{% endif %}')) { document.getElementById('stopSyncForm{{ sync.id }}').submit(); }">
+                                        <i class="bi bi-stop-circle"></i> توقف
+                                    </button>
+                                    <form id="stopSyncForm{{ sync.id }}" method="POST" action="{{ url_for('admin.data_sync_stop', sync_id=sync.id) }}" style="display: none;"></form>
+                                    {% else %}
+                                    <form method="POST" action="{{ url_for('admin.data_sync_trigger', sync_id=sync.id) }}" class="d-inline" onsubmit="return confirm('آیا مطمئن هستید که می‌خواهید همگام‌سازی را شروع کنید؟ این عملیات ممکن است چند دقیقه طول بکشد.');">
+                                        <button type="submit" class="btn btn-sm btn-primary">
+                                            <i class="bi bi-play-circle"></i> شروع
+                                        </button>
+                                    </form>
+                                    {% if sync.status == 'stopped' or sync.status == 'failed' %}
+                                    <form method="POST" action="{{ url_for('admin.data_sync_restart', sync_id=sync.id) }}" class="d-inline" onsubmit="return confirm('آیا مطمئن هستید که می‌خواهید همگام‌سازی را دوباره راه‌اندازی کنید؟');">
+                                        <button type="submit" class="btn btn-sm btn-warning">
+                                            <i class="bi bi-arrow-repeat"></i> اجرای مجدد
+                                        </button>
+                                    </form>
+                                    {% endif %}
+                                    {% endif %}
+                                    <a href="{{ url_for('admin.data_sync_edit', sync_id=sync.id) }}" class="btn btn-sm btn-secondary">
+                                        <i class="bi bi-gear"></i> تنظیمات
+                                    </a>
+                                </div>
                             </td>
                         </tr>
                         {% endfor %}
+                        {% else %}
+                        <tr>
+                            <td colspan="8" class="text-center text-muted">هیچ همگام‌سازی‌ای یافت نشد</td>
+                        </tr>
+                        {% endif %}
                     </tbody>
                 </table>
             </div>
         </div>
     </div>
 </div>
+
+<!-- Progress Modals -->
+{% for sync in syncs %}
+{% if sync.status == 'running' %}
+<div class="modal fade" id="progressModal{{ sync.id }}" tabindex="-1" aria-labelledby="progressModalLabel{{ sync.id }}" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="progressModalLabel{{ sync.id }}">
+                    <i class="bi bi-arrow-repeat"></i> وضعیت همگام‌سازی: {{ sync.data_source }}
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div id="progressContent{{ sync.id }}">
+                    <div class="text-center">
+                        <div class="spinner-border text-primary" role="status">
+                            <span class="visually-hidden">در حال بارگذاری...</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endif %}
+{% endfor %}
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // Auto-refresh running syncs
+    const runningSyncs = document.querySelectorAll('[data-bs-target^="#progressModal"]');
+    
+    runningSyncs.forEach(button => {
+        const modalId = button.getAttribute('data-bs-target');
+        const syncId = modalId.replace('#progressModal', '');
+        
+        // When modal is shown, start polling
+        const modal = document.querySelector(modalId);
+        if (modal) {
+            modal.addEventListener('shown.bs.modal', function() {
+                startProgressPolling(syncId);
+            });
+            
+            modal.addEventListener('hidden.bs.modal', function() {
+                stopProgressPolling(syncId);
+            });
+        }
+    });
+    
+    // Poll for all running syncs on page load
+    {% for sync in syncs %}
+    {% if sync.status == 'running' %}
+    checkSyncStatus({{ sync.id }});
+    {% endif %}
+    {% endfor %}
+});
+
+const progressIntervals = {};
+
+function startProgressPolling(syncId) {
+    // Poll every 2 seconds
+    if (progressIntervals[syncId]) {
+        clearInterval(progressIntervals[syncId]);
+    }
+    
+    progressIntervals[syncId] = setInterval(() => {
+        updateProgress(syncId);
+    }, 2000);
+    
+    // Initial update
+    updateProgress(syncId);
+}
+
+function stopProgressPolling(syncId) {
+    if (progressIntervals[syncId]) {
+        clearInterval(progressIntervals[syncId]);
+        delete progressIntervals[syncId];
+    }
+}
+
+function updateProgress(syncId) {
+    fetch(`/admin/data-sync/${syncId}/progress`)
+        .then(response => response.json())
+        .then(data => {
+            updateProgressUI(syncId, data);
+            
+            // If sync is complete, stop polling and refresh page after 3 seconds
+            if (data.status === 'success' || data.status === 'failed') {
+                stopProgressPolling(syncId);
+                setTimeout(() => {
+                    window.location.reload();
+                }, 3000);
+            }
+        })
+        .catch(error => {
+            console.error('Error fetching progress:', error);
+        });
+}
+
+function updateProgressUI(syncId, data) {
+    const contentDiv = document.getElementById(`progressContent${syncId}`);
+    if (!contentDiv) return;
+    
+    const progressPercent = data.progress || 0;
+    const statusClass = data.status === 'success' ? 'success' : 
+                       data.status === 'failed' ? 'danger' : 
+                       data.status === 'running' ? 'primary' : 'secondary';
+    
+    let html = `
+        <div class="mb-3">
+            <div class="d-flex justify-content-between mb-2">
+                <span><strong>وضعیت:</strong> <span class="badge bg-${statusClass}">${data.status || 'unknown'}</span></span>
+                <span><strong>پیشرفت:</strong> ${progressPercent}%</span>
+            </div>
+            <div class="progress" style="height: 30px;">
+                <div class="progress-bar progress-bar-striped progress-bar-animated bg-${statusClass}" 
+                     role="progressbar" 
+                     style="width: ${progressPercent}%" 
+                     aria-valuenow="${progressPercent}" 
+                     aria-valuemin="0" 
+                     aria-valuemax="100">
+                    ${progressPercent}%
+                </div>
+            </div>
+        </div>
+        
+        <div class="mb-3">
+            <strong>مرحله فعلی:</strong>
+            <div class="alert alert-info mb-0">${data.current_step || '-'}</div>
+        </div>
+        
+        <div class="mb-3">
+            <strong>تعداد رکوردهای دریافت شده:</strong>
+            <div class="h4 text-primary">${data.records_processed || 0}</div>
+        </div>
+    `;
+    
+    if (data.logs && data.logs.length > 0) {
+        html += `
+            <div class="mb-3">
+                <strong>لاگ اقدامات:</strong>
+                <div class="border rounded p-2" style="max-height: 300px; overflow-y: auto; background-color: #f8f9fa; font-family: monospace; font-size: 0.85em;">
+        `;
+        
+        data.logs.slice(-20).forEach(log => {
+            const logClass = log.level === 'error' ? 'text-danger' : 
+                           log.level === 'success' ? 'text-success' : 
+                           'text-info';
+            const time = new Date(log.timestamp).toLocaleTimeString('fa-IR');
+            html += `<div class="${logClass}">[${time}] ${log.message}</div>`;
+        });
+        
+        html += `
+                </div>
+            </div>
+        `;
+    }
+    
+    if (data.error_message) {
+        html += `
+            <div class="alert alert-danger">
+                <strong>خطا:</strong> ${data.error_message}
+            </div>
+        `;
+    }
+    
+    contentDiv.innerHTML = html;
+}
+
+function checkSyncStatus(syncId) {
+    // Check if sync is still running and update UI
+    fetch(`/admin/data-sync/${syncId}/progress`)
+        .then(response => response.json())
+        .then(data => {
+            if (data.status !== 'running') {
+                // Refresh page to update status
+                setTimeout(() => {
+                    window.location.reload();
+                }, 2000);
+            }
+        })
+        .catch(error => {
+            console.error('Error checking sync status:', error);
+        });
+}
+</script>
 {% endblock %}
 

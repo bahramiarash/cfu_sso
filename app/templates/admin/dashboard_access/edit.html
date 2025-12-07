@@ -47,25 +47,70 @@
                     </div>
                 </div>
 
-                <div class="mb-3">
-                    <label class="form-label">محدودیت‌های فیلتر (JSON)</label>
-                    <textarea name="filter_restrictions" class="form-control" rows="3">{{ access.filter_restrictions | tojson if access.filter_restrictions else '' }}</textarea>
+                <div class="card mb-3">
+                    <div class="card-header bg-info text-white">
+                        <h5 class="mb-0"><i class="bi bi-funnel"></i> محدودیت‌های فیلتر</h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="row">
+                            <div class="col-md-4">
+                                <div class="mb-3">
+                                    <label class="form-label">استان‌ها</label>
+                                    <select name="province_codes" id="province_codes" class="form-select" multiple size="5">
+                                        <option value="">در حال بارگذاری...</option>
+                                    </select>
+                                    <small class="form-text text-muted">برای انتخاب چندگانه، Ctrl (یا Cmd در Mac) را نگه دارید</small>
+                                </div>
+                            </div>
+                            <div class="col-md-4">
+                                <div class="mb-3">
+                                    <label class="form-label">دانشگاه‌ها</label>
+                                    <select name="university_codes" id="university_codes" class="form-select" multiple size="5">
+                                        <option value="">ابتدا استان را انتخاب کنید</option>
+                                    </select>
+                                    <small class="form-text text-muted">برای انتخاب چندگانه، Ctrl (یا Cmd در Mac) را نگه دارید</small>
+                                </div>
+                            </div>
+                            <div class="col-md-4">
+                                <div class="mb-3">
+                                    <label class="form-label">دانشکده‌ها</label>
+                                    <select name="faculty_codes" id="faculty_codes" class="form-select" multiple size="5">
+                                        <option value="">ابتدا استان را انتخاب کنید</option>
+                                    </select>
+                                    <small class="form-text text-muted">برای انتخاب چندگانه، Ctrl (یا Cmd در Mac) را نگه دارید</small>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="alert alert-info">
+                            <i class="bi bi-info-circle"></i> <strong>راهنما:</strong> می‌توانید یک یا چند مورد از هر دسته را انتخاب کنید. در صورت عدم انتخاب، محدودیتی اعمال نمی‌شود.
+                        </div>
+                        <!-- Hidden field to store JSON -->
+                        <input type="hidden" name="filter_restrictions" id="filter_restrictions_json">
+                    </div>
                 </div>
 
-                <div class="row">
-                    <div class="col-md-6">
-                        <div class="mb-3">
-                            <label class="form-label">از تاریخ</label>
-                            <input type="datetime-local" name="date_from" class="form-control" 
-                                   value="{{ access.date_from.strftime('%Y-%m-%dT%H:%M') if access.date_from else '' }}">
-                        </div>
+                <div class="card mb-3">
+                    <div class="card-header bg-primary text-white">
+                        <h5 class="mb-0"><i class="bi bi-calendar-range"></i> محدودیت زمانی</h5>
                     </div>
-                    <div class="col-md-6">
-                        <div class="mb-3">
-                            <label class="form-label">تا تاریخ</label>
-                            <input type="datetime-local" name="date_to" class="form-control"
-                                   value="{{ access.date_to.strftime('%Y-%m-%dT%H:%M') if access.date_to else '' }}">
+                    <div class="card-body">
+                        <div class="row">
+                            <div class="col-md-6">
+                                <div class="mb-3">
+                                    <label class="form-label">از تاریخ</label>
+                                    <input type="text" name="date_from" id="date_from" class="form-control" placeholder="انتخاب تاریخ شروع"
+                                           value="{% if date_from_jalali %}{{ date_from_jalali }}{% endif %}">
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="mb-3">
+                                    <label class="form-label">تا تاریخ</label>
+                                    <input type="text" name="date_to" id="date_to" class="form-control" placeholder="انتخاب تاریخ پایان"
+                                           value="{% if date_to_jalali %}{{ date_to_jalali }}{% endif %}">
+                                </div>
+                            </div>
                         </div>
+                        <small class="form-text text-muted">در صورت عدم انتخاب، محدودیت زمانی اعمال نمی‌شود</small>
                     </div>
                 </div>
 
@@ -78,4 +123,237 @@
     </div>
 </div>
 {% endblock %}
+
+{% block extra_js %}
+<script>
+// Initialize KamaDatepicker for Persian calendar
+(function() {
+    function initDatePickers() {
+        // Wait for jQuery and kamaDatepicker to be loaded
+        if (typeof jQuery !== 'undefined' && typeof kamaDatepicker !== 'undefined') {
+            try {
+                kamaDatepicker('date_from', {
+                    forceFarsiDigits: true,
+                    markToday: true,
+                    markHolidays: true,
+                    gotoToday: true,
+                    highlightSelectedDay: true,
+                    format: 'YYYY/MM/DD'
+                });
+                
+                kamaDatepicker('date_to', {
+                    forceFarsiDigits: true,
+                    markToday: true,
+                    markHolidays: true,
+                    gotoToday: true,
+                    highlightSelectedDay: true,
+                    format: 'YYYY/MM/DD'
+                });
+                console.log('KamaDatepicker initialized successfully');
+            } catch (error) {
+                console.error('Error initializing KamaDatepicker:', error);
+                setTimeout(initDatePickers, 500);
+            }
+        } else {
+            console.warn('jQuery or KamaDatepicker not loaded yet, retrying...');
+            setTimeout(initDatePickers, 500);
+        }
+    }
+    
+    // Load provinces and pre-select existing values
+    async function loadProvinces() {
+        try {
+            const response = await fetch('/api/dashboards/provinces');
+            const data = await response.json();
+            const select = document.getElementById('province_codes');
+            if (select && data.provinces) {
+                select.innerHTML = '';
+                const existingProvinces = {{ access.filter_restrictions.get('province_codes', []) | tojson | safe }};
+                
+                data.provinces.forEach(province => {
+                    const option = document.createElement('option');
+                    option.value = province.code;
+                    option.textContent = province.name;
+                    if (existingProvinces && existingProvinces.includes(province.code)) {
+                        option.selected = true;
+                    }
+                    select.appendChild(option);
+                });
+                
+                // Load universities after provinces are loaded
+                loadUniversities();
+            }
+        } catch (error) {
+            console.error('Error loading provinces:', error);
+        }
+    }
+    
+    // Load universities based on selected provinces
+    async function loadUniversities() {
+        const provinceSelect = document.getElementById('province_codes');
+        const selectedProvinces = Array.from(provinceSelect.selectedOptions).map(opt => opt.value).filter(v => v);
+        
+        const universitySelect = document.getElementById('university_codes');
+        const facultySelect = document.getElementById('faculty_codes');
+        
+        if (selectedProvinces.length === 0) {
+            universitySelect.innerHTML = '<option value="">ابتدا استان را انتخاب کنید</option>';
+            facultySelect.innerHTML = '<option value="">ابتدا استان را انتخاب کنید</option>';
+            return;
+        }
+        
+        try {
+            const allUniversities = [];
+            for (const provinceCode of selectedProvinces) {
+                const response = await fetch(`/api/dashboards/universities?province_code=${provinceCode}`);
+                const data = await response.json();
+                if (data.universities) {
+                    allUniversities.push(...data.universities);
+                }
+            }
+            
+            const uniqueUniversities = Array.from(new Map(allUniversities.map(u => [u.code, u])).values());
+            const existingUniversities = {{ access.filter_restrictions.get('university_codes', []) | tojson | safe }};
+            
+            universitySelect.innerHTML = '';
+            uniqueUniversities.forEach(university => {
+                const option = document.createElement('option');
+                option.value = university.code;
+                option.textContent = university.name;
+                if (existingUniversities && existingUniversities.includes(university.code)) {
+                    option.selected = true;
+                }
+                universitySelect.appendChild(option);
+            });
+            
+            loadFaculties();
+        } catch (error) {
+            console.error('Error loading universities:', error);
+        }
+    }
+    
+    // Load faculties based on selected provinces and universities
+    async function loadFaculties() {
+        const provinceSelect = document.getElementById('province_codes');
+        const universitySelect = document.getElementById('university_codes');
+        const selectedProvinces = Array.from(provinceSelect.selectedOptions).map(opt => opt.value).filter(v => v);
+        const selectedUniversities = Array.from(universitySelect.selectedOptions).map(opt => opt.value).filter(v => v);
+        
+        const facultySelect = document.getElementById('faculty_codes');
+        
+        if (selectedProvinces.length === 0) {
+            facultySelect.innerHTML = '<option value="">ابتدا استان را انتخاب کنید</option>';
+            return;
+        }
+        
+        try {
+            const allFaculties = [];
+            for (const provinceCode of selectedProvinces) {
+                let url = `/api/dashboards/faculties?province_code=${provinceCode}`;
+                if (selectedUniversities.length > 0) {
+                    url += `&university_code=${selectedUniversities.join(',')}`;
+                }
+                const response = await fetch(url);
+                const data = await response.json();
+                if (data.faculties) {
+                    allFaculties.push(...data.faculties);
+                }
+            }
+            
+            const uniqueFaculties = Array.from(new Map(allFaculties.map(f => [f.code, f])).values());
+            const existingFaculties = {{ access.filter_restrictions.get('faculty_codes', []) | tojson | safe }};
+            
+            facultySelect.innerHTML = '';
+            uniqueFaculties.forEach(faculty => {
+                const option = document.createElement('option');
+                option.value = faculty.code;
+                option.textContent = faculty.name;
+                if (existingFaculties && existingFaculties.includes(faculty.code)) {
+                    option.selected = true;
+                }
+                facultySelect.appendChild(option);
+            });
+        } catch (error) {
+            console.error('Error loading faculties:', error);
+        }
+    }
+    
+    // Build JSON from selected filters
+    function buildFilterJSON() {
+        const provinceSelect = document.getElementById('province_codes');
+        const universitySelect = document.getElementById('university_codes');
+        const facultySelect = document.getElementById('faculty_codes');
+        
+        const filterRestrictions = {};
+        
+        const selectedProvinces = Array.from(provinceSelect.selectedOptions)
+            .map(opt => parseInt(opt.value))
+            .filter(v => !isNaN(v));
+        if (selectedProvinces.length > 0) {
+            filterRestrictions.province_codes = selectedProvinces;
+        }
+        
+        const selectedUniversities = Array.from(universitySelect.selectedOptions)
+            .map(opt => parseInt(opt.value))
+            .filter(v => !isNaN(v));
+        if (selectedUniversities.length > 0) {
+            filterRestrictions.university_codes = selectedUniversities;
+        }
+        
+        const selectedFaculties = Array.from(facultySelect.selectedOptions)
+            .map(opt => parseInt(opt.value))
+            .filter(v => !isNaN(v));
+        if (selectedFaculties.length > 0) {
+            filterRestrictions.faculty_codes = selectedFaculties;
+        }
+        
+        const jsonField = document.getElementById('filter_restrictions_json');
+        if (Object.keys(filterRestrictions).length > 0) {
+            jsonField.value = JSON.stringify(filterRestrictions);
+        } else {
+            jsonField.value = '';
+        }
+    }
+    
+    // Initialize on page load
+    function init() {
+        // Load provinces (will trigger loading of universities and faculties)
+        loadProvinces();
+        
+        // Setup event listeners
+        const provinceSelect = document.getElementById('province_codes');
+        const universitySelect = document.getElementById('university_codes');
+        const facultySelect = document.getElementById('faculty_codes');
+        
+        provinceSelect.addEventListener('change', function() {
+            loadUniversities();
+            buildFilterJSON();
+        });
+        
+        universitySelect.addEventListener('change', function() {
+            loadFaculties();
+            buildFilterJSON();
+        });
+        
+        facultySelect.addEventListener('change', buildFilterJSON);
+        
+        // Build JSON before form submit
+        const form = document.querySelector('form');
+        form.addEventListener('submit', function(e) {
+            buildFilterJSON();
+        });
+        
+        // Initialize date pickers
+        setTimeout(initDatePickers, 100);
+    }
+    
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', init);
+    } else {
+        init();
+    }
+})();
+</script>
+{% endblock %}
+
 

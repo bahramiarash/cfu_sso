@@ -7,4 +7,4 @@ import os
 
 admin_bp = Blueprint('admin', __name__, url_prefix='/admin')
 
-from . import routes, utils
+from . import routes, utils, sync_handlers

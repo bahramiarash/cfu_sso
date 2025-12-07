@@ -58,7 +58,7 @@ def migrate():
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS data_syncs (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                data_source VARCHAR(100) NOT NULL,
+                data_source VARCHAR(100) NOT NULL UNIQUE,
                 sync_type VARCHAR(50) NOT NULL,
                 status VARCHAR(50) NOT NULL DEFAULT 'pending',
                 last_sync_at DATETIME,
@@ -111,9 +111,9 @@ def migrate():
         
         # Insert default data syncs
         default_syncs = [
-            ('faculty', 'auto', 'pending', 'https://api.example.com/faculty', 'GET'),
-            ('students', 'auto', 'pending', 'https://api.example.com/students', 'GET'),
-            ('lms', 'auto', 'pending', 'https://api.example.com/lms', 'GET'),
+            ('faculty', 'manual', 'pending', 'https://api.cfu.ac.ir/API/Golestan/Faculty', 'POST'),
+            ('students', 'manual', 'pending', 'https://api.cfu.ac.ir/API/Golestan/Students_2', 'POST'),
+            ('lms', 'manual', 'pending', 'https://api.example.com/lms', 'GET'),
         ]
         
         for data_source, sync_type, status, api_endpoint, api_method in default_syncs:

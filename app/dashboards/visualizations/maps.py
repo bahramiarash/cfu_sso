@@ -48,27 +48,92 @@ class MapBuilder:
             self.province_map['province_name'].str.strip().str.lower()
         )
         
-        # Apply mapping from config
-        mappings = DashboardConfig.get_province_mappings()
-        reverse_mapping = {v.lower(): k for k, v in mappings.items()}
+        # Extended manual mapping (from working dashboard.py code)
+        # Persian → English normalized names
+        manual_mapping2 = {
+            "آذربايجان شرقي": "east azarbaijan",
+            "آذربايجان غربي": "west azarbaijan",
+            "اردبيل": "ardebil",
+            "اصفهان": "esfahan",
+            "البرز": "alborz",
+            "ايلام": "ilam",
+            "بوشهر": "bushehr",
+            "تهران": "tehran",
+            "چهارمحال بختياري": "chahar mahall and bakhtiari",
+            "خراسان جنوبي": "south khorasan",
+            "خراسان رضوي": "razavi khorasan",
+            "خراسان شمالي": "north khorasan",
+            "خوزستان": "khuzestan",
+            "زنجان": "zanjan",
+            "سمنان": "semnan",
+            "سيستان وبلوچستان": "sistan and baluchestan",
+            "فارس": "fars",
+            "قزوين": "qazvin",
+            "قم": "qom",
+            "كردستان": "kordestan",
+            "كرمان": "kerman",
+            "كرمانشاه": "kermanshah",
+            "كهگيلويه و بويراحمد": "kohgiluyeh and buyer ahmad",
+            "گلستان": "golestan",
+            "لرستان": "lorestan",
+            "مازندران": "mazandaran",
+            "مركزي": "markazi",
+            "هرمزگان": "hormozgan",
+            "همدان": "hamadan",
+            "يزد": "yazd",
+            "گيلان": "gilan",
+            # Additional variations
+            "آذربایجان شرقی": "east azarbaijan",
+            "آذربایجان غربی": "west azarbaijan",
+            "چهارمحال بختیاری": "chahar mahall and bakhtiari",
+            "سیستان وبلوچستان": "sistan and baluchestan",
+            "کردستان": "kordestan",
+            "کرمان": "kerman",
+            "کرمانشاه": "kermanshah",
+            "کهگیلویه و بویراحمد": "kohgiluyeh and buyer ahmad",
+            "مرکزی": "markazi",
+        }
         
-        # Create mapping dictionaries
+        # Normalize the mapping dict (lowercase keys)
+        manual_mapping_normalized = {k.strip().lower(): v.lower() for k, v in manual_mapping2.items()}
+        
+        # Apply the mapping to province names
+        self.province_map['province_name_mapped'] = self.province_map['province_name_normalized'].map(
+            lambda x: manual_mapping_normalized.get(x, x)  # fallback to original if no match
+        )
+        
+        # Create mapping from mapped names to province codes
+        province_map_dict = dict(zip(self.province_map['province_name_mapped'], self.province_map['province_code']))
+        
+        # Create mapping from shapefile names to province codes
         province_map_normalized = {}
-        for _, row in self.province_map.iterrows():
-            province_name_fa = row['province_name']
-            province_name_norm = row['province_name_normalized']
-            province_code = row['province_code']
+        for shape_name in self.iran_gdf['NAME_1_normalized']:
+            # Direct match
+            province_code = province_map_dict.get(shape_name)
             
-            # Try to match with shapefile names
-            for shape_name in self.iran_gdf['NAME_1_normalized']:
-                if province_name_norm in shape_name or shape_name in province_name_norm:
-                    province_map_normalized[shape_name] = province_code
-                    break
+            # If not found, try substring matching
+            if province_code is None:
+                for mapped_name, code in province_map_dict.items():
+                    if mapped_name in shape_name or shape_name in mapped_name:
+                        province_code = code
+                        break
+            
+            if province_code is not None:
+                province_map_normalized[shape_name] = province_code
         
         self.province_map_dict = province_map_normalized
         self.province_name_dict = dict(
             zip(self.province_map['province_code'], self.province_map['province_name'])
         )
+        
+        # Log mapping statistics
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.info(f"Province mapping: {len(province_map_normalized)} provinces mapped out of {len(self.iran_gdf)} shapefile provinces")
+        logger.info(f"Database has {len(self.province_map)} provinces")
+        if len(province_map_normalized) < len(self.iran_gdf):
+            unmatched = set(self.iran_gdf['NAME_1_normalized']) - set(province_map_normalized.keys())
+            logger.warning(f"Unmatched shapefile provinces: {list(unmatched)[:10]}")
     
     def create_province_map_with_pie_charts(
         self,
@@ -102,23 +167,50 @@ class MapBuilder:
         fig.subplots_adjust(top=1.37)
         plt.tight_layout(rect=[0, 0.15, 1, 0.1])
         
+        # Log input data
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.info(f"Creating map with {len(province_data)} provinces of data")
+        logger.info(f"Province map dict has {len(self.province_map_dict)} mappings")
+        logger.info(f"Shapefile has {len(self.iran_gdf)} provinces")
+        if province_data:
+            sample_province = list(province_data.keys())[0]
+            logger.info(f"Sample province data (code {sample_province}): {province_data[sample_province]}")
+        
         # Add pie charts for each province
+        matched_provinces = 0
+        unmatched_provinces = []
+        provinces_without_data = []
+        
         for idx, row in self.iran_gdf.iterrows():
             province_name_norm = row['NAME_1_normalized']
+            province_name_original = row['NAME_1']
             province_code = self.province_map_dict.get(province_name_norm)
             
             if province_code is None:
-                values = [1, 1]  # Default values
-            else:
-                data = province_data.get(province_code, {})
-                values = [
-                    int(data.get('1', 0)),
-                    int(data.get('2', 0))
-                ]
+                unmatched_provinces.append(f"{province_name_original} (normalized: {province_name_norm})")
+                # Try to find a close match
+                for mapped_name, code in self.province_map_dict.items():
+                    if province_name_norm in mapped_name or mapped_name in province_name_norm:
+                        province_code = code
+                        logger.debug(f"Found close match for {province_name_original}: {mapped_name} -> {code}")
+                        break
+                
+                if province_code is None:
+                    continue  # Skip provinces without mapping
             
+            data = province_data.get(province_code, {})
+            values = [
+                int(data.get('1', 0)),
+                int(data.get('2', 0))
+            ]
+            
+            # Skip if no data for this province
             if sum(values) == 0:
-                values = [1, 1]
+                provinces_without_data.append(f"{province_name_original} (code: {province_code})")
+                continue
             
+            matched_provinces += 1
             centroid = row['geometry'].centroid
             try:
                 pie_ax = inset_axes(
@@ -140,8 +232,17 @@ class MapBuilder:
                 )
                 pie_ax.axis('equal')
             except Exception as e:
-                print(f"Error rendering pie chart for {province_name_norm}: {e}")
+                logger.warning(f"Error rendering pie chart for {province_name_original} (code: {province_code}): {e}")
                 continue
+        
+        # Log mapping statistics
+        logger.info(f"Map rendering complete: {matched_provinces} provinces with pie charts rendered")
+        logger.info(f"Unmatched provinces (no mapping): {len(unmatched_provinces)}")
+        logger.info(f"Provinces without data: {len(provinces_without_data)}")
+        if unmatched_provinces:
+            logger.warning(f"Unmatched provinces: {unmatched_provinces}")
+        if provinces_without_data:
+            logger.info(f"Provinces without data: {provinces_without_data}")
         
         # Add legend
         patches = [Patch(color=colors[i], label=reshape_rtl(label)) 

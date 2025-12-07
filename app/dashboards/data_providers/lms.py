@@ -25,13 +25,130 @@ class LMSDataProvider(DataProvider):
         Returns:
             Dict with charts, latest_values, latest_zone_resources, overall_sum
         """
-        # Get data from monitor_data table
-        query = """
+        from datetime import timedelta
+        import pytz
+        
+        # Default: show maximum 1 year of data
+        now = datetime.now()
+        max_start_time = now - timedelta(days=365)
+        max_start_time_str = max_start_time.strftime('%Y-%m-%d %H:%M:%S')
+        
+        # Build WHERE clause based on filters
+        where_clauses = []
+        params = []
+        
+        # Apply time filter - only one filter at a time
+        if filters:
+            time_range = filters.get('time_range')
+            date_from = filters.get('date_from')
+            date_to = filters.get('date_to')
+            time_from = filters.get('time_from', '00:00')
+            time_to = filters.get('time_to', '23:59')
+            
+            # Priority: custom date range > time_range
+            if date_from and date_to:
+                # Custom date range
+                try:
+                    import jdatetime
+                    # Parse Persian calendar date (format: YYYY/MM/DD)
+                    from_date_parts = list(map(int, date_from.split('/')))
+                    to_date_parts = list(map(int, date_to.split('/')))
+                    
+                    # Parse time (format: HH:MM)
+                    time_from_parts = list(map(int, time_from.split(':')))
+                    time_to_parts = list(map(int, time_to.split(':')))
+                    
+                    # Create jdatetime objects
+                    start_jd = jdatetime.datetime(
+                        from_date_parts[0], from_date_parts[1], from_date_parts[2],
+                        time_from_parts[0], time_from_parts[1]
+                    )
+                    end_jd = jdatetime.datetime(
+                        to_date_parts[0], to_date_parts[1], to_date_parts[2],
+                        time_to_parts[0], time_to_parts[1]
+                    )
+                    
+                    # Convert to Gregorian datetime
+                    start_time = start_jd.togregorian()
+                    end_time = end_jd.togregorian()
+                    
+                    # Ensure we're working with Tehran timezone
+                    tehran_tz = pytz.timezone('Asia/Tehran')
+                    if start_time.tzinfo is None:
+                        start_time = tehran_tz.localize(start_time)
+                    if end_time.tzinfo is None:
+                        end_time = tehran_tz.localize(end_time)
+                    
+                    # Convert to naive datetime for SQLite
+                    start_time = start_time.replace(tzinfo=None)
+                    end_time = end_time.replace(tzinfo=None)
+                    
+                    # Add 1 second to end_time to include the entire end day (23:59:59)
+                    # This ensures we capture all data for the end date
+                    end_time = end_time + timedelta(seconds=1)
+                    
+                    # Ensure not more than 1 year
+                    if start_time < max_start_time:
+                        start_time = max_start_time
+                    
+                    start_time_str = start_time.strftime('%Y-%m-%d %H:%M:%S')
+                    end_time_str = end_time.strftime('%Y-%m-%d %H:%M:%S')
+                    
+                    # Use < instead of <= to include all data up to (but not including) end_time
+                    # Since we added 1 second to end_time, this will include all data for the end date
+                    where_clauses.append("datetime(timestamp) >= datetime(?) AND datetime(timestamp) < datetime(?)")
+                    params.extend([start_time_str, end_time_str])
+                except (ValueError, IndexError, AttributeError) as e:
+                    # Invalid date, use default 1 year
+                    where_clauses.append("datetime(timestamp) >= datetime(?)")
+                    params.append(max_start_time_str)
+            elif time_range:
+                # Predefined time range
+                if time_range == '1h':
+                    start_time = now - timedelta(hours=1)
+                elif time_range == '3h':
+                    start_time = now - timedelta(hours=3)
+                elif time_range == '6h':
+                    start_time = now - timedelta(hours=6)
+                elif time_range == '12h':
+                    start_time = now - timedelta(hours=12)
+                elif time_range == '1d':
+                    start_time = now - timedelta(days=1)
+                elif time_range == '1w':
+                    start_time = now - timedelta(weeks=1)
+                elif time_range == '1m':
+                    start_time = now - timedelta(days=30)
+                elif time_range == '1y':
+                    start_time = now - timedelta(days=365)
+                else:
+                    start_time = max_start_time
+                
+                # Ensure not more than 1 year
+                if start_time < max_start_time:
+                    start_time = max_start_time
+                
+                start_time_str = start_time.strftime('%Y-%m-%d %H:%M:%S')
+                where_clauses.append("datetime(timestamp) >= datetime(?)")
+                params.append(start_time_str)
+            else:
+                # No filter, use default 1 year
+                where_clauses.append("datetime(timestamp) >= datetime(?)")
+                params.append(max_start_time_str)
+        else:
+            # No filters, use default 1 year
+            where_clauses.append("datetime(timestamp) >= datetime(?)")
+            params.append(max_start_time_str)
+        
+        # Build query
+        where_clause = " AND ".join(where_clauses) if where_clauses else "1=1"
+        query = f"""
             SELECT url, timestamp, key, value
             FROM monitor_data
+            WHERE {where_clause}
             ORDER BY url, timestamp ASC
         """
-        rows = self.execute_query(query, (), context)
+        
+        rows = self.execute_query(query, tuple(params), context)
         
         charts = {}
         latest_values = {}
@@ -65,7 +182,12 @@ class LMSDataProvider(DataProvider):
                 url_data[url][key]["values"].append(value)
             
             # Build Chart.js structure for each URL
-            for url, keys in url_data.items():
+            # فقط Zone1 تا Zone11 را پردازش می‌کنیم (11 منطقه)
+            for url in DashboardConfig.ZONE_ORDER:
+                if url not in url_data:
+                    continue
+                    
+                keys = url_data[url]
                 datasets = []
                 first_key = next(iter(keys))
                 labels = keys[first_key]["timestamps"]
@@ -113,7 +235,8 @@ class LMSDataProvider(DataProvider):
             "latest_zone_resources": latest_zone_resources,
             "overall_sum": overall_sum,
             "chartlabels": chartlabels,
-            "zones": DashboardConfig.ZONES
+            "zones": DashboardConfig.ZONES,
+            "zone_order": DashboardConfig.ZONE_ORDER
         }
 
 

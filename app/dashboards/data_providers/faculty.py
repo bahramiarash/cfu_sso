@@ -114,10 +114,10 @@ class FacultyDataProvider(DataProvider):
             "counts": [row[1] for row in results]
         }
     
-    def get_faculty_by_province(self, context: Optional[UserContext] = None, filters: Optional[Dict] = None) -> Dict[str, Dict]:
+    def get_faculty_by_province(self, context: Optional[UserContext] = None, filters: Optional[Dict] = None) -> Dict[int, Dict[str, int]]:
         """Get faculty by province with gender breakdown"""
         filters = filters or {}
-        where_clause, params = self.build_where_clause(filters)
+        where_clause, params = self.build_where_clause(filters, existing_where=True)
         
         query = f"""
             SELECT 
@@ -134,9 +134,17 @@ class FacultyDataProvider(DataProvider):
         
         province_data = {}
         for province_code, sex, count in results:
+            if province_code is None:
+                continue  # Skip rows with NULL province_code
             if province_code not in province_data:
                 province_data[province_code] = {'1': 0, '2': 0}
-            province_data[province_code][sex] = count
+            if sex:  # Only add if sex is not None
+                province_data[province_code][sex] = count
+        
+        self.logger.info(f"get_faculty_by_province: Found data for {len(province_data)} provinces")
+        if province_data:
+            sample_province = list(province_data.keys())[0]
+            self.logger.info(f"Sample province {sample_province}: {province_data[sample_province]}")
         
         return province_data
     
@@ -199,20 +207,101 @@ class FacultyDataProvider(DataProvider):
         filters = filters or {}
         where_clause, params = self.build_where_clause(filters)
         
+        # Build WHERE clause - handle context filters that might be added by execute_query
+        # We need to add conditions for NULL check, but execute_query might add WHERE clause
+        # So we'll use a subquery or handle it differently
+        
+        # Start with base WHERE conditions
+        base_conditions = ["faculty_golestan.group_title IS NOT NULL", "faculty_golestan.group_title != ''"]
+        base_where = " AND ".join(base_conditions)
+        
+        # Combine with user filters
+        if where_clause:
+            # Remove WHERE keyword if present and combine
+            if where_clause.strip().upper().startswith('WHERE'):
+                where_clause = where_clause[5:].strip()
+            combined_where = f"WHERE {where_clause} AND {base_where}"
+        else:
+            combined_where = f"WHERE {base_where}"
+        
         query = f"""
             SELECT group_title, COUNT(*) as count
             FROM faculty 
             LEFT OUTER JOIN faculty_golestan ON (faculty.professorCode = faculty_golestan.professorCode)
-            {where_clause}
+            {combined_where}
             GROUP BY group_title
+            HAVING COUNT(*) > 0 AND group_title IS NOT NULL
             ORDER BY count DESC
         """
         
-        results = self.execute_query(query, tuple(params), context)
-        return {
-            "labels": [row[0] or "نامشخص" for row in results],
-            "counts": [row[1] for row in results]
-        }
+        try:
+            # Execute query directly without context to avoid double WHERE clause
+            # We'll handle context filters manually if needed
+            conn = self.get_connection()
+            cursor = conn.cursor()
+            
+            # Apply context filters manually if needed
+            if context:
+                context_conditions = []
+                context_params = list(params)
+                
+                if context.data_filters.get('province_code'):
+                    context_conditions.append("faculty.province_code = ?")
+                    context_params.append(context.data_filters['province_code'])
+                
+                if context.data_filters.get('faculty_code'):
+                    context_conditions.append("faculty.code_markaz = ?")
+                    context_params.append(context.data_filters['faculty_code'])
+                
+                if context_conditions:
+                    # Add context conditions to WHERE clause
+                    if 'WHERE' in combined_where.upper():
+                        combined_where += " AND " + " AND ".join(context_conditions)
+                    else:
+                        combined_where = "WHERE " + " AND ".join(context_conditions)
+                    params = tuple(context_params)
+            
+            # Rebuild query with context filters
+            query = f"""
+                SELECT group_title, COUNT(*) as count
+                FROM faculty 
+                LEFT OUTER JOIN faculty_golestan ON (faculty.professorCode = faculty_golestan.professorCode)
+                {combined_where}
+                GROUP BY group_title
+                HAVING COUNT(*) > 0 AND group_title IS NOT NULL
+                ORDER BY count DESC
+            """
+            
+            cursor.execute(query, params)
+            results = cursor.fetchall()
+            conn.close()
+            
+            # Filter out None and empty values
+            labels = []
+            counts = []
+            for row in results:
+                if row[0] and str(row[0]).strip():  # Check if label exists and is not empty
+                    labels.append(str(row[0]).strip())
+                    counts.append(row[1])
+            
+            self.logger.info(f"get_faculty_by_edugroup: Query returned {len(results)} rows, filtered to {len(labels)} groups")
+            if len(labels) > 0:
+                self.logger.info(f"Sample labels: {labels[:5]}")
+            else:
+                self.logger.warning(f"get_faculty_by_edugroup: No valid groups found. Query: {query}, Params: {params}")
+            
+            return {
+                "labels": labels,
+                "counts": counts
+            }
+        except Exception as e:
+            self.logger.error(f"Error in get_faculty_by_edugroup: {e}", exc_info=True)
+            if 'conn' in locals():
+                conn.close()
+            return {
+                "labels": [],
+                "counts": []
+            }
     
     def get_faculty_by_grade(self, context: Optional[UserContext] = None, filters: Optional[Dict] = None) -> Dict[str, List]:
         """Get faculty by grade"""

@@ -25,7 +25,9 @@ from matplotlib import font_manager
 import jdatetime
 import hashlib
 from datetime import datetime, timedelta
+import datetime as dt
 import requests
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 def get_color_for_key(key: str) -> str:
     """Generate a bright color hex code based on a key string."""
@@ -1068,17 +1070,27 @@ def dashboard_student_faculty_ratio():
 @dashboard_bp.route("/d8")
 @requires_auth
 def dashboard_LMS():
+    import threading
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+    
     DB_PATH2 = "C:\\services\\cert2\\app\\fetch_data\\faculty_data.db"
     conn = sqlite3.connect(DB_PATH2)
     cursor = conn.cursor()
 
-    # === 1. Get all relevant rows ===
+    # === 1. Get only latest data for initial load (last 1 day for faster loading) ===
+    # Charts will be loaded via AJAX with user-selected time range
+    now = dt.datetime.now()
+    one_day_ago = now - timedelta(days=1)
+    start_time_str = one_day_ago.strftime('%Y-%m-%d %H:%M:%S')
+    
     query = """
         SELECT url, timestamp, key, value
         FROM monitor_data
+        WHERE datetime(timestamp) >= datetime(?)
         ORDER BY url, timestamp ASC
+        LIMIT 10000
     """
-    cursor.execute(query)
+    cursor.execute(query, (start_time_str,))
     rows = cursor.fetchall()
     conn.close()
 
@@ -1141,23 +1153,45 @@ def dashboard_LMS():
             url_data[url][key]["timestamps"].append(jalali_ts)
             url_data[url][key]["values"].append(value)
 
-        # === 3. Build Chart.js structure for each URL ===
+        # === 3. Fetch zone resources in parallel for faster loading ===
+        def fetch_zone_resource(url, hostname):
+            """Fetch zone resource data"""
+            try:
+                response = requests.get(SERVICE_URL, params={"host": hostname}, timeout=2)
+                if response.status_code == 200:
+                    return url, response.json()
+                else:
+                    return url, {}
+            except Exception as e:
+                logging.warning(f"Error fetching zone resource for {url}: {e}")
+                return url, {}
+        
+        # Fetch all zone resources in parallel
+        with ThreadPoolExecutor(max_workers=11) as executor:
+            future_to_url = {
+                executor.submit(fetch_zone_resource, url, hostnames.get(url, "")): url 
+                for url in url_data.keys() if url in hostnames
+            }
+            for future in as_completed(future_to_url):
+                try:
+                    url, resources = future.result()
+                    latest_zone_resources[url] = resources
+                except Exception as e:
+                    logging.error(f"Error getting zone resource: {e}")
+                    url = future_to_url[future]
+                    latest_zone_resources[url] = {}
+        
+        # === 4. Build Chart.js structure for each URL ===
         for url, keys in url_data.items():
             datasets = []
             labels = []  # we can take timestamps from first key
             first_key = next(iter(keys))
             labels = keys[first_key]["timestamps"]
             latest_values[url] = {}
-            latest_zone_resources[url] = {}
-
-            hostname = hostnames[url]
-            print(hostname)
-            response = requests.get(SERVICE_URL, params={"host": hostname})
-            if response.status_code == 200:
-                # print("Metrics:", response.json())
-                latest_zone_resources[url] = response.json()
-            else:
-                print("Error:", response.text)   
+            
+            # Initialize empty resources if not fetched
+            if url not in latest_zone_resources:
+                latest_zone_resources[url] = {}   
             for key, data in keys.items():
                 datasets.append({
                     "label": chartlabels[key],
@@ -1173,12 +1207,20 @@ def dashboard_LMS():
                 # update overall sum
                 overall_sum[key] = overall_sum.get(key, 0) + latest_val
 
+            # Limit labels and data for faster initial rendering (charts will be fully loaded via AJAX)
+            max_points = 200  # Only show last 200 points for initial load
             charts[url] = {
-                "labels": labels,
-                "datasets": datasets,
+                "labels": labels[-max_points:] if len(labels) > max_points else labels,
+                "datasets": [{
+                    **ds,
+                    "data": ds["data"][-max_points:] if len(ds["data"]) > max_points else ds["data"]
+                } for ds in datasets],
                 "title": zones[url]
             }
-    print(latest_zone_resources)
+    
+    # Log completion
+    logger.info(f"Dashboard d8 loaded: {len(charts)} zones, {len(latest_values)} latest values")
+    
     response = make_response(render_template(
         "dashboards/d8.html",
         charts=charts,

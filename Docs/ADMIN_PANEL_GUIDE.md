@@ -106,3 +106,4 @@ https://bi.cfu.ac.ir/admin
 3. Templates جدید را در `app/templates/admin/` اضافه کنید
 4. از decorator `@admin_required` برای محافظت از routes استفاده کنید
 
+

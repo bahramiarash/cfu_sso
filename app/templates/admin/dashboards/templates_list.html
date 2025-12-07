@@ -1,0 +1,82 @@
+{% extends "admin/base.html" %}
+
+{% block title %}ویرایش تمپلیت‌های داشبورد{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <h1 class="mb-4"><i class="bi bi-file-code"></i> ویرایش تمپلیت‌های داشبورد</h1>
+
+    <div class="alert alert-info">
+        <i class="bi bi-info-circle"></i>
+        در این بخش می‌توانید تمپلیت‌های HTML داشبوردها را مشاهده و ویرایش کنید. 
+        قبل از ذخیره تغییرات، یک نسخه پشتیبان به صورت خودکار ایجاد می‌شود.
+    </div>
+
+    <div class="card">
+        <div class="card-body">
+            <div class="table-responsive">
+                <table class="table table-hover">
+                    <thead>
+                        <tr>
+                            <th>نام فایل</th>
+                            <th>ID داشبورد</th>
+                            <th>عنوان داشبورد</th>
+                            <th>اندازه</th>
+                            <th>تاریخ تغییر</th>
+                            <th>عملیات</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for template in templates %}
+                        <tr>
+                            <td><code>{{ template.name }}</code></td>
+                            <td>
+                                {% if template.dashboard %}
+                                    <span class="badge bg-primary">{{ template.dashboard_id }}</span>
+                                {% else %}
+                                    <span class="badge bg-secondary">{{ template.dashboard_id }}</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% if template.dashboard %}
+                                    {{ template.dashboard.title }}
+                                {% else %}
+                                    <span class="text-muted">داشبورد ثبت نشده</span>
+                                {% endif %}
+                            </td>
+                            <td>{{ (template.size / 1024) | round(2) }} KB</td>
+                            <td>
+                                {% if template.modified %}
+                                    {{ template.modified.strftime('%Y/%m/%d %H:%M') }}
+                                {% else %}
+                                    -
+                                {% endif %}
+                            </td>
+                            <td>
+                                <div class="btn-group" role="group">
+                                    <a href="{{ url_for('admin.dashboard_template_preview', template_name=template.name) }}" 
+                                       class="btn btn-sm btn-info" target="_blank">
+                                        <i class="bi bi-eye"></i> پیش‌نمایش
+                                    </a>
+                                    <a href="{{ url_for('admin.dashboard_template_view', template_name=template.name) }}#visual-editor" 
+                                       class="btn btn-sm btn-primary">
+                                        <i class="bi bi-palette"></i> طراحی گرافیک تمپلیت
+                                    </a>
+                                </div>
+                            </td>
+                        </tr>
+                        {% else %}
+                        <tr>
+                            <td colspan="6" class="text-center text-muted">
+                                هیچ تمپلیتی یافت نشد
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+

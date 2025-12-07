@@ -25,7 +25,7 @@ def admin_required(f):
     return decorated_function
 
 
-def log_action(action: str, resource_type: str = None, resource_id: str = None, details: dict = None):
+def log_action(action: str, resource_type: str = None, resource_id: str = None, details: dict = None, user_id: int = None):
     """
     Log user action to AccessLog
     
@@ -34,24 +34,29 @@ def log_action(action: str, resource_type: str = None, resource_id: str = None, 
         resource_type: Type of resource (e.g., 'dashboard', 'user')
         resource_id: ID of resource
         details: Additional context as dictionary
+        user_id: Optional user ID (if None, uses current_user)
     """
     try:
-        if not current_user.is_authenticated:
-            return
+        from extensions import db
+        
+        # Determine user_id
+        if user_id is None:
+            if current_user is None or not current_user.is_authenticated:
+                return
+            user_id = current_user.id
         
         log_entry = AccessLog(
-            user_id=current_user.id,
+            user_id=user_id,
             action=action,
             resource_type=resource_type,
             resource_id=str(resource_id) if resource_id else None,
-            ip_address=request.remote_addr,
-            user_agent=request.headers.get('User-Agent'),
-            request_path=request.path,
-            request_method=request.method,
+            ip_address=request.remote_addr if hasattr(request, 'remote_addr') else None,
+            user_agent=request.headers.get('User-Agent') if hasattr(request, 'headers') else None,
+            request_path=request.path if hasattr(request, 'path') else None,
+            request_method=request.method if hasattr(request, 'method') else None,
             details=details or {}
         )
         
-        from extensions import db
         db.session.add(log_entry)
         db.session.commit()
         

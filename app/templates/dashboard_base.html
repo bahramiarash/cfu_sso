@@ -5,15 +5,24 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{% block title %}داشبورد{% endblock %} - سامانه مدیریت دانشگاه فرهنگیان</title>
     
+    <!-- jQuery (required for kamadatepicker) -->
+    <script src="{{ url_for('static', filename='jquery.min.js') }}"></script>
+    
     <!-- Bootstrap RTL CSS -->
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.rtl.min.css" rel="stylesheet" crossorigin="anonymous">
+    <link href="{{ url_for('static', filename='bootstrap.rtl.min.css') }}" rel="stylesheet">
     
     <!-- Bootstrap Icons -->
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet">
+    <link href="{{ url_for('static', filename='bootstrap-icons/bootstrap-icons.css') }}" rel="stylesheet">
+    
+    <!-- KamaDatepicker CSS -->
+    <link href="{{ url_for('static', filename='kamadatepicker.css') }}" rel="stylesheet">
     
     <!-- Chart.js (for dashboards that need it) -->
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0"></script>
+    <script src="{{ url_for('static', filename='chart.js') }}"></script>
+    <script src="{{ url_for('static', filename='chartjs-plugin-datalabels@2.2.0') }}"></script>
+    
+    <!-- KamaDatepicker JS -->
+    <script src="{{ url_for('static', filename='kamadatepicker.js') }}"></script>
     
     <!-- Chart Export Functionality - Load early -->
     <script>
@@ -127,11 +136,6 @@
             }
         };
     </script>
-    
-    <!-- jQuery -->
-    <script src="https://code.jquery.com/jquery-3.6.4.min.js" 
-            integrity="sha256-oP6HI9z1XaZNBrJURtCoUT5SUnxFr8s3BzRl+cbzUq8=" 
-            crossorigin="anonymous"></script>
     
     <!-- Custom Styles -->
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
@@ -779,9 +783,7 @@
     </footer>
     
     <!-- Bootstrap JS Bundle -->
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js" 
-            integrity="sha384-YvpcrYf0tY3lHB60NNkmXc5s9fDVZLESaAA55NDzOxhy9GkcIdslK1eN7N6jIeHz" 
-            crossorigin="anonymous"></script>
+    <script src="{{ url_for('static', filename='bootstrap.bundle.min.js') }}"></script>
     
     <!-- Google Chart Export Functionality -->
     <script>
@@ -933,10 +935,15 @@
             
             {% if user_context.can_filter_by_university %}
             fetch('/api/dashboards/universities')
-                .then(response => response.json())
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error(`HTTP error! status: ${response.status}`);
+                    }
+                    return response.json();
+                })
                 .then(data => {
                     const select = document.getElementById('navbar_university_code');
-                    if (select) {
+                    if (select && data && data.universities) {
                         const currentUniversity = new URLSearchParams(window.location.search).get('university_code');
                         select.innerHTML = '<option value="">همه دانشگاه‌ها</option>';
                         data.universities.forEach(university => {
@@ -948,9 +955,18 @@
                             }
                             select.appendChild(option);
                         });
+                    } else {
+                        console.warn('Universities data not available or select element not found');
                     }
                 })
-                .catch(error => console.error('Error loading universities:', error));
+                .catch(error => {
+                    console.error('Error loading universities:', error);
+                    // Set error message in select if it exists
+                    const select = document.getElementById('navbar_university_code');
+                    if (select) {
+                        select.innerHTML = '<option value="">خطا در بارگذاری دانشگاه‌ها</option>';
+                    }
+                });
             {% endif %}
             
             {% if user_context.can_filter_by_faculty %}

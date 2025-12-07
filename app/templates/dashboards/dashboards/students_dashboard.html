@@ -1,0 +1,1200 @@
+{% extends "dashboard_base.html" %}
+
+{% block title %}{{ dashboard_title|default('آمار دانشجو معلمان') }}{% endblock %}
+
+{% block content %}
+<div class="container">
+  <!-- Gender Distribution -->
+      <div class="card mb-4" style="display: flex;flex-direction: row;">
+      <div class="card-body">
+        <h5 class="card-title">توزیع جنسیت از 1400 تا 1404</h5>
+        <div style="max-width: 300px; margin: 0 auto;">
+              <canvas id="genderChart" width="300" height="300"></canvas>
+        </div>
+      </div>
+      <div class="card-body">
+        <h5 class="card-title">توزیع جنسیت 1404</h5>
+        <div style="max-width: 300px; margin: 0 auto;">
+              <canvas id="genderChart404" width="300" height="300"></canvas>
+        </div>
+      </div>
+      </div>
+
+  <!-- Students by Vazeiyat -->
+  <div class="card mb-4">
+    <div class="card-body">
+      <h5 class="card-title">توزیع وضعیت دانشجو معلمان</h5>
+      <canvas id="vazeiyatChart"></canvas>
+    </div>
+  </div>
+
+  <!-- Students by Vazeiyat 1404 -->
+  <div class="card mb-4">
+    <div class="card-body">
+      <h5 class="card-title">توزیع وضعیت دانشجو معلمان ورودی 1404</h5>
+      <canvas id="vazeiyatChart_404"></canvas>
+    </div>
+  </div>
+  <!-- Students by Province and Vazeiyat -->
+
+  <div class="card mb-4">
+    <div class="card-body">
+      <h5 class="card-title">توزیع وضعیت دانشجو معلمان بر اساس استان</h5>
+      <div style="height: 2000px;">
+        <canvas id="provinceVazeiyatHorizontalChart"></canvas>
+      </div>
+    </div>
+  </div>
+
+  <!-- Students by Course kardani-->
+  <div class="card mb-4">
+    <div class="card-body">
+      <h5 class="card-title">توزیع رشته تحصیلی از 1400 تا 1404 مقطع کاردانی</h5>
+      <canvas id="courseChartKardani"></canvas>
+    </div>
+  </div>
+
+  <!-- Students by Course karshenasi peyvaste-->
+  <div class="card mb-4">
+    <div class="card-body">
+      <h5 class="card-title">توزیع رشته تحصیلی از 1400 تا 1404 مقطع کارشناسی پیوسته</h5>
+      <canvas id="courseChartPeyvaste"></canvas>
+    </div>
+  </div>
+
+  <!-- Students by Course karshenasi napeyvaste-->
+  <div class="card mb-4">
+    <div class="card-body">
+      <h5 class="card-title">توزیع رشته تحصیلی از 1400 تا 1404 کارشناسی ناپیوسته</h5>
+      <canvas id="courseChartNapeyvaste"></canvas>
+    </div>
+  </div>
+
+  <!-- Students by Course Karshenasi Arshad-->
+  <div class="card mb-4">
+    <div class="card-body">
+      <h5 class="card-title">توزیع رشته تحصیلی از 1400 تا 1404 کارشناسی ارشد</h5>
+      <canvas id="courseChartArshad"></canvas>
+    </div>
+  </div>
+
+  <!-- Students by Grade -->
+  <div class="card mb-4">
+    <div class="card-body">
+      <h5 class="card-title">توزیع مقطع تحصیلی از 1400 تا 1404</h5>
+      <canvas id="gradeChart"></canvas>
+    </div>
+  </div>
+
+  <!-- Students by Province -->
+  <div class="card mb-4">
+    <div class="card-body">
+      <h5 class="card-title">توزیع استانی دانشجومعلمان</h5>
+      <canvas id="provinceChart1"></canvas>
+    </div>
+  </div>
+
+  <!-- Students by Province and year -->
+  <div class="card mb-4">
+    <div class="card-body">
+      <h5 class="card-title">توزیع استانی و سال ورود دانشجو معلمان</h5>
+      <canvas id="provinceYearChart1"></canvas>
+    </div>
+  </div>
+
+  <!-- Students by Province and year -->
+  <div class="card mb-4">
+    <div class="card-body">
+      <h5 class="card-title">توزیع استانی و جنسیت دانشجو معلمان</h5>
+      <canvas id="provinceSexChart1"></canvas>
+    </div>
+  </div>
+
+<!-- Students by Entry Year -->
+<div class="card mb-4">
+  <div class="card-body">
+    <h5 class="card-title">توزیع ورودی‌ها در سال بر اساس مقطع</h5>
+    <canvas id="entryYearChartGrade"></canvas>
+  </div>
+</div>
+
+<!-- Students by Entry Year -->
+<div class="card mb-4">
+  <div class="card-body">
+    <h5 class="card-title">توزیع ورودی‌ها در سال بر اساس جنسیت</h5>
+    <canvas id="entryYearChart"></canvas>
+  </div>
+</div>
+
+<!-- Students by Entrance Year and Course Kardani -->
+<div class="card mb-4">
+  <div class="card-body">
+    <h5 class="card-title">توزیع دانشجومعلمان بر اساس سال ورود و رشته تحصیلی مقطع کاردانی</h5>
+      <canvas id="scrollableCourseYearChartKardani" height="900" width="1800"></canvas>
+  </div>
+</div>
+<!-- Students by Entrance Year and Course Karshenasi napeyvaste -->
+<div class="card mb-4">
+  <div class="card-body">
+    <h5 class="card-title">توزیع دانشجومعلمان بر اساس سال ورود و رشته تحصیلی مقطع کارشناسی ناپیوسته</h5>
+      <canvas id="scrollableCourseYearChartKarshenasiNapeyvaste" height="900" width="1800"></canvas>
+  </div>
+</div>
+<!-- Students by Entrance Year and Course Karshenasi Peyvaste -->
+<div class="card mb-4">
+  <div class="card-body">
+    <h5 class="card-title">توزیع دانشجومعلمان بر اساس سال ورود و رشته تحصیلی مقطع کارشناسی پیوسته</h5>
+      <canvas id="scrollableCourseYearChartKarshenasiPeyvaste" height="900" width="1800"></canvas>
+  </div>
+</div>
+<!-- Students by Entrance Year and Course Arshad -->
+<div class="card mb-4">
+  <div class="card-body">
+    <h5 class="card-title">توزیع دانشجومعلمان بر اساس سال ورود و رشته تحصیلی مقطع کارشناسی ارشد</h5>
+      <canvas id="scrollableCourseYearChartArshad" height="900" width="1800"></canvas>
+  </div>
+</div>
+
+  <!-- Student Summary Table
+  <div class="card" style="overflow-y: scroll;max-height: 700px;">
+    <div class="card-body">
+      <h5 class="card-title">جدول توزیع دانشجومعلمان در پردیس، مقطع، رشته و جنسیت</h5>
+      <table class="table table-striped" id="studentTable">
+        <thead>
+          <tr>
+            <th>Campus</th>
+            <th>Grade Name</th>
+            <th>Course Name</th>
+            <th>Total Students</th>
+            <th>Male</th>
+            <th>Female</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in grouped_data %}
+          <tr>
+            <td>{{ row.sub_uniname }}</td>
+            <td>{{ row.gradname }}</td>
+            <td>{{ row.course_name }}</td>
+            <td>{{ row.total }}</td>
+            <td>{{ row.male }}</td>
+            <td>{{ row.female }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div> -->
+
+<!-- Chart.js Integration -->
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+  // Wait for Chart.js to be fully loaded
+  if (typeof Chart === 'undefined') {
+    console.error('Chart.js is not loaded! Waiting...');
+    setTimeout(arguments.callee, 100);
+    return;
+  }
+
+  // Parse JSON data - data is already JSON stringified from backend
+  // The data comes as JSON strings, so we need to parse them
+  const genderData = {{ gender_data | safe }};
+  const genderData404 = {{ gender_data_404 | safe }};
+  const courseDataKardani = {{ course_data_kardani | safe }};
+  const courseDataNapeyvaste = {{ course_data_napeyvaste | safe }};
+  const courseDataPeyvaste = {{ course_data_peyvaste | safe }};
+  const courseDataArshad = {{ course_data_arshad | safe }};
+  const gradeData = {{ grade_data | safe }};
+  const provinceData1 = {{ province_data | safe }};
+  const provinceYearData1 = {{ province_year_data | safe }};
+  const provinceSexData1 = {{ province_sex_data | safe }};
+  
+  // Debug: Log data to console
+  console.log('Gender Data:', genderData);
+  console.log('Course Data Kardani:', courseDataKardani);
+  console.log('Grade Data:', gradeData);
+
+  // Check if data exists
+  if (!genderData || !genderData.labels || !genderData.counts) {
+    console.error('genderData is missing or invalid:', genderData);
+  } else {
+    const genderChart = new Chart(document.getElementById('genderChart'), {
+      type: 'doughnut',
+      data: {
+        labels: genderData.labels,
+        datasets: [{ data: genderData.counts, backgroundColor: ['#36A2EB', '#FF6384'] }]
+      }
+    });
+    setTimeout(() => {
+      if (typeof window.addChartExportButtons === 'function') {
+        window.addChartExportButtons('genderChart', genderChart, 'توزیع_جنسیت_از_1400_تا_1404');
+      }
+    }, 200);
+  }
+
+  if (!genderData404 || !genderData404.labels || !genderData404.counts) {
+    console.error('genderData404 is missing or invalid:', genderData404);
+  } else {
+    const genderChart404 = new Chart(document.getElementById('genderChart404'), {
+      type: 'doughnut',
+      data: {
+        labels: genderData404.labels,
+        datasets: [{ data: genderData404.counts, backgroundColor: ['#36A2EB', '#FF6384'] }]
+      }
+    });
+    setTimeout(() => {
+      if (typeof window.addChartExportButtons === 'function') {
+        window.addChartExportButtons('genderChart404', genderChart404, 'توزیع_جنسیت_1404');
+      }
+    }, 200);
+  }
+
+  // Course Chart Kardani
+  if (!courseDataKardani || !courseDataKardani.labels || !courseDataKardani.counts) {
+    console.error('courseDataKardani is missing or invalid:', courseDataKardani);
+  } else {
+
+    const courseChartKardani = new Chart(document.getElementById('courseChartKardani'), {
+      type: 'bar',
+      data: {
+        labels: courseDataKardani.labels,
+        datasets: [{
+          label: 'Students',
+          data: courseDataKardani.counts,
+          backgroundColor: '#4BC0C0'
+        }]
+      },
+      options: {
+        indexAxis: 'y', // horizontal bars
+        responsive: true,
+        plugins: {
+          legend: { display: false },
+          datalabels: {
+            anchor: 'end',
+            align: 'end',     // push inside at end of bar
+            clamp: true,
+            offset: 15,
+            color: '#000',
+            rotation: 0,      // keep text horizontal (better for readability in horizontal bar)
+            font: {
+              family: 'Vazir',
+              size: 14,
+              weight: 'bold'
+            },
+            formatter: function (value) {
+              return value ;
+            }
+          }
+        }
+      },
+      plugins: [ChartDataLabels]
+    });
+    setTimeout(() => {
+      if (typeof window.addChartExportButtons === 'function') {
+        window.addChartExportButtons('courseChartKardani', courseChartKardani, 'توزیع_رشته_تحصیلی_از_1400_تا_1404_مقطع_کاردانی');
+      }
+    }, 200);
+  }
+
+  // Course Chart Peyvaste
+  if (!courseDataPeyvaste || !courseDataPeyvaste.labels || !courseDataPeyvaste.counts) {
+    console.error('courseDataPeyvaste is missing or invalid:', courseDataPeyvaste);
+  } else {
+
+    const courseChartPeyvaste = new Chart(document.getElementById('courseChartPeyvaste'), {
+      type: 'bar',
+      data: {
+        labels: courseDataPeyvaste.labels,
+        datasets: [{
+          label: 'Students',
+          data: courseDataPeyvaste.counts,
+          backgroundColor: '#4BC0C0'
+        }]
+      },
+      options: {
+        indexAxis: 'y', // horizontal bars
+        responsive: true,
+        plugins: {
+          legend: { display: false },
+          datalabels: {
+            anchor: 'end',
+            align: 'end',     // position at the end of bar
+            clamp: true,      // force inside
+            offset: 15,
+            color: '#000',
+            rotation: 0,      // keep text horizontal
+            font: {
+              family: 'Vazir',
+              size: 14,
+              weight: 'bold'
+            },
+            formatter: function (value) {
+              return value ;
+            }
+          }
+        }
+      },
+      plugins: [ChartDataLabels]
+    });
+    setTimeout(() => {
+      if (typeof window.addChartExportButtons === 'function') {
+        window.addChartExportButtons('courseChartPeyvaste', courseChartPeyvaste, 'توزیع_رشته_تحصیلی_از_1400_تا_1404_مقطع_کارشناسی_پیوسته');
+      }
+    }, 200);
+  }
+
+  // Course Chart Napeyvaste
+  if (!courseDataNapeyvaste || !courseDataNapeyvaste.labels || !courseDataNapeyvaste.counts) {
+    console.error('courseDataNapeyvaste is missing or invalid:', courseDataNapeyvaste);
+  } else {
+
+
+    const courseChartNapeyvaste = new Chart(document.getElementById('courseChartNapeyvaste'), {
+      type: 'bar',
+      data: {
+        labels: courseDataNapeyvaste.labels,
+        datasets: [{
+          label: 'Students',
+          data: courseDataNapeyvaste.counts,
+          backgroundColor: '#4BC0C0'
+        }]
+      },
+      options: {
+        indexAxis: 'y', // horizontal bars
+        responsive: true,
+        plugins: {
+          legend: { display: false },
+          datalabels: {
+            anchor: 'end',
+            align: 'end',     // position inside at end of bar
+            clamp: true,
+            offset: 15,
+            color: '#000',
+            rotation: 0,      // keep text horizontal for readability
+            font: {
+              family: 'Vazir',
+              size: 14,
+              weight: 'bold'
+            },
+            formatter: function (value) {
+              return value;
+            }
+          }
+        }
+      },
+      plugins: [ChartDataLabels]
+    });
+    setTimeout(() => {
+      if (typeof window.addChartExportButtons === 'function') {
+        window.addChartExportButtons('courseChartNapeyvaste', courseChartNapeyvaste, 'توزیع_رشته_تحصیلی_از_1400_تا_1404_کارشناسی_ناپیوسته');
+      }
+    }, 200);
+  }
+
+  // Course Chart Arshad
+  if (!courseDataArshad || !courseDataArshad.labels || !courseDataArshad.counts) {
+    console.error('courseDataArshad is missing or invalid:', courseDataArshad);
+  } else {
+    const courseChartArshad = new Chart(document.getElementById('courseChartArshad'), {
+  type: 'bar',
+  data: {
+    labels: courseDataArshad.labels,
+    datasets: [{
+      label: 'Students',
+      data: courseDataArshad.counts,
+      backgroundColor: '#4BC0C0'
+    }]
+  },
+  options: {
+    indexAxis: 'y', // horizontal bars
+    responsive: true,
+    plugins: {
+      legend: { display: false },
+      datalabels: {
+        anchor: 'end',
+        align: 'end',     // position inside at end of bar
+        clamp: true,
+        offset: 15,
+        color: '#000',
+        rotation: 0,      // keep labels horizontal
+        font: {
+          family: 'Vazir',
+          size: 14,
+          weight: 'bold'
+        },
+        formatter: function (value) {
+          return value;
+        }
+      }
+    }
+  },
+      plugins: [ChartDataLabels]
+    });
+    setTimeout(() => {
+      if (typeof window.addChartExportButtons === 'function') {
+        window.addChartExportButtons('courseChartArshad', courseChartArshad, 'توزیع_رشته_تحصیلی_از_1400_تا_1404_کارشناسی_ارشد');
+      }
+    }, 200);
+  }
+
+  // Grade Chart
+  if (!gradeData || !gradeData.labels || !gradeData.counts) {
+    console.error('gradeData is missing or invalid:', gradeData);
+  } else {
+    const gradeChart = new Chart(document.getElementById('gradeChart'), {
+  type: 'bar',
+  data: {
+    labels: gradeData.labels,
+    datasets: [{
+      label: 'Students',
+      data: gradeData.counts,
+      backgroundColor: '#9966FF'
+    }]
+  },
+  options: {
+    responsive: true,
+    plugins: {
+      legend: { display: false },
+      datalabels: {
+        anchor: 'end',
+        align: 'center',     // inside top of bar
+        offset: 0,
+        color: '#000',
+        rotation: 0,      // vertical text
+        font: {
+          family: 'Vazir',
+          size: 14,
+          weight: 'bold'
+        },
+        formatter: function (value) {
+          return value ;
+        }
+      }
+    },
+    scales: {
+      y: {
+        beginAtZero: true,
+        title: {
+          display: true,
+          text: 'تعداد',
+          font: { family: 'Vazir' }
+        }
+      },
+      x: {
+        ticks: {
+          font: { family: 'Vazir' }
+        }
+      }
+    }
+  },
+      plugins: [ChartDataLabels]
+    });
+    setTimeout(() => {
+      if (typeof window.addChartExportButtons === 'function') {
+        window.addChartExportButtons('gradeChart', gradeChart, 'توزیع_مقطع_تحصیلی_از_1400_تا_1404');
+      }
+    }, 200);
+  }
+
+  // Province Chart
+  if (!provinceData1 || !provinceData1.labels || !provinceData1.counts) {
+    console.error('provinceData1 is missing or invalid:', provinceData1);
+  } else {
+    const provinceChart1 = new Chart(document.getElementById('provinceChart1'), {
+    type: 'bar',
+    data: {
+      labels: provinceData1.labels,
+      datasets: [{
+        label: 'استان ها',
+        data: provinceData1.counts,
+        backgroundColor: '#9966FF'
+      }]
+    },
+    options: {
+      plugins: {
+        datalabels: {
+          anchor: 'end',       // Position relative to bar length
+          align: 'start',      // Place it inside near the top
+          offset: -33,          // Slight offset downward from top edge
+          color: '#000',       // White text for contrast
+          font: {
+            size: 14,
+            weight: 'bold'
+          },
+          rotation: -90,        // Rotate labels 90 degrees counterclockwise
+          formatter: function (value) {
+            return value;
+          }
+        }
+      }
+    },
+      plugins: [ChartDataLabels]
+    });
+    setTimeout(() => {
+      if (typeof window.addChartExportButtons === 'function') {
+        window.addChartExportButtons('provinceChart1', provinceChart1, 'توزیع_استانی_دانشجومعلمان');
+      }
+    }, 200);
+  }
+
+  // Province Year Chart
+  if (!provinceYearData1 || !provinceYearData1.labels || !provinceYearData1.years || !provinceYearData1.data) {
+    console.error('provinceYearData1 is missing or invalid:', provinceYearData1);
+  } else {
+    // Define a color for each year
+    const colors = ["#9966FF", "#FF9933", "#33CC99", "#FF6666"];
+
+    // Build datasets dynamically from years
+    const datasets = provinceYearData1.years.map((year, idx) => ({
+        label: `ورودی ${year}`,
+        data: provinceYearData1.data[year],
+        backgroundColor: colors[idx % colors.length]
+    }));
+
+    const provinceYearChart1 = new Chart(document.getElementById('provinceYearChart1'), {
+    type: 'bar',
+    data: {
+        labels: provinceYearData1.labels, // Provinces on X-axis
+        datasets: datasets
+    },
+    options: {
+        responsive: true,
+        plugins: {
+            datalabels: {
+                anchor: 'end',
+                align: 'start',
+                offset: -10, // relative small offset
+                color: '#000',
+                font: {
+                    size: 9,
+                    weight: 'normal'
+                },
+                rotation: -90,
+                formatter: function (value) {
+                    return value;
+                }
+            },
+            legend: {
+                position: 'top'
+            },
+            tooltip: {
+                mode: 'index',
+                intersect: false
+            }
+        },
+        scales: {
+            x: {
+                stacked: false
+            },
+            y: {
+                beginAtZero: true
+            }
+    }
+      },
+      plugins: [ChartDataLabels]
+    });
+    setTimeout(() => {
+      if (typeof window.addChartExportButtons === 'function') {
+        window.addChartExportButtons('provinceYearChart1', provinceYearChart1, 'توزیع_استانی_و_سال_ورود_دانشجو_معلمان');
+      }
+    }, 200);
+  }
+
+  // Province Sex Chart
+  if (!provinceSexData1 || !provinceSexData1.labels || !provinceSexData1.sex_list || !provinceSexData1.data) {
+    console.error('provinceSexData1 is missing or invalid:', provinceSexData1);
+  } else {
+    // Define a color for each sex
+    const colors_sex = ["#9966FF", "#FF9933"];
+
+    const datasets_sex = provinceSexData1.sex_list.map((sex, idx) => ({
+        label: `${sex}`,
+        data: provinceSexData1.data[sex],
+        backgroundColor: colors_sex[idx % colors_sex.length]
+    }));
+
+    const provinceSexChart1 = new Chart(document.getElementById('provinceSexChart1'), {
+    type: 'bar',
+    data: {
+        labels: provinceSexData1.labels, // Provinces on X-axis
+        datasets: datasets_sex
+    },
+    options: {
+        responsive: true,
+        plugins: {
+            datalabels: {
+                anchor: 'end',
+                align: 'start',
+                offset: -10, // relative small offset
+                color: '#000',
+                font: {
+                    size: 9,
+                    weight: 'normal'
+                },
+                rotation: -90,
+                formatter: function (value) {
+                    return value;
+                }
+            },
+            legend: {
+                position: 'top'
+            },
+            tooltip: {
+                mode: 'index',
+                intersect: false
+            }
+        },
+        scales: {
+            x: {
+                stacked: false
+            },
+            y: {
+                beginAtZero: true
+            }
+        }
+    },
+      plugins: [ChartDataLabels]
+    });
+    setTimeout(() => {
+      if (typeof window.addChartExportButtons === 'function') {
+        window.addChartExportButtons('provinceSexChart1', provinceSexChart1, 'توزیع_استانی_و_جنسیت_دانشجو_معلمان');
+      }
+    }, 200);
+  }
+
+  // Entry Year Chart
+  const yearData = {{ year_data | safe }};
+  if (!yearData || !yearData.labels || !yearData.total) {
+    console.error('yearData is missing or invalid:', yearData);
+  } else {
+    const entryYearChart = new Chart(document.getElementById('entryYearChart'), {
+  type: 'bar',
+  data: {
+    labels: yearData.labels,
+    datasets: [
+      {
+        label: 'کل',
+        data: yearData.total,
+        backgroundColor: '#4BC0C0'
+      },
+      {
+        label: 'آقا',
+        data: yearData.male,
+        backgroundColor: '#36A2EB'
+      },
+      {
+        label: 'خانم',
+        data: yearData.female,
+        backgroundColor: '#FF6384'
+      }
+    ]
+  },
+  options: {
+    responsive: true,
+    scales: {
+      x: { stacked: true },
+      y: { stacked: true }
+    }
+      }
+    });
+    setTimeout(() => {
+      if (typeof window.addChartExportButtons === 'function') {
+        window.addChartExportButtons('entryYearChart', entryYearChart, 'توزیع_ورودی_ها_در_سال_بر_اساس_جنسیت');
+      }
+    }, 200);
+  }
+
+  // Entry Year Grade Chart
+  const yearDataGrade = {{ year_data_grade | safe }};
+  if (!yearDataGrade || !yearDataGrade.labels) {
+    console.error('yearDataGrade is missing or invalid:', yearDataGrade);
+  } else {
+    const entryYearChartGrade = new Chart(document.getElementById('entryYearChartGrade'), {
+  type: 'bar',
+  data: {
+    labels: yearDataGrade.labels,
+    datasets: [
+      {
+        label: 'کاردانی',
+        data: yearDataGrade.kardani,
+        backgroundColor: '#347433'
+      },
+      {
+        label: 'کارشناسی پیوسته',
+        data: yearDataGrade.peyvaste,
+        backgroundColor: '#FFC107'
+      },
+      {
+        label: 'کارشناسی ناپیوسته',
+        data: yearDataGrade.napeyvaste,
+        backgroundColor: '#FF6F3C'
+      },
+      {
+        label: 'کارشناسی ارشد',
+        data: yearDataGrade.arshad,
+        backgroundColor: '#B22222'
+      }
+    ]
+  },
+  options: {
+    responsive: true,
+    scales: {
+      x: { stacked: true },
+      y: { stacked: true }
+    }
+      }
+    });
+    setTimeout(() => {
+      if (typeof window.addChartExportButtons === 'function') {
+        window.addChartExportButtons('entryYearChartGrade', entryYearChartGrade, 'توزیع_ورودی_ها_در_سال_بر_اساس_مقطع');
+      }
+    }, 200);
+  }
+
+  // Scrollable Course Year Charts
+  const courseYearDataKardani = {{ course_year_data_kardani | safe }};
+  const courseYearDataKarshenasiNapeyvaste = {{ course_year_data_karshenasi_napeyvaste | safe }};
+  const courseYearDataKarshenasiPeyvaste = {{ course_year_data_karshenasi_peyvaste | safe }};
+  const courseYearDataArshad = {{ course_year_data_arshad | safe }};
+
+  function getRandomColor() {
+    const r = Math.floor(Math.random() * 200);
+    const g = Math.floor(Math.random() * 200);
+    const b = Math.floor(Math.random() * 200);
+    return `rgba(${r}, ${g}, ${b}, 0.6)`;
+  }
+
+  // Scrollable Chart Kardani
+  if (!courseYearDataKardani || !courseYearDataKardani.labels || !courseYearDataKardani.datasets) {
+    console.error('courseYearDataKardani is missing or invalid:', courseYearDataKardani);
+  } else {
+    const ctxKardani = document.getElementById('scrollableCourseYearChartKardani').getContext('2d');
+    const scrollableChartKardani = new Chart(ctxKardani, {
+    type: 'bar',
+    data: {
+      labels: courseYearDataKardani.labels,
+      datasets: courseYearDataKardani.datasets.map(ds => ({
+        label: ds.label,
+        data: ds.data,
+        backgroundColor: getRandomColor(),
+        borderWidth: 1
+      }))
+    },
+    options: {
+      responsive: true,
+      plugins: {
+        legend: {
+          display: false  // Hide legend if too many
+        },
+        tooltip: {
+          mode: 'index',
+          intersect: false
+        }
+      },
+      scales: {
+        x: {
+          stacked: true,
+          ticks: {
+            autoSkip: false
+          }
+        },
+        y: {
+          stacked: true,
+          beginAtZero: true
+        }
+      },
+      layout: {
+        padding: 20
+      }
+    },
+  options: {
+    responsive: true,
+    scales: {
+      x: { stacked: true },
+      y: { stacked: true }
+    }
+  }
+    });
+    setTimeout(() => {
+      if (typeof window.addChartExportButtons === 'function') {
+        window.addChartExportButtons('scrollableCourseYearChartKardani', scrollableChartKardani, 'توزیع_دانشجومعلمان_بر_اساس_سال_ورود_و_رشته_تحصیلی_مقطع_کاردانی');
+      }
+    }, 200);
+  }
+
+  // Scrollable Chart Karshenasi Napeyvaste
+  if (!courseYearDataKarshenasiNapeyvaste || !courseYearDataKarshenasiNapeyvaste.labels || !courseYearDataKarshenasiNapeyvaste.datasets) {
+    console.error('courseYearDataKarshenasiNapeyvaste is missing or invalid:', courseYearDataKarshenasiNapeyvaste);
+  } else {
+    const ctxKarshenasiNapeyvaste = document.getElementById('scrollableCourseYearChartKarshenasiNapeyvaste').getContext('2d');
+    const scrollableChartNapeyvaste = new Chart(ctxKarshenasiNapeyvaste, {
+    type: 'bar',
+    data: {
+      labels: courseYearDataKarshenasiNapeyvaste.labels,
+      datasets: courseYearDataKarshenasiNapeyvaste.datasets.map(ds => ({
+        label: ds.label,
+        data: ds.data,
+        backgroundColor: getRandomColor(),
+        borderWidth: 1
+      }))
+    },
+    options: {
+      responsive: true,
+      plugins: {
+        legend: {
+          display: false  // Hide legend if too many
+        },
+        tooltip: {
+          mode: 'index',
+          intersect: false
+        }
+      },
+      scales: {
+        x: {
+          stacked: true,
+          ticks: {
+            autoSkip: false
+          }
+        },
+        y: {
+          stacked: true,
+          beginAtZero: true
+        }
+      },
+      layout: {
+        padding: 20
+      }
+    },
+  options: {
+    responsive: true,
+    scales: {
+      x: { stacked: true },
+      y: { stacked: true }
+    }
+  }
+    });
+    setTimeout(() => {
+      if (typeof window.addChartExportButtons === 'function') {
+        window.addChartExportButtons('scrollableCourseYearChartKarshenasiNapeyvaste', scrollableChartNapeyvaste, 'توزیع_دانشجومعلمان_بر_اساس_سال_ورود_و_رشته_تحصیلی_مقطع_کارشناسی_ناپیوسته');
+      }
+    }, 200);
+  }
+
+  // Scrollable Chart Karshenasi Peyvaste
+  if (!courseYearDataKarshenasiPeyvaste || !courseYearDataKarshenasiPeyvaste.labels || !courseYearDataKarshenasiPeyvaste.datasets) {
+    console.error('courseYearDataKarshenasiPeyvaste is missing or invalid:', courseYearDataKarshenasiPeyvaste);
+  } else {
+    const ctxKarshenasiPeyvaste = document.getElementById('scrollableCourseYearChartKarshenasiPeyvaste').getContext('2d');
+    const scrollableChartPeyvaste = new Chart(ctxKarshenasiPeyvaste, {
+    type: 'bar',
+    data: {
+      labels: courseYearDataKarshenasiPeyvaste.labels,
+      datasets: courseYearDataKarshenasiPeyvaste.datasets.map(ds => ({
+        label: ds.label,
+        data: ds.data,
+        backgroundColor: getRandomColor(),
+        borderWidth: 1
+      }))
+    },
+    options: {
+      responsive: true,
+      plugins: {
+        legend: {
+          display: false  // Hide legend if too many
+        },
+        tooltip: {
+          mode: 'index',
+          intersect: false
+        }
+      },
+      scales: {
+        x: {
+          stacked: true,
+          ticks: {
+            autoSkip: false
+          }
+        },
+        y: {
+          stacked: true,
+          beginAtZero: true
+        }
+      },
+      layout: {
+        padding: 20
+      }
+    },
+  options: {
+    responsive: true,
+    scales: {
+      x: { stacked: true },
+      y: { stacked: true }
+    }
+  }
+    });
+    setTimeout(() => {
+      if (typeof window.addChartExportButtons === 'function') {
+        window.addChartExportButtons('scrollableCourseYearChartKarshenasiPeyvaste', scrollableChartPeyvaste, 'توزیع_دانشجومعلمان_بر_اساس_سال_ورود_و_رشته_تحصیلی_مقطع_کارشناسی_پیوسته');
+      }
+    }, 200);
+  }
+
+  // Scrollable Chart Arshad
+  if (!courseYearDataArshad || !courseYearDataArshad.labels || !courseYearDataArshad.datasets) {
+    console.error('courseYearDataArshad is missing or invalid:', courseYearDataArshad);
+  } else {
+    const ctxArshad = document.getElementById('scrollableCourseYearChartArshad').getContext('2d');
+    const scrollableChartArshad = new Chart(ctxArshad, {
+    type: 'bar',
+    data: {
+      labels: courseYearDataArshad.labels,
+      datasets: courseYearDataArshad.datasets.map(ds => ({
+        label: ds.label,
+        data: ds.data,
+        backgroundColor: getRandomColor(),
+        borderWidth: 1
+      }))
+    },
+    options: {
+      responsive: true,
+      plugins: {
+        legend: {
+          display: false  // Hide legend if too many
+        },
+        tooltip: {
+          mode: 'index',
+          intersect: false
+        }
+      },
+      scales: {
+        x: {
+          stacked: true,
+          ticks: {
+            autoSkip: false
+          }
+        },
+        y: {
+          stacked: true,
+          beginAtZero: true
+        }
+      },
+      layout: {
+        padding: 20
+      }
+    },
+  options: {
+    responsive: true,
+    scales: {
+      x: { stacked: true },
+      y: { stacked: true }
+    }
+  }
+    });
+    setTimeout(() => {
+      if (typeof window.addChartExportButtons === 'function') {
+        window.addChartExportButtons('scrollableCourseYearChartArshad', scrollableChartArshad, 'توزیع_دانشجومعلمان_بر_اساس_سال_ورود_و_رشته_تحصیلی_مقطع_کارشناسی_ارشد');
+      }
+    }, 200);
+  }
+
+  // Vazeiyat Chart
+  const vazeiyatData = {{ vazeiyat_data | safe }};
+  if (!vazeiyatData || !vazeiyatData.labels || !vazeiyatData.counts) {
+    console.error('vazeiyatData is missing or invalid:', vazeiyatData);
+  } else {
+    const vazeiyatChart = new Chart(document.getElementById('vazeiyatChart'), {
+  type: 'bar',
+  data: {
+    labels: vazeiyatData.labels,
+    datasets: [{
+      label: 'تعداد دانشجویان',
+      data: vazeiyatData.counts,
+      backgroundColor: '#007bff'
+    }]
+  },
+  options: {
+    responsive: true,
+    plugins: {
+      legend: { display: false },
+      datalabels: {
+        anchor: 'end',
+        align: 'end',
+        color: '#000',
+        font: {
+          size: 14,
+          weight: 'bold',
+          family: 'Vazir'
+        },
+        formatter: function (value) {
+          return value;
+        }
+      },
+      title: {
+        display: true,
+        text: 'توزیع وضعیت دانشجو معلمان',
+        font: { size: 18, family: 'Vazir' }
+      }
+    },
+    scales: {
+      y: {
+        beginAtZero: true,
+        title: {
+          display: true,
+          text: 'تعداد',
+          font: { family: 'Vazir' }
+        }
+      },
+      x: {
+        ticks: {
+          font: { family: 'Vazir' }
+        }
+      }
+    }
+  },
+      plugins: [ChartDataLabels]
+    });
+    setTimeout(() => {
+      if (typeof window.addChartExportButtons === 'function') {
+        window.addChartExportButtons('vazeiyatChart', vazeiyatChart, 'توزیع_وضعیت_دانشجو_معلمان');
+      }
+    }, 200);
+  }
+
+  // Vazeiyat Chart 404
+  const vazeiyatData_404 = {{ vazeiyat_data_404 | safe }};
+  if (!vazeiyatData_404 || !vazeiyatData_404.labels || !vazeiyatData_404.counts) {
+    console.error('vazeiyatData_404 is missing or invalid:', vazeiyatData_404);
+  } else {
+    const vazeiyatChart404 = new Chart(document.getElementById('vazeiyatChart_404'), {
+  type: 'bar',
+  data: {
+    labels: vazeiyatData_404.labels,
+    datasets: [{
+      label: 'تعداد دانشجویان',
+      data: vazeiyatData_404.counts,
+      backgroundColor: '#007bff'
+    }]
+  },
+  options: {
+    responsive: true,
+    plugins: {
+      legend: { display: false },
+      datalabels: {
+        anchor: 'end',
+        align: 'end',
+        color: '#000',
+        font: {
+          size: 14,
+          weight: 'bold',
+          family: 'Vazir'
+        },
+        formatter: function (value) {
+          return value;
+        }
+      },
+      title: {
+        display: true,
+        text: 'توزیع وضعیت دانشجو معلمان',
+        font: { size: 18, family: 'Vazir' }
+      }
+    },
+    scales: {
+      y: {
+        beginAtZero: true,
+        title: {
+          display: true,
+          text: 'تعداد',
+          font: { family: 'Vazir' }
+        }
+      },
+      x: {
+        ticks: {
+          font: { family: 'Vazir' }
+        }
+      }
+    }
+  },
+      plugins: [ChartDataLabels]
+    });
+    setTimeout(() => {
+      if (typeof window.addChartExportButtons === 'function') {
+        window.addChartExportButtons('vazeiyatChart_404', vazeiyatChart404, 'توزیع_وضعیت_دانشجو_معلمان_ورودی_1404');
+      }
+    }, 200);
+  }
+
+  // Province Vazeiyat Horizontal Chart
+  const provinceVazeiyatData = {{ province_vazeiyat_data | safe }};
+  if (!provinceVazeiyatData || !provinceVazeiyatData.labels || !provinceVazeiyatData.datasets) {
+    console.error('provinceVazeiyatData is missing or invalid:', provinceVazeiyatData);
+  } else {
+    const provinceVazeiyatHorizontalChart = new Chart(document.getElementById('provinceVazeiyatHorizontalChart'), {
+  type: 'bar',
+  data: provinceVazeiyatData,
+  options: {
+    indexAxis: 'y',  // 🔹 جهت افقی
+    responsive: true,
+    maintainAspectRatio: false,
+    scales: {
+      x: {
+        stacked: true,
+        title: {
+          display: true,
+          text: 'تعداد دانشجو معلمان',
+          font: { family: 'Vazir', size: 14 }
+        },
+        ticks: {
+          font: { family: 'Vazir' }
+        }
+      },
+      y: {
+        stacked: true,
+        title: {
+          display: true,
+          text: 'استان',
+          font: { family: 'Vazir', size: 14 }
+        },
+        ticks: {
+          autoSkip: false,
+          font: { family: 'Vazir', size: 12 }
+        }
+      }
+    },
+    plugins: {
+      legend: {
+        position: 'bottom',
+        labels: {
+          boxWidth: 15,
+          font: { family: 'Vazir', size: 11 }
+        }
+      },
+      title: {
+        display: true,
+        text: 'توزیع وضعیت دانشجو معلمان بر اساس استان',
+        font: { family: 'Vazir', size: 18 }
+      },
+      datalabels: {
+        display: false  // 🔹 برچسب‌ها غیرفعال تا نمودار خلوت‌تر شود
+      },
+      tooltip: {
+        callbacks: {
+          label: function(context) {
+            const val = context.parsed.x || 0;
+            return `${context.dataset.label}: ${val.toLocaleString('fa-IR')}`;
+          }
+        }
+      }
+    }
+  },
+      plugins: [ChartDataLabels]
+    });
+    setTimeout(() => {
+      if (typeof window.addChartExportButtons === 'function') {
+        window.addChartExportButtons('provinceVazeiyatHorizontalChart', provinceVazeiyatHorizontalChart, 'توزیع_وضعیت_دانشجو_معلمان_بر_اساس_استان');
+      }
+    }, 200);
+  }
+}); // End of DOMContentLoaded
+</script>
+
+{% endblock %}

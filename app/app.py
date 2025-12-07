@@ -4,6 +4,9 @@ import logging
 import secrets
 import ssl
 import sqlite3
+import subprocess
+import platform
+import time
 from urllib.parse import quote_plus
 from flask import Flask, redirect, url_for, session, request, render_template, jsonify, flash, abort
 from flask_login import login_user
@@ -75,12 +78,68 @@ app.secret_key = secret_key
 @app.errorhandler(500)
 def handle_500_error(e):
     """Handle 500 errors - return JSON for API requests, HTML for others"""
-    if request.path.startswith('/charts-data') or request.path.startswith('/tables-data') or request.accept_mimetypes.accept_json:
+    import traceback
+    error_traceback = traceback.format_exc()
+    logger.error(f"500 Error in {request.path}: {e}")
+    logger.error(f"Traceback: {error_traceback}")
+    
+    # CRITICAL: For admin template edit pages, return HTML error page directly
+    # Blueprint error handler should catch it, but if it doesn't, we handle it here
+    if request.path.startswith('/admin/dashboards/templates/'):
+        path_parts = request.path.split('/')
+        if len(path_parts) >= 5:
+            template_name = path_parts[4]
+            # If it's a template file (ends with .html) and GET request
+            if template_name.endswith('.html') and request.method == 'GET':
+                # Return HTML error page directly - don't let it fall through to JSON
+                from flask import Response
+                import traceback
+                error_traceback = traceback.format_exc()
+                error_html = f"""<!DOCTYPE html>
+<html dir="rtl" lang="fa">
+<head>
+    <meta charset="utf-8">
+    <title>خطا در ویرایش تمپلیت</title>
+    <style>
+        body {{ font-family: Tahoma, Arial; padding: 20px; background: #f5f5f5; }}
+        .error-box {{ background: white; padding: 20px; border-radius: 5px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }}
+        h1 {{ color: #d32f2f; }}
+        pre {{ background: #f5f5f5; padding: 10px; border-radius: 3px; overflow-x: auto; font-size: 12px; }}
+    </style>
+</head>
+<body>
+    <div class="error-box">
+        <h1>خطا در نمایش صفحه ویرایش</h1>
+        <p><strong>تمپلیت:</strong> {template_name}</p>
+        <p><strong>خطا:</strong> {str(e)}</p>
+        <details>
+            <summary>جزئیات خطا (برای توسعه‌دهندگان)</summary>
+            <pre>{error_traceback}</pre>
+        </details>
+        <p><a href="/admin/dashboards/templates">بازگشت به لیست تمپلیت‌ها</a></p>
+    </div>
+</body>
+</html>"""
+                return Response(error_html, status=500, mimetype='text/html; charset=utf-8')
+    
+    # For API endpoints only, return JSON (not for HTML pages even if they accept JSON)
+    # Check if this is explicitly an API endpoint
+    is_api_endpoint = (
+        request.path.startswith('/charts-data') or 
+        request.path.startswith('/tables-data') or
+        request.path.startswith('/api/')
+    )
+    
+    # Only return JSON for explicit API endpoints, not for HTML pages
+    if is_api_endpoint:
         return jsonify({
             "error": "خطا در دریافت داده‌ها",
             "message": str(e) if hasattr(e, '__str__') else "خطای داخلی سرور"
         }), 500
-    # For other requests, use default Flask error handling
+    
+    # For all other requests (including admin template pages that didn't match above),
+    # return None to use default Flask error handling or let route handle it
+    # This ensures HTML error pages are returned, not JSON
     return None
 
 app.config["SESSION_TYPE"] = "filesystem"
@@ -339,28 +398,30 @@ def authorized():
         # This is for backward compatibility during migration
         if not is_admin and username in admin_users_env:
             # Grant admin access in database for future use
-            if access_level in ["staff"]:
-                admin_access = AccessLevel(level="admin", user_id=user.id)
-                db.session.add(admin_access)
-                db.session.commit()
-                is_admin = True
+            # No longer require access_level to be "staff" - allow any usertype
+            admin_access = AccessLevel(level="admin", user_id=user.id)
+            db.session.add(admin_access)
+            db.session.commit()
+            is_admin = True
+        
+        # Log user info for debugging
+        logger.info(f"User login attempt: username={username}, is_admin={is_admin}, access_level={access_level}, usertype={userinfo.get('usertype', 'N/A')}")
         
         # NEW: Tell Flask-Login to log the user in
         login_user(user)
 
         g.current_user = user
 
-        # Check access: user must be admin and have staff usertype
-        if is_admin and access_level in ["staff"]:
+        # Check access: allow admin users to access regardless of usertype
+        # Allow all authenticated users to access the system (access control happens at dashboard level)
+        if is_admin:
+            logger.info(f"Admin user {username} logged in successfully")
             return render_template("tools.html", user_info=userinfo)
             # return redirect(url_for("dashboard.dashboard_list"))
         else:
-            # return render_template("profile.html", user=userinfo)
-            SSO_LOGOUT_URL = "https://sso.cfu.ac.ir/logout?service=https://bi.cfu.ac.ir"
-            return redirect(SSO_LOGOUT_URL)
-
-        return redirect("https://sso.cfu.ac.ir/logout?service=https://bi.cfu.ac.ir")
-        # return render_template("profile.html", user=userinfo)
+            # Allow non-admin users to access as well - they'll have limited access based on their role
+            logger.info(f"Regular user {username} logged in successfully")
+            return redirect(url_for("dashboard.dashboard_list"))
 
     except OAuthError as e:
         logger.error("OAuth error: %s", e.description)
@@ -971,7 +1032,7 @@ def charts_data():
                         "fill": False
                     })
                     for lms_user_count in data["values"]:
-                        if int(lms_user_count) >= 200:
+                        if int(lms_user_count) >= 1500:
                             token = get_sms_token()
                             send_sms(
                                 token,
@@ -1171,7 +1232,115 @@ def tables_data():
     })
 
 
+def kill_process_on_port(port=5000):
+    """Kill any process running on the specified port"""
+    try:
+        system = platform.system()
+        
+        if system == "Windows":
+            # Windows: Use netstat to find PID, then taskkill to kill it
+            try:
+                # Find process using the port
+                result = subprocess.run(
+                    ['netstat', '-ano'],
+                    capture_output=True,
+                    text=True,
+                    timeout=5
+                )
+                
+                if result.returncode == 0:
+                    lines = result.stdout.split('\n')
+                    pids_to_kill = set()
+                    
+                    for line in lines:
+                        if f':{port}' in line and 'LISTENING' in line:
+                            parts = line.split()
+                            if len(parts) >= 5:
+                                pid = parts[-1]
+                                try:
+                                    pids_to_kill.add(int(pid))
+                                except ValueError:
+                                    pass
+                    
+                    # Kill all processes found
+                    for pid in pids_to_kill:
+                        try:
+                            logger.info(f"Killing process {pid} on port {port}")
+                            subprocess.run(
+                                ['taskkill', '/PID', str(pid), '/F'],
+                                capture_output=True,
+                                timeout=5
+                            )
+                            logger.info(f"Successfully killed process {pid}")
+                        except subprocess.TimeoutExpired:
+                            logger.warning(f"Timeout while killing process {pid}")
+                        except Exception as e:
+                            logger.warning(f"Error killing process {pid}: {e}")
+                    
+                    if pids_to_kill:
+                        # Wait a bit for port to be released
+                        time.sleep(1)
+                        logger.info(f"Freed port {port}")
+                    else:
+                        logger.info(f"No process found on port {port}")
+                else:
+                    logger.warning(f"Failed to run netstat: {result.stderr}")
+            except subprocess.TimeoutExpired:
+                logger.warning("Timeout while checking for processes on port")
+            except FileNotFoundError:
+                logger.warning("netstat or taskkill not found - skipping port cleanup")
+            except Exception as e:
+                logger.warning(f"Error checking/killing processes on port {port}: {e}")
+        
+        elif system in ["Linux", "Darwin"]:  # Linux or macOS
+            try:
+                # Use lsof to find process using the port
+                result = subprocess.run(
+                    ['lsof', '-ti', f':{port}'],
+                    capture_output=True,
+                    text=True,
+                    timeout=5
+                )
+                
+                if result.returncode == 0 and result.stdout.strip():
+                    pids = result.stdout.strip().split('\n')
+                    for pid in pids:
+                        try:
+                            logger.info(f"Killing process {pid} on port {port}")
+                            subprocess.run(
+                                ['kill', '-9', pid],
+                                capture_output=True,
+                                timeout=5
+                            )
+                            logger.info(f"Successfully killed process {pid}")
+                        except subprocess.TimeoutExpired:
+                            logger.warning(f"Timeout while killing process {pid}")
+                        except Exception as e:
+                            logger.warning(f"Error killing process {pid}: {e}")
+                    
+                    if pids:
+                        time.sleep(1)
+                        logger.info(f"Freed port {port}")
+                else:
+                    logger.info(f"No process found on port {port}")
+            except subprocess.TimeoutExpired:
+                logger.warning("Timeout while checking for processes on port")
+            except FileNotFoundError:
+                logger.warning("lsof not found - skipping port cleanup")
+            except Exception as e:
+                logger.warning(f"Error checking/killing processes on port {port}: {e}")
+        else:
+            logger.warning(f"Unsupported platform: {system} - skipping port cleanup")
+            
+    except Exception as e:
+        logger.error(f"Unexpected error in kill_process_on_port: {e}")
+
+
 if __name__ == "__main__":
+    # Kill any existing processes on port 5000 before starting
+    logger.info("Checking for processes on port 5000...")
+    kill_process_on_port(5000)
+    
     with app.app_context():
         # db.create_all()
         serve(app, host="0.0.0.0", port=5000)

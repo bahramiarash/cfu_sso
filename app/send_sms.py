@@ -1,14 +1,24 @@
 import requests
+import os
 
 # ---------- CONFIG ----------
 API_BASE_URL = "https://api.cfu.ac.ir"
 SWAGGER_LOGIN_URL = f"{API_BASE_URL}/Login"
 SWAGGER_SMS_URL = f"{API_BASE_URL}/API/Admin/SendSMSBody"
 
-SMS_USER = "khodarahmi"
-SMS_PASS = "9909177"
-# ADMINS = ["09123880167"]
-ADMINS = ["09123880167", "09121451151"]
+# SMS credentials must be set as environment variables for security
+SMS_USER = os.getenv("SMS_USER")
+SMS_PASS = os.getenv("SMS_PASS")
+
+if not SMS_USER or not SMS_PASS:
+    raise ValueError(
+        "SMS_USER and SMS_PASS environment variables are not set. "
+        "Please set them in your .env file or environment variables."
+    )
+
+# Admin phone numbers for SMS alerts (comma-separated in environment variable)
+ADMINS_ENV = os.getenv("SMS_ADMIN_NUMBERS", "09123880167,09121451151")
+ADMINS = [num.strip() for num in ADMINS_ENV.split(",") if num.strip()]
 
 
 # === SMS FUNCTIONS ===

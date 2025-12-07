@@ -107,7 +107,7 @@ class DataSync(db.Model):
     __tablename__ = 'data_syncs'
     
     id = Column(Integer, primary_key=True)
-    data_source = Column(String(100), nullable=False)  # e.g., 'faculty', 'students', 'lms'
+    data_source = Column(String(100), nullable=False, unique=True)  # e.g., 'faculty', 'students', 'lms'
     sync_type = Column(String(50), nullable=False)  # 'auto', 'manual', 'scheduled'
     
     # Sync status
@@ -117,11 +117,15 @@ class DataSync(db.Model):
     
     # Sync configuration
     auto_sync_enabled = Column(Boolean, default=True, nullable=False)
-    sync_interval_minutes = Column(Integer, default=60, nullable=False)  # Default 1 hour
+    sync_interval_value = Column(Integer, default=60, nullable=False)  # Interval value (e.g., 60)
+    sync_interval_unit = Column(String(20), default='minutes', nullable=False)  # 'minutes', 'hours', 'days'
     
     # API Gateway details
-    api_endpoint = Column(String(500), nullable=True)
+    api_base_url = Column(String(500), nullable=True)  # Base URL for API (e.g., https://api.cfu.ac.ir)
+    api_endpoint = Column(String(500), nullable=True)  # Full endpoint URL
     api_method = Column(String(10), default='GET', nullable=False)
+    api_username = Column(String(200), nullable=True)  # API authentication username
+    api_password = Column(String(500), nullable=True)  # API authentication password (should be encrypted in production)
     api_params = Column(JSON, nullable=True)
     
     # Sync results
@@ -149,7 +153,8 @@ class DataSync(db.Model):
             'next_sync_at': self.next_sync_at.isoformat() if self.next_sync_at else None,
             'next_sync_at_jalali': self.get_jalali_date(self.next_sync_at) if self.next_sync_at else None,
             'auto_sync_enabled': self.auto_sync_enabled,
-            'sync_interval_minutes': self.sync_interval_minutes,
+            'sync_interval_value': self.sync_interval_value,
+            'sync_interval_unit': self.sync_interval_unit,
             'api_endpoint': self.api_endpoint,
             'records_synced': self.records_synced,
             'sync_duration_seconds': self.sync_duration_seconds,
@@ -159,10 +164,74 @@ class DataSync(db.Model):
     @staticmethod
     def get_jalali_date(dt: Optional[datetime]) -> Optional[str]:
         """Get Jalali date string"""
-        if not dt:
-            return None
-        jd = jdatetime.fromgregorian(datetime=dt)
-        return jd.strftime('%Y/%m/%d %H:%M:%S')
+        try:
+            if not dt:
+                return None
+            if isinstance(dt, str):
+                # If it's a string, try to parse it
+                try:
+                    dt = datetime.strptime(dt, '%Y-%m-%d %H:%M:%S')
+                except:
+                    return str(dt)
+            jd = jdatetime.fromgregorian(datetime=dt)
+            return jd.strftime('%Y/%m/%d %H:%M:%S')
+        except Exception as e:
+            # Fallback to string representation
+            return str(dt) if dt else None
+    
+    def get_interval_minutes(self) -> int:
+        """Convert interval to minutes"""
+        try:
+            sync_interval_unit = getattr(self, 'sync_interval_unit', None)
+            sync_interval_value = getattr(self, 'sync_interval_value', None)
+            
+            if not sync_interval_unit:
+                # Fallback for old records
+                sync_interval_minutes = getattr(self, 'sync_interval_minutes', None)
+                if sync_interval_minutes:
+                    return sync_interval_minutes
+                return 60
+            
+            if not sync_interval_value:
+                return 60
+            
+            if sync_interval_unit == 'minutes':
+                return sync_interval_value
+            elif sync_interval_unit == 'hours':
+                return sync_interval_value * 60
+            elif sync_interval_unit == 'days':
+                return sync_interval_value * 24 * 60
+            return sync_interval_value
+        except (AttributeError, KeyError):
+            # Fallback if columns don't exist
+            return 60
+    
+    def get_interval_display(self) -> str:
+        """Get human-readable interval display"""
+        try:
+            sync_interval_unit = getattr(self, 'sync_interval_unit', None)
+            sync_interval_value = getattr(self, 'sync_interval_value', None)
+            
+            # Fallback for old records
+            if not sync_interval_unit:
+                sync_interval_minutes = getattr(self, 'sync_interval_minutes', None)
+                if sync_interval_minutes:
+                    return f"{sync_interval_minutes} دقیقه"
+                return "60 دقیقه"
+            
+            if not sync_interval_value:
+                return "60 دقیقه"
+            
+            unit_names = {
+                'minutes': 'دقیقه',
+                'hours': 'ساعت',
+                'days': 'روز'
+            }
+            unit_name = unit_names.get(sync_interval_unit, sync_interval_unit)
+            return f"{sync_interval_value} {unit_name}"
+        except (AttributeError, KeyError, Exception) as e:
+            # Fallback if columns don't exist or any error occurs
+            return "60 دقیقه"
 
 
 class DashboardConfig(db.Model):
@@ -213,5 +282,102 @@ class DashboardConfig(db.Model):
             'config': self.config or {},
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'updated_at': self.updated_at.isoformat() if self.updated_at else None,
+        }
+
+
+class ChartConfig(db.Model):
+    """Configuration for charts in dashboard templates"""
+    __tablename__ = 'chart_configs'
+    
+    id = Column(Integer, primary_key=True)
+    template_name = Column(String(200), nullable=False)  # e.g., 'd8.html'
+    chart_id = Column(String(200), nullable=False)  # e.g., 'chart_1', 'ratioChart'
+    
+    # Chart display settings
+    title = Column(String(500), nullable=True)  # Chart title
+    display_order = Column(Integer, default=0, nullable=False)  # Order in dashboard
+    
+    # Chart type
+    chart_type = Column(String(50), default='line', nullable=False)  # 'line', 'bar', 'pie', etc.
+    
+    # Display options
+    show_labels = Column(Boolean, default=True, nullable=False)  # Show data labels
+    show_legend = Column(Boolean, default=True, nullable=False)  # Show legend
+    allow_export = Column(Boolean, default=True, nullable=False)  # Allow image export
+    
+    # Chart options (JSON for additional settings)
+    chart_options = Column(JSON, nullable=True)  # Additional Chart.js options
+    
+    # Metadata
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+    created_by = Column(Integer, ForeignKey('users.id'), nullable=True)
+    
+    # Relationships
+    creator = relationship('User', foreign_keys=[created_by])
+    
+    # Unique constraint: one config per chart in a template
+    __table_args__ = (
+        db.UniqueConstraint('template_name', 'chart_id', name='_template_chart_uc'),
+    )
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary"""
+        return {
+            'id': self.id,
+            'template_name': self.template_name,
+            'chart_id': self.chart_id,
+            'title': self.title,
+            'display_order': self.display_order,
+            'chart_type': self.chart_type,
+            'show_labels': self.show_labels,
+            'show_legend': self.show_legend,
+            'allow_export': self.allow_export,
+            'chart_options': self.chart_options or {},
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'updated_at': self.updated_at.isoformat() if self.updated_at else None,
+        }
+
+
+class TemplateVersion(db.Model):
+    """Version history for dashboard templates"""
+    __tablename__ = 'template_versions'
+    
+    id = Column(Integer, primary_key=True)
+    template_name = Column(String(200), nullable=False)  # e.g., 'd1.html'
+    version_number = Column(Integer, nullable=False)  # Version number (1, 2, 3, ...)
+    
+    # Template content backup
+    template_content = Column(Text, nullable=False)  # Full HTML content
+    
+    # Chart configurations backup (JSON)
+    chart_configs = Column(JSON, nullable=True)  # All chart configs at this version
+    
+    # Metadata
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    created_by = Column(Integer, ForeignKey('users.id'), nullable=True)
+    description = Column(Text, nullable=True)  # Optional description
+    
+    # Relationships
+    creator = relationship('User', foreign_keys=[created_by])
+    
+    # Unique constraint: one version per template per version number
+    __table_args__ = (
+        db.UniqueConstraint('template_name', 'version_number', name='_template_version_uc'),
+    )
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary"""
+        # Convert datetime to Jalali
+        jdate = jdatetime.fromgregorian(datetime=self.created_at) if self.created_at else None
+        return {
+            'id': self.id,
+            'template_name': self.template_name,
+            'version_number': self.version_number,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'created_at_jalali': jdate.strftime('%Y/%m/%d %H:%M:%S') if jdate else None,
+            'created_by': self.created_by,
+            'description': self.description,
+            'content_length': len(self.template_content) if self.template_content else 0,
         }
 

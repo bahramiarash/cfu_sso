@@ -173,13 +173,16 @@ class Task(db.Model):
     start_date = db.Column(db.Text, nullable=True)  # Accept from form or fallback
 
     assigned_labels = db.relationship('TaskLabelAssignment', back_populates='task', cascade='all, delete-orphan')
-    column = db.relationship(
-        "KanbanColumn",
-        back_populates="tasks",
-    )
     kanban_column = db.relationship(
         "KanbanColumn",
         back_populates="tasks",
+        overlaps="column"
+    )
+    # Alias for backward compatibility (read-only)
+    column = db.relationship(
+        "KanbanColumn",
+        viewonly=True,
+        overlaps="kanban_column"
     )
 
     assigned_users = db.relationship(

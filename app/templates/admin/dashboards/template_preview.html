@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>پیش‌نمایش: {{ template_name }}</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+        }
+        .preview-header {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            background-color: #343a40;
+            color: white;
+            padding: 10px 20px;
+            z-index: 1000;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .preview-header h5 {
+            margin: 0;
+            color: white;
+        }
+        .preview-content {
+            margin-top: 60px;
+            padding: 20px;
+        }
+        .btn-sm {
+            padding: 5px 10px;
+            font-size: 14px;
+        }
+    </style>
+</head>
+<body>
+    <div class="preview-header">
+        <h5><i class="bi bi-eye"></i> پیش‌نمایش: {{ template_name }}</h5>
+        <div>
+            <button onclick="window.close()" class="btn btn-sm btn-secondary" style="background-color: #6c757d; border: none; color: white;">
+                <i class="bi bi-x-circle"></i> بستن
+            </button>
+        </div>
+    </div>
+    <div class="preview-content">
+        {{ content | safe }}
+    </div>
+</body>
+</html>
+

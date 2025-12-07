@@ -119,8 +119,32 @@ class BaseDashboard(ABC):
         Returns:
             True if user has access, False otherwise
         """
-        # Default: all authenticated users can access
-        return True
+        # Admin users have access to all dashboards
+        if context.access_level.value == 'admin':
+            return True
+        
+        # Check dashboard_access table for non-admin users
+        from admin_models import DashboardAccess
+        from extensions import db
+        
+        # Check if there's a specific access record
+        access_record = DashboardAccess.query.filter_by(
+            user_id=context.user.id,
+            dashboard_id=self.dashboard_id
+        ).first()
+        
+        if access_record:
+            # If record exists, use its can_access value
+            return access_record.can_access
+        
+        # If no record exists, check if dashboard is public
+        from admin_models import DashboardConfig
+        config = DashboardConfig.query.filter_by(dashboard_id=self.dashboard_id).first()
+        if config and config.is_public:
+            return True
+        
+        # Default: no access if not admin and no explicit access record
+        return False
     
     def _extract_filters_from_request(self, kwargs: Dict[str, Any]) -> Dict[str, Any]:
         """

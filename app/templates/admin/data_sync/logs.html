@@ -1,0 +1,104 @@
+{% extends "admin/base.html" %}
+
+{% block title %}لاگ همگام‌سازی‌های خودکار{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <h1 class="mb-4"><i class="bi bi-clock-history"></i> لاگ همگام‌سازی‌های خودکار</h1>
+
+    <div class="card">
+        <div class="card-body">
+            <div class="table-responsive">
+                <table class="table table-hover">
+                    <thead>
+                        <tr>
+                            <th>تاریخ و زمان</th>
+                            <th>اقدام</th>
+                            <th>منبع داده</th>
+                            <th>نتیجه</th>
+                            <th>جزئیات</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for log in logs %}
+                        <tr>
+                            <td>{{ log.get_jalali_date() }}</td>
+                            <td>
+                                {% if log.action == 'auto_sync_started' %}
+                                    <span class="badge bg-info">شروع همگام‌سازی</span>
+                                {% elif log.action == 'auto_sync_completed' %}
+                                    <span class="badge bg-success">همگام‌سازی موفق</span>
+                                {% elif log.action == 'auto_sync_failed' %}
+                                    <span class="badge bg-danger">همگام‌سازی ناموفق</span>
+                                {% elif log.action == 'auto_sync_error' %}
+                                    <span class="badge bg-warning">خطا در همگام‌سازی</span>
+                                {% else %}
+                                    <span class="badge bg-secondary">{{ log.action }}</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% if log.details %}
+                                    {% set details = log.details if log.details is mapping else {} %}
+                                    {% if 'data_source' in details %}
+                                        <strong>{{ details.data_source }}</strong>
+                                    {% else %}
+                                        -
+                                    {% endif %}
+                                {% else %}
+                                    -
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% if log.action == 'auto_sync_completed' and log.details %}
+                                    {% set details = log.details if log.details is mapping else {} %}
+                                    {% if 'records_count' in details %}
+                                        <span class="text-success">
+                                            <i class="bi bi-check-circle"></i> 
+                                            {{ details.records_count }} رکورد
+                                        </span>
+                                    {% else %}
+                                        <span class="text-success"><i class="bi bi-check-circle"></i> موفق</span>
+                                    {% endif %}
+                                {% elif log.action == 'auto_sync_failed' %}
+                                    <span class="text-danger"><i class="bi bi-x-circle"></i> ناموفق</span>
+                                {% elif log.action == 'auto_sync_error' %}
+                                    <span class="text-warning"><i class="bi bi-exclamation-triangle"></i> خطا</span>
+                                {% else %}
+                                    <span class="text-info"><i class="bi bi-hourglass-split"></i> در حال اجرا</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% if log.details %}
+                                    {% set details = log.details if log.details is mapping else {} %}
+                                    <small>
+                                        {% if 'error_message' in details %}
+                                            <span class="text-danger">{{ details.error_message[:100] }}{% if details.error_message|length > 100 %}...{% endif %}</span>
+                                        {% elif 'records_count' in details %}
+                                            تعداد رکوردها: {{ details.records_count }}
+                                        {% else %}
+                                            {{ details }}
+                                        {% endif %}
+                                    </small>
+                                {% else %}
+                                    -
+                                {% endif %}
+                            </td>
+                        </tr>
+                        {% else %}
+                        <tr>
+                            <td colspan="5" class="text-center text-muted">هیچ لاگی یافت نشد</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <div class="mt-3">
+        <a href="{{ url_for('admin.data_sync_list') }}" class="btn btn-secondary">
+            <i class="bi bi-arrow-right"></i> بازگشت به لیست همگام‌سازی‌ها
+        </a>
+    </div>
+</div>
+{% endblock %}

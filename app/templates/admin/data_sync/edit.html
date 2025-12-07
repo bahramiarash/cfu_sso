@@ -19,14 +19,24 @@
                 </div>
 
                 <div class="row">
-                    <div class="col-md-6">
+                    <div class="col-md-4">
                         <div class="mb-3">
-                            <label class="form-label">بازه زمانی همگام‌سازی (دقیقه)</label>
-                            <input type="number" name="sync_interval_minutes" class="form-control" 
-                                   value="{{ sync.sync_interval_minutes }}" min="1" required>
+                            <label class="form-label">بازه زمانی همگام‌سازی</label>
+                            <input type="number" name="sync_interval_value" class="form-control" 
+                                   value="{{ sync.sync_interval_value or 60 }}" min="1" required>
                         </div>
                     </div>
-                    <div class="col-md-6">
+                    <div class="col-md-4">
+                        <div class="mb-3">
+                            <label class="form-label">واحد بازه زمانی</label>
+                            <select name="sync_interval_unit" class="form-select" required>
+                                <option value="minutes" {% if sync.sync_interval_unit == 'minutes' or not sync.sync_interval_unit %}selected{% endif %}>دقیقه</option>
+                                <option value="hours" {% if sync.sync_interval_unit == 'hours' %}selected{% endif %}>ساعت</option>
+                                <option value="days" {% if sync.sync_interval_unit == 'days' %}selected{% endif %}>روز</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
                         <div class="mb-3">
                             <label class="form-label">روش درخواست</label>
                             <select name="api_method" class="form-select">
@@ -37,11 +47,81 @@
                     </div>
                 </div>
 
+                {% if sync.data_source in ['faculty', 'students'] %}
+                <div class="row">
+                    <div class="col-md-6">
+                        <div class="mb-3">
+                            <label class="form-label">API Base URL</label>
+                            <input type="text" name="api_base_url" class="form-control" 
+                                   value="{{ sync.api_base_url or 'https://api.cfu.ac.ir' }}" 
+                                   placeholder="https://api.cfu.ac.ir" required>
+                            <small class="form-text text-muted">آدرس پایه API</small>
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="mb-3">
+                            <label class="form-label">API Endpoint</label>
+                            <input type="text" name="api_endpoint" class="form-control" 
+                                   value="{{ sync.api_endpoint or ('https://api.cfu.ac.ir/API/Golestan/Faculty' if sync.data_source == 'faculty' else 'https://api.cfu.ac.ir/API/Golestan/Students_2') }}" 
+                                   placeholder="https://api.cfu.ac.ir/API/Golestan/Faculty" required>
+                            <small class="form-text text-muted">آدرس کامل endpoint</small>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="row">
+                    <div class="col-md-6">
+                        <div class="mb-3">
+                            <label class="form-label">Username</label>
+                            <input type="text" name="api_username" class="form-control" 
+                                   value="{{ sync.api_username or 'khodarahmi' }}" 
+                                   placeholder="khodarahmi" required>
+                            <small class="form-text text-muted">نام کاربری برای احراز هویت</small>
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="mb-3">
+                            <label class="form-label">Password</label>
+                            <input type="password" name="api_password" class="form-control" 
+                                   value="" 
+                                   placeholder="{% if sync.api_password %}••••••••{% else %}رمز عبور{% endif %}">
+                            <small class="form-text text-muted">{% if sync.api_password %}برای تغییر رمز عبور، رمز جدید را وارد کنید{% else %}رمز عبور برای احراز هویت{% endif %}</small>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="mb-3">
+                    <button type="button" class="btn btn-info" id="testConnectionBtn">
+                        <i class="bi bi-wifi"></i> تست اتصال به API
+                    </button>
+                    <div id="testConnectionResult" class="mt-2"></div>
+                </div>
+                {% else %}
                 <div class="mb-3">
                     <label class="form-label">API Endpoint</label>
                     <input type="text" name="api_endpoint" class="form-control" value="{{ sync.api_endpoint or '' }}" 
-                           placeholder="https://api.example.com/data">
+                           placeholder="https://api.example.com/data" required>
+                    <small class="form-text text-muted">
+                        {% if sync.data_source == 'lms' %}
+                        آدرس API Gateway برای دریافت داده‌های LMS
+                        {% endif %}
+                    </small>
                 </div>
+                {% endif %}
+                
+                {% if sync.data_source in ['faculty', 'students'] %}
+                <div class="alert alert-info">
+                    <i class="bi bi-info-circle"></i>
+                    <strong>نکته:</strong> این همگام‌سازی با اجرای فایل‌های 
+                    <code>{% if sync.data_source == 'faculty' %}faculty_main.py{% else %}students_main.py{% endif %}</code>
+                    انجام می‌شود. فایل‌های Python از API endpoint ذخیره شده در این تنظیمات استفاده می‌کنند.
+                </div>
+                {% elif sync.data_source == 'lms' %}
+                <div class="alert alert-info">
+                    <i class="bi bi-info-circle"></i>
+                    <strong>نکته:</strong> همگام‌سازی LMS از طریق API endpoint انجام می‌شود. مطمئن شوید که آدرس API صحیح است.
+                </div>
+                {% endif %}
 
                 <div class="mb-3">
                     <label class="form-label">وضعیت فعلی</label>
@@ -67,5 +147,74 @@
         </div>
     </div>
 </div>
+
+{% if sync.data_source in ['faculty', 'students'] %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const testBtn = document.getElementById('testConnectionBtn');
+    const resultDiv = document.getElementById('testConnectionResult');
+    
+    if (testBtn) {
+        testBtn.addEventListener('click', function() {
+            // Disable button and show loading
+            testBtn.disabled = true;
+            testBtn.innerHTML = '<span class="spinner-border spinner-border-sm" role="status"></span> در حال تست...';
+            resultDiv.innerHTML = '';
+            
+            // Get form values
+            const formData = new FormData();
+            const passwordField = document.querySelector('input[name="api_password"]');
+            const passwordValue = passwordField.value.trim();
+            
+            formData.append('api_base_url', document.querySelector('input[name="api_base_url"]').value);
+            formData.append('api_endpoint', document.querySelector('input[name="api_endpoint"]').value);
+            formData.append('api_username', document.querySelector('input[name="api_username"]').value);
+            // Only send password if it's been changed (not empty or not just placeholder)
+            if (passwordValue) {
+                formData.append('api_password', passwordValue);
+            }
+            // If password is empty, don't send it - route will use sync.api_password
+            
+            // Send test request
+            fetch('{{ url_for("admin.test_api_connection", sync_id=sync.id) }}', {
+                method: 'POST',
+                body: formData,
+                headers: {
+                    'X-Requested-With': 'XMLHttpRequest'
+                }
+            })
+            .then(response => response.json())
+            .then(data => {
+                testBtn.disabled = false;
+                testBtn.innerHTML = '<i class="bi bi-wifi"></i> تست اتصال به API';
+                
+                if (data.success) {
+                    resultDiv.innerHTML = `
+                        <div class="alert alert-success">
+                            <i class="bi bi-check-circle"></i> ${data.message}
+                        </div>
+                    `;
+                } else {
+                    resultDiv.innerHTML = `
+                        <div class="alert alert-danger">
+                            <i class="bi bi-x-circle"></i> ${data.message}
+                        </div>
+                    `;
+                }
+            })
+            .catch(error => {
+                testBtn.disabled = false;
+                testBtn.innerHTML = '<i class="bi bi-wifi"></i> تست اتصال به API';
+                resultDiv.innerHTML = `
+                    <div class="alert alert-danger">
+                        <i class="bi bi-x-circle"></i> خطا در ارسال درخواست: ${error.message}
+                    </div>
+                `;
+            });
+        });
+    }
+});
+</script>
+{% endif %}
 {% endblock %}
 

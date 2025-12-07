@@ -25,6 +25,61 @@
         display: none;
         margin-top: 10px;
     }
+    /* Search Box Styles */
+    .search-box-container {
+        display: none;
+        margin-bottom: 15px;
+        padding: 15px;
+        background-color: #f8f9fa;
+        border-radius: 4px;
+        border: 1px solid #dee2e6;
+    }
+    .search-box-container.active {
+        display: block;
+    }
+    .search-controls {
+        display: flex;
+        gap: 10px;
+        align-items: center;
+        flex-wrap: wrap;
+    }
+    .search-input-group {
+        flex: 1;
+        min-width: 250px;
+        display: flex;
+        gap: 5px;
+    }
+    .search-input-group input {
+        flex: 1;
+    }
+    .search-options {
+        display: flex;
+        gap: 15px;
+        align-items: center;
+        flex-wrap: wrap;
+    }
+    .search-options label {
+        margin: 0;
+        display: flex;
+        align-items: center;
+        gap: 5px;
+        cursor: pointer;
+    }
+    .search-results {
+        margin-top: 10px;
+        font-size: 12px;
+        color: #6c757d;
+    }
+    .CodeMirror-search-match {
+        background: rgba(255, 235, 59, 0.4);
+        border-top: 1px solid rgba(255, 235, 59, 0.8);
+        border-bottom: 1px solid rgba(255, 235, 59, 0.8);
+    }
+    .CodeMirror-search-match.CodeMirror-search-match-selected {
+        background: rgba(255, 193, 7, 0.6);
+        border-top: 1px solid rgba(255, 193, 7, 1);
+        border-bottom: 1px solid rgba(255, 193, 7, 1);
+    }
     /* Visual Editor Styles */
     .chart-item {
         background: #fff;
@@ -122,6 +177,9 @@
         <div class="card-header d-flex justify-content-between align-items-center">
             <h5 class="mb-0">محتوای تمپلیت</h5>
             <div>
+                <button type="button" class="btn btn-sm btn-secondary" onclick="toggleSearch()" id="searchToggleBtn">
+                    <i class="bi bi-search"></i> جستجو
+                </button>
                 <button type="button" class="btn btn-sm btn-info" onclick="previewTemplate()">
                     <i class="bi bi-eye"></i> پیش‌نمایش
                 </button>
@@ -132,6 +190,41 @@
         </div>
         <div class="card-body">
             <form id="templateForm">
+                <!-- Search Box -->
+                <div class="search-box-container" id="searchBox">
+                    <div class="search-controls">
+                        <div class="search-input-group">
+                            <input type="text" 
+                                   id="searchInput" 
+                                   class="form-control form-control-sm" 
+                                   placeholder="جستجو در کد..."
+                                   autocomplete="off">
+                            <button type="button" class="btn btn-sm btn-primary" onclick="doSearch()">
+                                <i class="bi bi-search"></i>
+                            </button>
+                            <button type="button" class="btn btn-sm btn-secondary" onclick="findNext()">
+                                <i class="bi bi-arrow-down"></i> بعدی
+                            </button>
+                            <button type="button" class="btn btn-sm btn-secondary" onclick="findPrevious()">
+                                <i class="bi bi-arrow-up"></i> قبلی
+                            </button>
+                            <button type="button" class="btn btn-sm btn-outline-secondary" onclick="clearSearch()">
+                                <i class="bi bi-x"></i>
+                            </button>
+                        </div>
+                        <div class="search-options">
+                            <label>
+                                <input type="checkbox" id="caseSensitive" onchange="doSearch()">
+                                حساس به حروف بزرگ/کوچک
+                            </label>
+                            <label>
+                                <input type="checkbox" id="useRegex" onchange="doSearch()">
+                                استفاده از Regex
+                            </label>
+                        </div>
+                    </div>
+                    <div class="search-results" id="searchResults"></div>
+                </div>
                 <div class="mb-3">
                     <textarea id="templateContent" name="content">{{ content }}</textarea>
                 </div>
@@ -190,6 +283,11 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/mode/xml/xml.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/mode/javascript/javascript.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/mode/css/css.min.js"></script>
+<!-- CodeMirror Search Addon -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/addon/search/search.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/addon/search/searchcursor.min.js"></script>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/addon/dialog/dialog.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/addon/dialog/dialog.min.js"></script>
 <!-- SortableJS for Drag & Drop -->
 <script src="https://cdn.jsdelivr.net/npm/sortablejs@latest/Sortable.min.js"></script>
 <!-- Chart.js for preview -->
@@ -208,7 +306,356 @@
         matchTags: true,
         autoCloseBrackets: true,
         foldGutter: true,
-        gutters: ["CodeMirror-linenumbers", "CodeMirror-foldgutter"]
+        gutters: ["CodeMirror-linenumbers", "CodeMirror-foldgutter"],
+        extraKeys: {
+            "Ctrl-F": function(cm) {
+                toggleSearch();
+                setTimeout(() => document.getElementById('searchInput').focus(), 100);
+            },
+            "F3": function(cm) {
+                findNext();
+            },
+            "Shift-F3": function(cm) {
+                findPrevious();
+            }
+        }
+    });
+
+    // Search functionality
+    let searchState = {
+        query: null,
+        cursor: null,
+        matches: [],
+        currentMatchIndex: -1
+    };
+
+    function toggleSearch() {
+        const searchBox = document.getElementById('searchBox');
+        const isActive = searchBox.classList.contains('active');
+        
+        if (isActive) {
+            searchBox.classList.remove('active');
+            clearSearch();
+        } else {
+            searchBox.classList.add('active');
+            setTimeout(() => document.getElementById('searchInput').focus(), 100);
+        }
+    }
+
+    function doSearch() {
+        const query = document.getElementById('searchInput').value;
+        if (!query) {
+            clearSearch();
+            return;
+        }
+
+        const caseSensitive = document.getElementById('caseSensitive').checked;
+        const useRegex = document.getElementById('useRegex').checked;
+
+        searchState.query = query;
+        
+        // Clear previous search
+        editor.operation(function() {
+            for (let i = 0; i < searchState.matches.length; i++) {
+                const match = searchState.matches[i];
+                if (match.line !== undefined) {
+                    editor.removeLineClass(match.line, "background", "CodeMirror-search-match");
+                    editor.removeLineClass(match.line, "background", "CodeMirror-search-match-selected");
+                }
+            }
+        });
+
+        searchState.matches = [];
+        searchState.currentMatchIndex = -1;
+        
+        if (!useRegex) {
+            // Simple text search
+            try {
+                const searchCursor = editor.getSearchCursor(
+                    query, 
+                    {line: 0, ch: 0}, 
+                    !caseSensitive
+                );
+                
+                let matchCount = 0;
+                while (searchCursor.findNext()) {
+                    matchCount++;
+                    const from = searchCursor.from();
+                    const to = searchCursor.to();
+                    
+                    // Store match info
+                    searchState.matches.push({
+                        from: from,
+                        to: to,
+                        line: from.line
+                    });
+                    
+                    // Mark the line
+                    editor.addLineClass(from.line, "background", "CodeMirror-search-match");
+                    
+                    // Set cursor to first match
+                    if (matchCount === 1) {
+                        editor.setCursor(from);
+                        editor.scrollIntoView(from, 100);
+                        searchState.currentMatchIndex = 0;
+                        highlightCurrentMatch(0);
+                    }
+                }
+                
+                updateSearchResults(matchCount);
+                
+                if (matchCount > 0) {
+                    searchState.cursor = editor.getSearchCursor(
+                        query,
+                        editor.getCursor(),
+                        !caseSensitive
+                    );
+                }
+            } catch (e) {
+                updateSearchResults(0, 'خطا در جستجو: ' + e.message);
+            }
+        } else {
+            // Regex search
+            try {
+                const flags = caseSensitive ? 'g' : 'gi';
+                const regex = new RegExp(query, flags);
+                
+                let matchCount = 0;
+                const doc = editor.getDoc();
+                
+                for (let i = 0; i <= editor.lastLine(); i++) {
+                    const line = editor.getLine(i);
+                    const matches = line.match(regex);
+                    if (matches) {
+                        matchCount += matches.length;
+                        editor.addLineClass(i, "background", "CodeMirror-search-match");
+                        searchState.matches.push({
+                            line: i,
+                            matches: matches
+                        });
+                    }
+                }
+                
+                updateSearchResults(matchCount);
+                
+                if (matchCount > 0) {
+                    // Move to first match
+                    const firstMatch = searchState.matches[0];
+                    if (firstMatch.line !== undefined) {
+                        editor.setCursor({line: firstMatch.line, ch: 0});
+                        editor.scrollIntoView({line: firstMatch.line, ch: 0}, 100);
+                        searchState.currentMatchIndex = 0;
+                        highlightCurrentMatch(0);
+                    }
+                }
+            } catch (e) {
+                updateSearchResults(0, 'خطا در الگوی Regex: ' + e.message);
+            }
+        }
+    }
+
+    function findNext() {
+        if (!searchState.query) {
+            doSearch();
+            return;
+        }
+
+        if (searchState.matches.length === 0) {
+            doSearch();
+            return;
+        }
+
+        const caseSensitive = document.getElementById('caseSensitive').checked;
+        const useRegex = document.getElementById('useRegex').checked;
+
+        if (!useRegex && searchState.matches.length > 0) {
+            // Use SearchCursor for non-regex
+            if (!searchState.cursor) {
+                searchState.cursor = editor.getSearchCursor(
+                    searchState.query,
+                    editor.getCursor(),
+                    !caseSensitive
+                );
+            }
+
+            if (searchState.cursor.findNext()) {
+                const from = searchState.cursor.from();
+                editor.setCursor(from);
+                editor.scrollIntoView(from, 100);
+                
+                // Find match index
+                const matchIndex = searchState.matches.findIndex(m => 
+                    m.from && m.from.line === from.line && m.from.ch === from.ch
+                );
+                if (matchIndex >= 0) {
+                    searchState.currentMatchIndex = matchIndex;
+                    highlightCurrentMatch(matchIndex);
+                }
+            } else {
+                // Wrap around to start
+                searchState.cursor = editor.getSearchCursor(
+                    searchState.query,
+                    {line: 0, ch: 0},
+                    !caseSensitive
+                );
+                if (searchState.cursor.findNext()) {
+                    const from = searchState.cursor.from();
+                    editor.setCursor(from);
+                    editor.scrollIntoView(from, 100);
+                    searchState.currentMatchIndex = 0;
+                    highlightCurrentMatch(0);
+                }
+            }
+        } else {
+            // Regex or simple line-based navigation
+            searchState.currentMatchIndex = (searchState.currentMatchIndex + 1) % searchState.matches.length;
+            const match = searchState.matches[searchState.currentMatchIndex];
+            if (match.line !== undefined) {
+                editor.setCursor({line: match.line, ch: 0});
+                editor.scrollIntoView({line: match.line, ch: 0}, 100);
+                highlightCurrentMatch(searchState.currentMatchIndex);
+            }
+        }
+    }
+
+    function findPrevious() {
+        if (!searchState.query) {
+            doSearch();
+            return;
+        }
+
+        if (searchState.matches.length === 0) {
+            doSearch();
+            return;
+        }
+
+        const caseSensitive = document.getElementById('caseSensitive').checked;
+        const useRegex = document.getElementById('useRegex').checked;
+
+        if (!useRegex && searchState.matches.length > 0) {
+            // Use SearchCursor for non-regex
+            if (!searchState.cursor) {
+                const cursor = editor.getCursor();
+                searchState.cursor = editor.getSearchCursor(
+                    searchState.query,
+                    {line: cursor.line, ch: cursor.ch - 1},
+                    !caseSensitive
+                );
+            }
+
+            if (searchState.cursor.findPrevious()) {
+                const from = searchState.cursor.from();
+                editor.setCursor(from);
+                editor.scrollIntoView(from, 100);
+                
+                // Find match index
+                const matchIndex = searchState.matches.findIndex(m => 
+                    m.from && m.from.line === from.line && m.from.ch === from.ch
+                );
+                if (matchIndex >= 0) {
+                    searchState.currentMatchIndex = matchIndex;
+                    highlightCurrentMatch(matchIndex);
+                }
+            } else {
+                // Wrap around to end
+                const lastLine = editor.lastLine();
+                searchState.cursor = editor.getSearchCursor(
+                    searchState.query,
+                    {line: lastLine, ch: editor.getLine(lastLine).length},
+                    !caseSensitive
+                );
+                if (searchState.cursor.findPrevious()) {
+                    const from = searchState.cursor.from();
+                    editor.setCursor(from);
+                    editor.scrollIntoView(from, 100);
+                    searchState.currentMatchIndex = searchState.matches.length - 1;
+                    highlightCurrentMatch(searchState.currentMatchIndex);
+                }
+            }
+        } else {
+            // Regex or simple line-based navigation
+            searchState.currentMatchIndex = (searchState.currentMatchIndex - 1 + searchState.matches.length) % searchState.matches.length;
+            const match = searchState.matches[searchState.currentMatchIndex];
+            if (match.line !== undefined) {
+                editor.setCursor({line: match.line, ch: 0});
+                editor.scrollIntoView({line: match.line, ch: 0}, 100);
+                highlightCurrentMatch(searchState.currentMatchIndex);
+            }
+        }
+    }
+
+    function highlightCurrentMatch(index) {
+        // Remove previous highlight
+        editor.operation(function() {
+            for (let i = 0; i < searchState.matches.length; i++) {
+                const match = searchState.matches[i];
+                if (match.line !== undefined) {
+                    editor.removeLineClass(match.line, "background", "CodeMirror-search-match-selected");
+                }
+            }
+        });
+        
+        // Add highlight to current match
+        if (index >= 0 && index < searchState.matches.length) {
+            const match = searchState.matches[index];
+            if (match.line !== undefined) {
+                editor.addLineClass(match.line, "background", "CodeMirror-search-match-selected");
+            }
+        }
+        
+        // Update results text
+        if (searchState.matches.length > 0) {
+            const resultsDiv = document.getElementById('searchResults');
+            resultsDiv.innerHTML = '<span class="text-success">' + 
+                searchState.matches.length + ' مورد یافت شد - مورد ' + 
+                (index + 1) + ' از ' + searchState.matches.length + '</span>';
+        }
+    }
+
+    function clearSearch() {
+        searchState.query = null;
+        searchState.cursor = null;
+        searchState.currentMatchIndex = -1;
+        
+        editor.operation(function() {
+            for (let i = 0; i < searchState.matches.length; i++) {
+                const match = searchState.matches[i];
+                if (match.line !== undefined) {
+                    editor.removeLineClass(match.line, "background", "CodeMirror-search-match");
+                    editor.removeLineClass(match.line, "background", "CodeMirror-search-match-selected");
+                }
+            }
+        });
+        
+        searchState.matches = [];
+        document.getElementById('searchInput').value = '';
+        document.getElementById('searchResults').textContent = '';
+    }
+
+    function updateSearchResults(count, error = null) {
+        const resultsDiv = document.getElementById('searchResults');
+        if (error) {
+            resultsDiv.innerHTML = '<span class="text-danger">' + error + '</span>';
+        } else if (count > 0) {
+            resultsDiv.innerHTML = '<span class="text-success">' + count + ' مورد یافت شد</span>';
+        } else {
+            resultsDiv.innerHTML = '<span class="text-muted">موردی یافت نشد</span>';
+        }
+    }
+
+    // Search on Enter key
+    document.getElementById('searchInput').addEventListener('keydown', function(e) {
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            if (e.shiftKey) {
+                findPrevious();
+            } else {
+                findNext();
+            }
+        } else if (e.key === 'Escape') {
+            clearSearch();
+            toggleSearch();
+        }
     });
 
     function saveTemplate() {

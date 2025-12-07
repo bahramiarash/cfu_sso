@@ -138,6 +138,26 @@ def apply_chart_configs_to_html(template_path: Path, chart_configs: list) -> boo
                             content = content[:absolute_pos] + new_value + content[absolute_pos + len(old_value):]
                             logger.debug(f"Updated datalabels display for {chart_id} to {new_value}")
         
+        # 5. Update display_order by reordering chart divs in HTML
+        # NOTE: HTML reordering is DISABLED to prevent duplication issues
+        # The display_order is saved in the database and used for:
+        # - Admin panel visual editor display order (drag & drop)
+        # - Future: Template rendering can use display_order to render charts in correct order
+        #
+        # Reordering HTML divs programmatically is error-prone and can cause:
+        # - Duplication of chart divs
+        # - Breaking HTML structure
+        # - Loss of comments or other content
+        #
+        # For now, we rely on:
+        # 1. Database display_order for admin panel ordering
+        # 2. Manual HTML editing if order needs to change in template
+        # 3. Future: Template-level ordering using display_order from database
+        #
+        # The display_order is still saved to the database and will be used when rendering
+        # charts in the admin panel and potentially in user-facing dashboards.
+        logger.debug("Skipping HTML reordering - display_order saved in database only")
+        
         # Only write if content changed
         if content != original_content:
             # Write updated content back to file
@@ -1909,9 +1929,37 @@ def dashboard_template_charts(template_name):
         import re
         charts = []
         
-        # Find all canvas elements with id
+        # Find all canvas elements with id (excluding those in HTML comments)
         canvas_pattern = r'<canvas\s+id=["\']([^"\']+)["\']'
-        canvas_matches = re.findall(canvas_pattern, content)
+        all_canvas_matches = re.findall(canvas_pattern, content, re.IGNORECASE)
+        
+        # Filter out canvas elements that are inside HTML comments
+        canvas_matches = []
+        for chart_id in all_canvas_matches:
+            # Find the canvas element with this id
+            canvas_pattern_full = rf'<canvas[^>]*id=["\']{re.escape(chart_id)}["\'][^>]*>'
+            canvas_match = re.search(canvas_pattern_full, content, re.IGNORECASE)
+            
+            if canvas_match:
+                canvas_start = canvas_match.start()
+                # Check if this canvas is inside an HTML comment
+                # Look backwards from canvas start for <!--
+                before_canvas = content[:canvas_start]
+                last_comment_start = before_canvas.rfind('<!--')
+                
+                if last_comment_start >= 0:
+                    # Found a comment start, check if it's closed before this canvas
+                    # Look for --> between the comment start and canvas
+                    section_between = content[last_comment_start:canvas_start]
+                    if '-->' not in section_between:
+                        # Canvas is inside a comment (<!-- ... canvas ... (no closing --> before canvas))
+                        logger.debug(f"Chart {chart_id} is in HTML comment, skipping")
+                        continue
+            
+            # Canvas found and not in comment, include it
+            canvas_matches.append(chart_id)
+        
+        logger.info(f"Found {len(canvas_matches)} chart IDs in template (excluding commented ones): {canvas_matches}")
         
         # Find chart titles from HTML structure
         for chart_id in canvas_matches:
@@ -1981,26 +2029,55 @@ def dashboard_template_charts(template_name):
             chart_type = 'line'  # default
             sample_labels = []
             sample_datasets = []
+            chart_config = None  # Will be used to store Chart.js config for reuse
             
+            # FIRST: Extract chart type from JavaScript BEFORE extracting data
+            # This is important because chart type affects how data is formatted
             if canvas_pos > 0:
-                # Look for Chart.js configuration after the canvas
-                after_canvas = content[canvas_pos:canvas_pos + 5000]  # Look 5000 chars ahead
+                # Look for Chart.js configuration - search in a wider range
+                # Search from before canvas to after canvas to find the Chart initialization
+                search_start = max(0, canvas_pos - 500)  # Look 500 chars before canvas
+                search_end = min(len(content), canvas_pos + 10000)  # Look 10000 chars after canvas
+                search_content = content[search_start:search_end]
                 
                 # Find the Chart.js initialization for this canvas
-                # Find Chart.js initialization for this canvas
-                # Pattern 1: Look for getElementById with chart_id, then find the Chart initialization after it
+                # Pattern 1: Look for getElementById with chart_id
                 get_element_pattern = rf'getElementById\s*\(["\']?{re.escape(chart_id)}["\']?\)'
-                get_element_match = re.search(get_element_pattern, after_canvas, re.IGNORECASE)
+                get_element_match = re.search(get_element_pattern, search_content, re.IGNORECASE)
                 
-                chart_config = None
+                # Pattern 2: Also try to find ctx variable assignment (e.g., const ctxsex = ...)
+                ctx_pattern = rf'(?:const|let|var)\s+\w*ctx\w*\s*=\s*document\.getElementById\s*\(["\']?{re.escape(chart_id)}["\']?\)'
+                ctx_match = re.search(ctx_pattern, search_content, re.IGNORECASE)
+                
+                # Use whichever pattern matches
+                if ctx_match:
+                    get_element_match = ctx_match
+                    logger.debug(f"Found ctx variable for {chart_id}")
+                elif get_element_match:
+                    logger.debug(f"Found getElementById for {chart_id}")
+                
                 if get_element_match:
-                    # Get content after getElementById call (should contain Chart initialization)
-                    chart_section_start = get_element_match.end()
-                    chart_section = after_canvas[chart_section_start:chart_section_start + 2000]  # Look 2000 chars ahead
+                    # Get content after getElementById/ctx call (should contain Chart initialization)
+                    # Adjust position relative to original content
+                    match_pos_in_search = get_element_match.end()
+                    chart_section_start = search_start + match_pos_in_search
+                    chart_section_end = min(len(content), chart_section_start + 5000)  # Look 5000 chars ahead
+                    chart_section = content[chart_section_start:chart_section_end]
                     
                     # Find Chart initialization after getElementById
-                    # Look for: new Chart(ctx, { type: '...', data: {...}, options: {...} })
-                    chart_init_match = re.search(r'new\s+Chart\s*\([^)]*ctx[^)]*,\s*\{', chart_section, re.IGNORECASE | re.DOTALL)
+                    # Look for: new Chart(ctxsex, { or new Chart(ctx, { or similar patterns
+                    chart_init_patterns = [
+                        r'new\s+Chart\s*\(\s*\w*ctx\w*\s*,\s*\{',  # new Chart(ctx, { or new Chart(ctxsex, {
+                        r'new\s+Chart\s*\([^,]+,\s*\{',  # new Chart(anything, {
+                        r'const\s+\w+Chart\s*=\s*new\s+Chart\s*\([^,]+,\s*\{',  # const sexChart = new Chart(...)
+                    ]
+                    chart_init_match = None
+                    for pattern in chart_init_patterns:
+                        chart_init_match = re.search(pattern, chart_section, re.IGNORECASE | re.DOTALL)
+                        if chart_init_match:
+                            logger.debug(f"Found Chart initialization for {chart_id} using pattern: {pattern}")
+                            break
+                    
                     if chart_init_match:
                         # Get the full Chart configuration (from new Chart to closing brace)
                         chart_start = chart_init_match.start()
@@ -2028,14 +2105,246 @@ def dashboard_template_charts(template_name):
                         if chart_end > chart_start:
                             chart_config = chart_section[chart_start:chart_end]
                 
+                # Extract type from chart_config
                 if chart_config:
-                    
-                    # Extract type
                     type_pattern = r"type:\s*['\"]([^'\"]+)['\"]"
                     type_match = re.search(type_pattern, chart_config, re.IGNORECASE)
                     if type_match:
                         chart_type = type_match.group(1).lower()
+                        logger.info(f"Extracted chart type '{chart_type}' for {chart_id} from JavaScript")
+                    else:
+                        logger.warning(f"Could not find 'type' in chart_config for {chart_id}. Config preview: {chart_config[:200]}")
+                else:
+                    logger.warning(f"Could not find chart_config for {chart_id}. canvas_pos={canvas_pos}")
+            
+            # SECOND: Try to get actual data directly from dashboard_data
+            # This is a general approach that works for all dashboards
+            if dashboard_data:
+                # Try to extract variable names from HTML/JS and match them with dashboard_data
+                # Look for Jinja variables in the HTML around this canvas
+                if canvas_pos > 0:
+                    # Get context around canvas (before and after)
+                    context_start = max(0, canvas_pos - 1000)
+                    context_end = min(len(content), canvas_pos + 2000)
+                    chart_context = content[context_start:context_end]
                     
+                    # Find all Jinja variables in this context ({{ variable|tojson }})
+                    jinja_vars = re.findall(r'\{\{\s*([^|}\s]+)', chart_context)
+                    
+                    # Try to match these variables with dashboard_data keys
+                    for var_name in jinja_vars:
+                        var_name = var_name.strip()
+                        if not var_name:
+                            continue
+                        
+                        # Pattern 1: Direct match
+                        if var_name in dashboard_data:
+                            data_obj = dashboard_data[var_name]
+                            if isinstance(data_obj, dict):
+                                if 'labels' in data_obj and not sample_labels:
+                                    sample_labels = data_obj['labels']
+                                if 'counts' in data_obj and not sample_datasets:
+                                    counts = data_obj['counts']
+                                    if counts:
+                                        if chart_type in ['pie', 'doughnut']:
+                                            colors = ['#36A2EB', '#FF6384', '#FFCE56', '#4BC0C0', '#9966FF', '#FF9F40', '#C9CBCF']
+                                            sample_datasets = [{
+                                                'data': counts,
+                                                'backgroundColor': colors[:len(counts)]
+                                            }]
+                                        else:
+                                            sample_datasets = [{
+                                                'label': 'تعداد',
+                                                'data': counts,
+                                                'backgroundColor': 'rgba(54, 162, 235, 0.2)',
+                                                'borderColor': 'rgba(54, 162, 235, 1)',
+                                                'borderWidth': 1
+                                            }]
+                            elif isinstance(data_obj, list) and not sample_labels:
+                                sample_labels = data_obj
+                        
+                        # Pattern 2: var_name_labels -> var_name_data['labels']
+                        # Example: sex_labels -> sex_data['labels']
+                        elif var_name.endswith('_labels'):
+                            base = var_name.replace('_labels', '')
+                            # Try exact match first: sex_labels -> sex_data
+                            data_key = f'{base}_data'
+                            if data_key in dashboard_data and isinstance(dashboard_data[data_key], dict):
+                                if 'labels' in dashboard_data[data_key] and not sample_labels:
+                                    sample_labels = dashboard_data[data_key]['labels']
+                                    logger.info(f"Found labels for {chart_id} from {data_key}: {len(sample_labels)} labels")
+                            else:
+                                # Try partial match
+                                for key in dashboard_data.keys():
+                                    if key.startswith(base) and isinstance(dashboard_data[key], dict):
+                                        if 'labels' in dashboard_data[key] and not sample_labels:
+                                            sample_labels = dashboard_data[key]['labels']
+                                            logger.info(f"Found labels for {chart_id} from {key}: {len(sample_labels)} labels")
+                                            break
+                        
+                        # Pattern 3: var_name_counts -> var_name_data['counts']
+                        # Example: sex_counts -> sex_data['counts']
+                        elif var_name.endswith('_counts'):
+                            base = var_name.replace('_counts', '')
+                            # Try exact match first: sex_counts -> sex_data
+                            data_key = f'{base}_data'
+                            if data_key in dashboard_data and isinstance(dashboard_data[data_key], dict):
+                                if 'counts' in dashboard_data[data_key] and not sample_datasets:
+                                    counts = dashboard_data[data_key]['counts']
+                                    if counts:
+                                        if chart_type in ['pie', 'doughnut']:
+                                            colors = ['#36A2EB', '#FF6384', '#FFCE56', '#4BC0C0', '#9966FF', '#FF9F40', '#C9CBCF']
+                                            sample_datasets = [{
+                                                'data': counts,
+                                                'backgroundColor': colors[:len(counts)]
+                                            }]
+                                        else:
+                                            sample_datasets = [{
+                                                'label': 'تعداد',
+                                                'data': counts,
+                                                'backgroundColor': 'rgba(54, 162, 235, 0.2)',
+                                                'borderColor': 'rgba(54, 162, 235, 1)',
+                                                'borderWidth': 1
+                                            }]
+                                        logger.info(f"Found counts for {chart_id} from {data_key}: {len(counts)} values, chart_type={chart_type}")
+                            else:
+                                # Try partial match
+                                for key in dashboard_data.keys():
+                                    if key.startswith(base) and isinstance(dashboard_data[key], dict):
+                                        if 'counts' in dashboard_data[key] and not sample_datasets:
+                                            counts = dashboard_data[key]['counts']
+                                            if counts:
+                                                if chart_type in ['pie', 'doughnut']:
+                                                    colors = ['#36A2EB', '#FF6384', '#FFCE56', '#4BC0C0', '#9966FF', '#FF9F40', '#C9CBCF']
+                                                    sample_datasets = [{
+                                                        'data': counts,
+                                                        'backgroundColor': colors[:len(counts)]
+                                                    }]
+                                                else:
+                                                    sample_datasets = [{
+                                                        'label': 'تعداد',
+                                                        'data': counts,
+                                                        'backgroundColor': 'rgba(54, 162, 235, 0.2)',
+                                                        'borderColor': 'rgba(54, 162, 235, 1)',
+                                                        'borderWidth': 1
+                                                    }]
+                                                logger.info(f"Found counts for {chart_id} from {key}: {len(counts)} values, chart_type={chart_type}")
+                                                break
+                    
+                    # Special handling for multi-dataset charts (like markaz with male_counts and female_counts)
+                    # Check if we have both male_counts and female_counts in context
+                    if 'male_counts' in jinja_vars and 'female_counts' in jinja_vars:
+                        # Look for a data key that contains both
+                        for key in dashboard_data.keys():
+                            if isinstance(dashboard_data[key], dict):
+                                if 'male_counts' in dashboard_data[key] and 'female_counts' in dashboard_data[key]:
+                                    markaz_data = dashboard_data[key]
+                                    if 'labels' in markaz_data and not sample_labels:
+                                        sample_labels = markaz_data['labels']
+                                    if not sample_datasets:
+                                        sample_datasets = [
+                                            {
+                                                'label': 'مرد',
+                                                'data': markaz_data['male_counts'],
+                                                'backgroundColor': 'rgba(54, 162, 235, 0.7)',
+                                                'borderColor': 'rgba(54, 162, 235, 1)',
+                                                'borderWidth': 2
+                                            },
+                                            {
+                                                'label': 'زن',
+                                                'data': markaz_data['female_counts'],
+                                                'backgroundColor': 'rgba(255, 99, 132, 0.7)',
+                                                'borderColor': 'rgba(255, 99, 132, 1)',
+                                                'borderWidth': 2
+                                            }
+                                        ]
+                                    break
+                    
+                    # Special handling for nested pie charts (like multiLevelPieChart)
+                    if 'inner_labels' in jinja_vars or 'outer_labels' in jinja_vars:
+                        for key in dashboard_data.keys():
+                            if isinstance(dashboard_data[key], dict):
+                                if 'inner_labels' in dashboard_data[key] and 'outer_labels' in dashboard_data[key]:
+                                    nested_data = dashboard_data[key]
+                                    if 'outer_labels' in nested_data and not sample_labels:
+                                        sample_labels = nested_data['outer_labels']
+                                    if 'outer_data' in nested_data and 'inner_data' in nested_data and not sample_datasets:
+                                        sample_datasets = [
+                                            {
+                                                'label': 'جنسیت در هر نوع استخدام',
+                                                'data': nested_data['outer_data'],
+                                                'backgroundColor': [
+                                                    '#ff6384', '#36a2eb', '#ffcd56', '#4bc0c0', '#9966ff',
+                                                    '#ff9f40', '#c9cbcf', '#84ff63', '#eb36a2', '#9fa8da'
+                                                ],
+                                                'borderWidth': 1
+                                            },
+                                            {
+                                                'label': 'نوع استخدام',
+                                                'data': nested_data['inner_data'],
+                                                'backgroundColor': [
+                                                    '#b71c1c', '#0d47a1', '#33691e', '#e65100', '#4a148c',
+                                                    '#263238', '#827717', '#1b5e20', '#01579b'
+                                                ],
+                                                'borderWidth': 1
+                                            }
+                                        ]
+                                        chart_type = 'doughnut'
+                                    break
+                
+                # If we found actual data, log it
+                if sample_labels or sample_datasets:
+                    logger.info(f"Found actual data for {chart_id}: labels={len(sample_labels) if sample_labels else 0}, datasets={len(sample_datasets) if sample_datasets else 0}")
+            
+            # THIRD: If we still don't have data, try to extract from JavaScript
+            # Reuse chart_config if we already found it above (for type extraction)
+            if (not sample_labels or not sample_datasets) and canvas_pos > 0:
+                # If chart_config was not found in the first step, try to find it now
+                if not chart_config:
+                    # Look for Chart.js configuration after the canvas
+                    after_canvas = content[canvas_pos:canvas_pos + 5000]  # Look 5000 chars ahead
+                    
+                    # Find the Chart.js initialization for this canvas
+                    get_element_pattern = rf'getElementById\s*\(["\']?{re.escape(chart_id)}["\']?\)'
+                    get_element_match = re.search(get_element_pattern, after_canvas, re.IGNORECASE)
+                    
+                    chart_config = None
+                    if get_element_match:
+                        # Get content after getElementById call (should contain Chart initialization)
+                        chart_section_start = get_element_match.end()
+                        chart_section = after_canvas[chart_section_start:chart_section_start + 3000]  # Look 3000 chars ahead
+                        
+                        # Find Chart initialization after getElementById
+                        chart_init_match = re.search(r'new\s+Chart\s*\([^)]*ctx[^)]*,\s*\{', chart_section, re.IGNORECASE | re.DOTALL)
+                        if chart_init_match:
+                            # Get the full Chart configuration (from new Chart to closing brace)
+                            chart_start = chart_init_match.start()
+                            # Find the matching closing brace for the Chart config object
+                            brace_count = 0
+                            chart_end = chart_start
+                            in_string = False
+                            string_char = None
+                            for i, char in enumerate(chart_section[chart_start:], start=chart_start):
+                                if char in ['"', "'"] and (i == chart_start or chart_section[i-1] != '\\'):
+                                    if not in_string:
+                                        in_string = True
+                                        string_char = char
+                                    elif char == string_char:
+                                        in_string = False
+                                        string_char = None
+                                elif not in_string:
+                                    if char == '{':
+                                        brace_count += 1
+                                    elif char == '}':
+                                        brace_count -= 1
+                                        if brace_count == 0:
+                                            chart_end = i + 1
+                                            break
+                            if chart_end > chart_start:
+                                chart_config = chart_section[chart_start:chart_end]
+                
+                if chart_config:
+                    # Note: chart_type was already extracted in the FIRST step above
                     # Extract labels (try to find labels array)
                     labels_patterns = [
                         r"labels:\s*(\[[^\]]+\])",
@@ -2099,98 +2408,99 @@ def dashboard_template_charts(template_name):
                                 sample_labels = ['فروردین', 'اردیبهشت', 'خرداد', 'تیر', 'مرداد']
                             break
                     
-                    # Extract datasets (try to find data array)
-                    data_patterns = [
-                        r"data:\s*(\[[^\]]+\])",
-                        r"data:\s*(\{[^}]+\})",
-                    ]
-                    for pattern in data_patterns:
-                        data_match = re.search(pattern, chart_config, re.IGNORECASE)
-                        if data_match:
-                            try:
-                                data_str = data_match.group(1)
-                                # If it's a Jinja template variable, try to get actual data from dashboard
-                                if '|' in data_str or '{{' in data_str:
-                                    # Extract variable name (e.g., {{ sex_counts|tojson }} -> sex_counts)
-                                    var_match = re.search(r'\{\{\s*([^|}\s]+)', data_str)
-                                    if var_match and dashboard_data:
-                                        var_name = var_match.group(1).strip()
-                                        # Try to get actual data from dashboard_data
-                                        # Pattern 1: Direct match (e.g., sex_counts in dashboard_data)
-                                        if var_name in dashboard_data:
-                                            actual_data = dashboard_data[var_name]
-                                            if isinstance(actual_data, list):
-                                                # Determine colors based on chart type
-                                                if chart_type in ['pie', 'doughnut']:
-                                                    colors = ['#36A2EB', '#FF6384', '#FFCE56', '#4BC0C0', '#9966FF', '#FF9F40', '#C9CBCF']
-                                                    sample_datasets = [{
-                                                        'data': actual_data,
-                                                        'backgroundColor': colors[:len(actual_data)]
-                                                    }]
-                                                else:
-                                                    sample_datasets = [{
-                                                        'data': actual_data,
-                                                        'backgroundColor': 'rgba(54, 162, 235, 0.2)',
-                                                        'borderColor': 'rgba(54, 162, 235, 1)'
-                                                    }]
-                                        # Pattern 2: sex_counts -> sex_data['counts'] (common pattern)
-                                        # In dashboard_data, we have sex_data, not sex_counts
-                                        elif var_name.endswith('_counts') and dashboard_data:
-                                            base_name = var_name.replace('_counts', '')
-                                            # Try sex_data, sexData, etc.
-                                            for data_key in [f'{base_name}_data', f'{base_name}Data', f'{base_name}']:
-                                                if data_key in dashboard_data and isinstance(dashboard_data[data_key], dict):
-                                                    counts = dashboard_data[data_key].get('counts', [])
-                                                    if counts:
-                                                        if chart_type in ['pie', 'doughnut']:
-                                                            colors = ['#36A2EB', '#FF6384', '#FFCE56', '#4BC0C0', '#9966FF', '#FF9F40', '#C9CBCF']
-                                                            sample_datasets = [{
-                                                                'data': counts,
-                                                                'backgroundColor': colors[:len(counts)]
-                                                            }]
-                                                        else:
-                                                            sample_datasets = [{
-                                                                'data': counts,
-                                                                'backgroundColor': 'rgba(54, 162, 235, 0.2)',
-                                                                'borderColor': 'rgba(54, 162, 235, 1)'
-                                                            }]
-                                                        break
-                                        # Pattern 3: If var_name is like 'sex_counts', check for 'sex_data' in dashboard_data
-                                        if not sample_datasets and var_name.endswith('_counts'):
-                                            base = var_name.replace('_counts', '')
-                                            # Check for base_data (e.g., sex_data) in dashboard_data
-                                            for key in dashboard_data.keys():
-                                                if key.startswith(base) and isinstance(dashboard_data[key], dict):
-                                                    counts = dashboard_data[key].get('counts', [])
-                                                    if counts:
-                                                        if chart_type in ['pie', 'doughnut']:
-                                                            colors = ['#36A2EB', '#FF6384', '#FFCE56', '#4BC0C0', '#9966FF', '#FF9F40', '#C9CBCF']
-                                                            sample_datasets = [{
-                                                                'data': counts,
-                                                                'backgroundColor': colors[:len(counts)]
-                                                            }]
-                                                        else:
-                                                            sample_datasets = [{
-                                                                'data': counts,
-                                                                'backgroundColor': 'rgba(54, 162, 235, 0.2)',
-                                                                'borderColor': 'rgba(54, 162, 235, 1)'
-                                                            }]
-                                                        break
-                                    # Fallback to sample if no actual data found
-                                    if not sample_datasets:
-                                        if chart_type in ['pie', 'doughnut']:
-                                            sample_datasets = [{'data': [330, 649], 'backgroundColor': ['#36A2EB', '#FF6384']}]
-                                        else:
-                                            sample_datasets = [{'data': [12, 19, 3, 5, 2], 'backgroundColor': 'rgba(54, 162, 235, 0.2)'}]
-                                else:
-                                    import json
-                                    data = json.loads(data_str)
-                                    if isinstance(data, list):
-                                        sample_datasets = [{'data': data}]
-                            except Exception as e:
-                                logger.warning(f"Error extracting data for {chart_id}: {e}")
-                                pass
-                            break
+                    # Extract datasets (try to find data array) - only if we don't have actual data yet
+                    if not sample_datasets:
+                        data_patterns = [
+                            r"data:\s*(\[[^\]]+\])",
+                            r"data:\s*(\{[^}]+\})",
+                        ]
+                        for pattern in data_patterns:
+                            data_match = re.search(pattern, chart_config, re.IGNORECASE)
+                            if data_match:
+                                try:
+                                    data_str = data_match.group(1)
+                                    # If it's a Jinja template variable, try to get actual data from dashboard
+                                    if '|' in data_str or '{{' in data_str:
+                                        # Extract variable name (e.g., {{ sex_counts|tojson }} -> sex_counts)
+                                        var_match = re.search(r'\{\{\s*([^|}\s]+)', data_str)
+                                        if var_match and dashboard_data:
+                                            var_name = var_match.group(1).strip()
+                                            # Try to get actual data from dashboard_data
+                                            # Pattern 1: Direct match (e.g., sex_counts in dashboard_data)
+                                            if var_name in dashboard_data:
+                                                actual_data = dashboard_data[var_name]
+                                                if isinstance(actual_data, list):
+                                                    # Determine colors based on chart type
+                                                    if chart_type in ['pie', 'doughnut']:
+                                                        colors = ['#36A2EB', '#FF6384', '#FFCE56', '#4BC0C0', '#9966FF', '#FF9F40', '#C9CBCF']
+                                                        sample_datasets = [{
+                                                            'data': actual_data,
+                                                            'backgroundColor': colors[:len(actual_data)]
+                                                        }]
+                                                    else:
+                                                        sample_datasets = [{
+                                                            'data': actual_data,
+                                                            'backgroundColor': 'rgba(54, 162, 235, 0.2)',
+                                                            'borderColor': 'rgba(54, 162, 235, 1)'
+                                                        }]
+                                            # Pattern 2: sex_counts -> sex_data['counts'] (common pattern)
+                                            # In dashboard_data, we have sex_data, not sex_counts
+                                            elif var_name.endswith('_counts') and dashboard_data:
+                                                base_name = var_name.replace('_counts', '')
+                                                # Try sex_data, sexData, etc.
+                                                for data_key in [f'{base_name}_data', f'{base_name}Data', f'{base_name}']:
+                                                    if data_key in dashboard_data and isinstance(dashboard_data[data_key], dict):
+                                                        counts = dashboard_data[data_key].get('counts', [])
+                                                        if counts:
+                                                            if chart_type in ['pie', 'doughnut']:
+                                                                colors = ['#36A2EB', '#FF6384', '#FFCE56', '#4BC0C0', '#9966FF', '#FF9F40', '#C9CBCF']
+                                                                sample_datasets = [{
+                                                                    'data': counts,
+                                                                    'backgroundColor': colors[:len(counts)]
+                                                                }]
+                                                            else:
+                                                                sample_datasets = [{
+                                                                    'data': counts,
+                                                                    'backgroundColor': 'rgba(54, 162, 235, 0.2)',
+                                                                    'borderColor': 'rgba(54, 162, 235, 1)'
+                                                                }]
+                                                            break
+                                            # Pattern 3: If var_name is like 'sex_counts', check for 'sex_data' in dashboard_data
+                                            if not sample_datasets and var_name.endswith('_counts'):
+                                                base = var_name.replace('_counts', '')
+                                                # Check for base_data (e.g., sex_data) in dashboard_data
+                                                for key in dashboard_data.keys():
+                                                    if key.startswith(base) and isinstance(dashboard_data[key], dict):
+                                                        counts = dashboard_data[key].get('counts', [])
+                                                        if counts:
+                                                            if chart_type in ['pie', 'doughnut']:
+                                                                colors = ['#36A2EB', '#FF6384', '#FFCE56', '#4BC0C0', '#9966FF', '#FF9F40', '#C9CBCF']
+                                                                sample_datasets = [{
+                                                                    'data': counts,
+                                                                    'backgroundColor': colors[:len(counts)]
+                                                                }]
+                                                            else:
+                                                                sample_datasets = [{
+                                                                    'data': counts,
+                                                                    'backgroundColor': 'rgba(54, 162, 235, 0.2)',
+                                                                    'borderColor': 'rgba(54, 162, 235, 1)'
+                                                                }]
+                                                            break
+                                        # Fallback to sample if no actual data found
+                                        if not sample_datasets:
+                                            if chart_type in ['pie', 'doughnut']:
+                                                sample_datasets = [{'data': [330, 649], 'backgroundColor': ['#36A2EB', '#FF6384']}]
+                                            else:
+                                                sample_datasets = [{'data': [12, 19, 3, 5, 2], 'backgroundColor': 'rgba(54, 162, 235, 0.2)'}]
+                                    else:
+                                        import json
+                                        data = json.loads(data_str)
+                                        if isinstance(data, list):
+                                            sample_datasets = [{'data': data}]
+                                except Exception as e:
+                                    logger.warning(f"Error extracting data for {chart_id}: {e}")
+                                    pass
+                                break
             
             # If no sample data extracted, use defaults based on chart type
             if not sample_labels:
@@ -2206,51 +2516,54 @@ def dashboard_template_charts(template_name):
                 else:
                     sample_datasets = [{'data': [12, 19, 3, 5, 2], 'backgroundColor': 'rgba(54, 162, 235, 0.2)', 'borderColor': 'rgba(54, 162, 235, 1)'}]
             
-            # Get existing config from database
-            try:
-                config = ChartConfig.query.filter_by(
-                    template_name=template_name,
-                    chart_id=chart_id
-                ).first()
-            except Exception as db_error:
-                logger.warning(f"Error querying ChartConfig (table may not exist): {db_error}")
-                config = None
+            # Extract chart settings from HTML (not from database)
+            # Read settings directly from HTML/JavaScript in the template
+            show_labels = True  # default
+            show_legend = True  # default
+            allow_export = True  # default
+            is_visible = True  # default
             
-            if config:
-                config_dict = config.to_dict()
-                # Use saved title from database - only use extracted HTML title if DB title is missing or same as chart_id
-                if not config_dict.get('title') or config_dict.get('title') == chart_id:
-                    config_dict['title'] = title
-                # Use saved chart_type from database - only update if DB type is default (line) and we found a different type
-                if config_dict.get('chart_type') == 'line' and chart_type != 'line':
-                    config_dict['chart_type'] = chart_type
-                # Ensure display_order is present
-                if config_dict.get('display_order') is None:
-                    config_dict['display_order'] = len(charts)
-                # Add sample data if not present
-                if not config_dict.get('chart_options') or 'sample_labels' not in config_dict.get('chart_options', {}):
-                    if not config_dict.get('chart_options'):
-                        config_dict['chart_options'] = {}
-                    config_dict['chart_options']['sample_labels'] = sample_labels
-                    config_dict['chart_options']['sample_datasets'] = sample_datasets
-                charts.append(config_dict)
-            else:
-                # Create default config - use extracted type if found
-                charts.append({
-                    'id': None,
-                    'template_name': template_name,
-                    'chart_id': chart_id,
-                    'title': title,
-                    'display_order': len(charts),
-                    'chart_type': chart_type,  # Use extracted type instead of default 'line'
-                    'show_labels': True,
-                    'show_legend': True,
-                    'allow_export': True,
-                    'chart_options': {
-                        'sample_labels': sample_labels,
-                        'sample_datasets': sample_datasets
-                    }
-                })
+            # Try to extract these settings from HTML/JavaScript
+            if canvas_pos > 0:
+                after_canvas = content[canvas_pos:canvas_pos + 5000]
+                
+                # Extract show_labels (datalabels.display)
+                datalabels_pattern = r'datalabels\s*:\s*\{[^}]*display\s*:\s*(true|false)'
+                datalabels_match = re.search(datalabels_pattern, after_canvas, re.IGNORECASE | re.DOTALL)
+                if datalabels_match:
+                    show_labels = datalabels_match.group(1).lower() == 'true'
+                
+                # Extract show_legend (legend.display)
+                legend_pattern = r'legend\s*:\s*\{[^}]*display\s*:\s*(true|false)'
+                legend_match = re.search(legend_pattern, after_canvas, re.IGNORECASE | re.DOTALL)
+                if legend_match:
+                    show_legend = legend_match.group(1).lower() == 'true'
+            
+            # Determine display_order from HTML position (order of appearance in HTML)
+            # Charts are already in order of appearance in HTML (canvas_matches)
+            display_order = len(charts)
+            
+            # Check if chart is visible (not in commented section)
+            # We already filtered out commented charts, so all found charts are visible
+            is_visible = True
+            
+            # Create config dict from HTML (not from database)
+            charts.append({
+                'id': None,
+                'template_name': template_name,
+                'chart_id': chart_id,
+                'title': title,  # From HTML
+                'display_order': display_order,  # Based on HTML order
+                'chart_type': chart_type,  # Extracted from HTML/JS
+                'show_labels': show_labels,  # Extracted from HTML/JS
+                'show_legend': show_legend,  # Extracted from HTML/JS
+                'allow_export': allow_export,  # Default
+                'is_visible': is_visible,  # True (already filtered commented charts)
+                'chart_options': {
+                    'sample_labels': sample_labels,
+                    'sample_datasets': sample_datasets
+                }
+            })
         
         # Sort by display_order
         charts.sort(key=lambda x: x.get('display_order', 0))
@@ -2454,15 +2767,40 @@ def dashboard_template_charts_save(template_name):
         
         # Apply chart configurations to HTML file
         html_updated = False
+        updated_html_content = None
         try:
             html_updated = apply_chart_configs_to_html(template_path, saved_charts)
             if html_updated:
                 logger.info(f"HTML template {template_name} updated with chart configurations")
+                # Read the updated HTML content to ensure it matches what's saved
+                with open(template_path, 'r', encoding='utf-8') as f:
+                    updated_html_content = f.read()
             else:
                 logger.warning(f"Could not update HTML template {template_name} with chart configurations")
         except Exception as html_error:
             logger.error(f"Error updating HTML template: {html_error}", exc_info=True)
             # Continue even if HTML update fails - database save was successful
+        
+        # Update TemplateVersion with the final HTML content if it was updated
+        # This ensures the version in database matches the actual HTML file
+        if html_updated and updated_html_content and next_version:
+            try:
+                # Find the version we just created
+                version = TemplateVersion.query.filter_by(
+                    template_name=template_name,
+                    version_number=next_version
+                ).first()
+                
+                if version:
+                    # Update with the final HTML content (after apply_chart_configs_to_html)
+                    version.template_content = updated_html_content
+                    # Also update chart_configs with the saved charts
+                    version.chart_configs = saved_charts
+                    db.session.commit()
+                    logger.info(f"Updated template version {next_version} with final HTML content for {template_name}")
+            except Exception as version_update_error:
+                logger.warning(f"Error updating template version with final HTML: {version_update_error}")
+                # Don't fail the operation if version update fails
         
         # Prepare success message
         if next_version:

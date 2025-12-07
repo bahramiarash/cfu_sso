@@ -38,6 +38,7 @@ class DashboardConfig:
     _province_mappings = None
     
     # Zone mappings for LMS
+    # ترتیب: 1. مجموعه زون‌ها (مجموع همه)، 2-12. مناطق (11 منطقه)
     ZONES = {
         "Zone1": "تهران، شهرستانهای تهران و البرز",
         "Zone2": "گیلان، مازندران و گلستان",
@@ -51,6 +52,10 @@ class DashboardConfig:
         "Zone10": "بوشهر و خوزستان",
         "Zone11": "سامانه جلسات"
     }
+    
+    # لیست مناطق برای نمودارها (بدون مجموعه زون‌ها)
+    ZONE_ORDER = ["Zone1", "Zone2", "Zone3", "Zone4", "Zone5", "Zone6", 
+                  "Zone7", "Zone8", "Zone9", "Zone10", "Zone11"]
     
     HOSTNAMES = {
         "Zone1": "lms1",

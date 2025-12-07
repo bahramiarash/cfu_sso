@@ -2,6 +2,44 @@
 
 {% block title %}مدیریت دسترسی داشبوردها{% endblock %}
 
+{% block extra_css %}
+<style>
+    #user_dropdown {
+        position: absolute;
+        top: 100%;
+        left: 0;
+        right: 0;
+        z-index: 1000;
+        margin-top: 2px;
+        border: 1px solid #dee2e6;
+        border-radius: 0.375rem;
+        box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.15);
+    }
+    
+    #user_dropdown .dropdown-item {
+        padding: 0.5rem 1rem;
+        cursor: pointer;
+        border: none;
+        background: none;
+        width: 100%;
+        text-align: right;
+    }
+    
+    #user_dropdown .dropdown-item:hover {
+        background-color: #f8f9fa;
+    }
+    
+    #user_dropdown .dropdown-item:focus {
+        background-color: #e9ecef;
+        outline: none;
+    }
+    
+    .position-relative {
+        position: relative;
+    }
+</style>
+{% endblock %}
+
 {% block content %}
 <div class="container-fluid">
     <div class="d-flex justify-content-between align-items-center mb-4">
@@ -11,38 +49,156 @@
         </a>
     </div>
 
-    <div class="card">
+    <!-- Filters Card -->
+    <div class="card mb-4">
+        <div class="card-header bg-light">
+            <h5 class="mb-0"><i class="bi bi-funnel"></i> فیلترها</h5>
+        </div>
         <div class="card-body">
+            <form method="GET" action="{{ url_for('admin.dashboard_access_list') }}" class="row g-3">
+                <div class="col-md-5">
+                    <label for="dashboard_id" class="form-label">فیلتر بر اساس داشبورد</label>
+                    <select name="dashboard_id" id="dashboard_id" class="form-select">
+                        <option value="">همه داشبوردها</option>
+                        {% for dashboard_id in unique_dashboard_ids %}
+                            {% set config = dashboard_configs.get(dashboard_id) %}
+                            <option value="{{ dashboard_id }}" {% if current_dashboard_filter == dashboard_id %}selected{% endif %}>
+                                {{ config.title if config else dashboard_id }}
+                            </option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-md-5">
+                    <label for="user_search" class="form-label">فیلتر بر اساس کاربر</label>
+                    <div class="position-relative">
+                        <input type="text" 
+                               id="user_search" 
+                               class="form-control" 
+                               placeholder="جستجو یا انتخاب کاربر..."
+                               autocomplete="off"
+                               data-current-user-id="{{ current_user_filter }}">
+                        <div id="user_dropdown" class="dropdown-menu w-100" style="max-height: 300px; overflow-y: auto; display: none;">
+                            <button type="button" class="dropdown-item" data-user-id="" onclick="selectUser('', 'همه کاربران')">
+                                همه کاربران
+                            </button>
+                            {% for user in users %}
+                            <button type="button" class="dropdown-item" data-user-id="{{ user.id }}" onclick="selectUser({{ user.id }}, {{ (user.name + ' (' + user.sso_id + ')')|tojson }})">
+                                <strong>{{ user.name }}</strong> <span class="text-muted">({{ user.sso_id }})</span>
+                            </button>
+                            {% endfor %}
+                        </div>
+                    </div>
+                    <input type="hidden" name="user_id" id="user_id" value="{{ current_user_filter }}">
+                    <small class="form-text text-muted">شروع به تایپ کنید تا لیست کاربران فیلتر شود</small>
+                </div>
+                <div class="col-md-2 d-flex align-items-end">
+                    <button type="submit" class="btn btn-primary w-100">
+                        <i class="bi bi-search"></i> اعمال فیلتر
+                    </button>
+                </div>
+                {% if current_dashboard_filter or current_user_filter %}
+                <div class="col-12">
+                    <a href="{{ url_for('admin.dashboard_access_list') }}" class="btn btn-sm btn-outline-secondary">
+                        <i class="bi bi-x-circle"></i> پاک کردن فیلترها
+                    </a>
+                </div>
+                {% endif %}
+            </form>
+        </div>
+    </div>
+
+    <!-- Results Card -->
+    <div class="card">
+        <div class="card-header bg-primary text-white">
+            <h5 class="mb-0">
+                <i class="bi bi-list-ul"></i> لیست دسترسی‌ها
+                <span class="badge bg-light text-dark ms-2">{{ accesses.total }} مورد</span>
+            </h5>
+        </div>
+        <div class="card-body">
+            {% if accesses.items %}
             <div class="table-responsive">
-                <table class="table table-hover">
-                    <thead>
+                <table class="table table-hover table-striped">
+                    <thead class="table-light">
                         <tr>
-                            <th>ID</th>
                             <th>کاربر</th>
                             <th>داشبورد</th>
-                            <th>دسترسی</th>
-                            <th>محدودیت‌ها</th>
+                            <th>وضعیت دسترسی</th>
+                            <th>محدودیت‌های فیلتر</th>
+                            <th>محدودیت زمانی</th>
                             <th>عملیات</th>
                         </tr>
                     </thead>
                     <tbody>
                         {% for access in accesses.items %}
                         <tr>
-                            <td>{{ access.id }}</td>
-                            <td>{{ access.user.name if access.user else 'نامشخص' }}</td>
-                            <td><code>{{ access.dashboard_id }}</code></td>
+                            <td>
+                                <div class="d-flex align-items-center">
+                                    <i class="bi bi-person-circle me-2 text-primary"></i>
+                                    <div>
+                                        <strong>{{ access.user.name if access.user else 'نامشخص' }}</strong>
+                                        {% if access.user %}
+                                        <br><small class="text-muted">{{ access.user.sso_id }}</small>
+                                        {% endif %}
+                                    </div>
+                                </div>
+                            </td>
+                            <td>
+                                {% set config = dashboard_configs.get(access.dashboard_id) %}
+                                <div class="d-flex align-items-center">
+                                    <i class="bi bi-grid me-2 text-info"></i>
+                                    <div>
+                                        <strong>{{ config.title if config else access.dashboard_id }}</strong>
+                                        {% if config %}
+                                        <br><small class="text-muted"><code>{{ access.dashboard_id }}</code></small>
+                                        {% endif %}
+                                    </div>
+                                </div>
+                            </td>
                             <td>
                                 {% if access.can_access %}
-                                    <span class="badge bg-success">دسترسی دارد</span>
+                                    <span class="badge bg-success">
+                                        <i class="bi bi-check-circle"></i> دسترسی دارد
+                                    </span>
                                 {% else %}
-                                    <span class="badge bg-danger">دسترسی ندارد</span>
+                                    <span class="badge bg-danger">
+                                        <i class="bi bi-x-circle"></i> دسترسی ندارد
+                                    </span>
                                 {% endif %}
                             </td>
                             <td>
                                 {% if access.filter_restrictions %}
-                                    <small>{{ access.filter_restrictions }}</small>
+                                    {% if access.filter_restrictions.province_codes or access.filter_restrictions.university_codes or access.filter_restrictions.faculty_codes %}
+                                        <div class="small">
+                                            {% if access.filter_restrictions.province_codes %}
+                                                <span class="badge bg-info me-1">استان: {{ access.filter_restrictions.province_codes|length }}</span>
+                                            {% endif %}
+                                            {% if access.filter_restrictions.university_codes %}
+                                                <span class="badge bg-info me-1">دانشگاه: {{ access.filter_restrictions.university_codes|length }}</span>
+                                            {% endif %}
+                                            {% if access.filter_restrictions.faculty_codes %}
+                                                <span class="badge bg-info me-1">دانشکده: {{ access.filter_restrictions.faculty_codes|length }}</span>
+                                            {% endif %}
+                                        </div>
+                                    {% else %}
+                                        <span class="text-muted">-</span>
+                                    {% endif %}
                                 {% else %}
-                                    <span class="text-muted">-</span>
+                                    <span class="text-muted">بدون محدودیت</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% if access.date_from or access.date_to %}
+                                    <div class="small">
+                                        {% if access.date_from %}
+                                            <div><i class="bi bi-calendar-event"></i> از: {{ access.date_from.strftime('%Y/%m/%d') if access.date_from else '-' }}</div>
+                                        {% endif %}
+                                        {% if access.date_to %}
+                                            <div><i class="bi bi-calendar-check"></i> تا: {{ access.date_to.strftime('%Y/%m/%d') if access.date_to else '-' }}</div>
+                                        {% endif %}
+                                    </div>
+                                {% else %}
+                                    <span class="text-muted">بدون محدودیت</span>
                                 {% endif %}
                             </td>
                             <td>
@@ -55,14 +211,23 @@
                     </tbody>
                 </table>
             </div>
+            {% else %}
+            <div class="alert alert-info text-center">
+                <i class="bi bi-info-circle"></i> هیچ دسترسی‌ای یافت نشد.
+            </div>
+            {% endif %}
 
             <!-- Pagination -->
             {% if accesses.pages > 1 %}
-            <nav>
-                <ul class="pagination justify-content-center">
+            <nav aria-label="صفحه‌بندی">
+                <ul class="pagination justify-content-center mt-4">
+                    {% set query_params = request.args.copy() %}
                     {% if accesses.has_prev %}
                     <li class="page-item">
-                        <a class="page-link" href="?page={{ accesses.prev_num }}">قبلی</a>
+                        {% set _ = query_params.update({'page': accesses.prev_num}) %}
+                        <a class="page-link" href="?{{ query_params.urlencode() }}">
+                            <i class="bi bi-chevron-right"></i> قبلی
+                        </a>
                     </li>
                     {% endif %}
                     {% for page_num in accesses.iter_pages() %}
@@ -73,7 +238,8 @@
                             </li>
                             {% else %}
                             <li class="page-item">
-                                <a class="page-link" href="?page={{ page_num }}">{{ page_num }}</a>
+                                {% set _ = query_params.update({'page': page_num}) %}
+                                <a class="page-link" href="?{{ query_params.urlencode() }}">{{ page_num }}</a>
                             </li>
                             {% endif %}
                         {% else %}
@@ -82,7 +248,10 @@
                     {% endfor %}
                     {% if accesses.has_next %}
                     <li class="page-item">
-                        <a class="page-link" href="?page={{ accesses.next_num }}">بعدی</a>
+                        {% set _ = query_params.update({'page': accesses.next_num}) %}
+                        <a class="page-link" href="?{{ query_params.urlencode() }}">
+                            بعدی <i class="bi bi-chevron-left"></i>
+                        </a>
                     </li>
                     {% endif %}
                 </ul>
@@ -92,4 +261,142 @@
     </div>
 </div>
 {% endblock %}
+
+{% block extra_js %}
+<script>
+(function() {
+    const userSearchInput = document.getElementById('user_search');
+    const userIdHiddenInput = document.getElementById('user_id');
+    const userDropdown = document.getElementById('user_dropdown');
+    const dropdownItems = userDropdown.querySelectorAll('.dropdown-item');
+    
+    // Store all users data
+    const users = [
+        { id: '', name: 'همه کاربران', display: 'همه کاربران' },
+        {% for user in users %}
+        { id: {{ user.id }}, name: {{ user.name|tojson }}, sso_id: {{ user.sso_id|tojson }}, display: {{ (user.name + ' (' + user.sso_id + ')')|tojson }} },
+        {% endfor %}
+    ];
+    
+    // Set initial value if current_user_filter is set
+    {% if current_user_filter %}
+    const currentUserId = {{ current_user_filter }};
+    const currentUser = users.find(u => u.id == currentUserId);
+    if (currentUser) {
+        userSearchInput.value = currentUser.display;
+    }
+    {% endif %}
+    
+    // Function to select a user
+    window.selectUser = function(userId, displayName) {
+        userSearchInput.value = displayName;
+        userIdHiddenInput.value = userId;
+        userDropdown.style.display = 'none';
+    };
+    
+    // Filter dropdown items based on search
+    function filterDropdown(searchTerm) {
+        const term = searchTerm.toLowerCase().trim();
+        let hasVisibleItems = false;
+        
+        dropdownItems.forEach(item => {
+            const text = item.textContent.toLowerCase();
+            const isVisible = !term || text.includes(term);
+            item.style.display = isVisible ? '' : 'none';
+            if (isVisible) hasVisibleItems = true;
+        });
+        
+        // Show/hide dropdown
+        if (term && hasVisibleItems) {
+            userDropdown.style.display = 'block';
+        } else if (!term) {
+            userDropdown.style.display = 'block';
+        } else {
+            userDropdown.style.display = 'none';
+        }
+    }
+    
+    // Handle input - show dropdown and filter
+    userSearchInput.addEventListener('input', function() {
+        const searchValue = this.value;
+        filterDropdown(searchValue);
+        
+        // Try to find exact match
+        const exactMatch = users.find(u => 
+            u.display.toLowerCase() === searchValue.toLowerCase() ||
+            (u.name && u.name.toLowerCase() === searchValue.toLowerCase())
+        );
+        
+        if (exactMatch) {
+            userIdHiddenInput.value = exactMatch.id;
+        } else {
+            // Try partial match
+            const partialMatch = users.find(u => 
+                u.display.toLowerCase().includes(searchValue.toLowerCase()) ||
+                (u.name && u.name.toLowerCase().includes(searchValue.toLowerCase())) ||
+                (u.sso_id && u.sso_id.toLowerCase().includes(searchValue.toLowerCase()))
+            );
+            
+            if (partialMatch && searchValue.length > 0) {
+                userIdHiddenInput.value = partialMatch.id;
+            } else if (searchValue === '') {
+                userIdHiddenInput.value = '';
+            }
+        }
+    });
+    
+    // Show dropdown on focus
+    userSearchInput.addEventListener('focus', function() {
+        if (this.value.trim() === '') {
+            userDropdown.style.display = 'block';
+        } else {
+            filterDropdown(this.value);
+        }
+    });
+    
+    // Hide dropdown when clicking outside
+    document.addEventListener('click', function(e) {
+        const isClickInside = userSearchInput.contains(e.target) || 
+                             userDropdown.contains(e.target) ||
+                             (e.target.closest && e.target.closest('.position-relative') === userSearchInput.parentElement);
+        
+        if (!isClickInside) {
+            userDropdown.style.display = 'none';
+        }
+    });
+    
+    // Handle keyboard navigation
+    userSearchInput.addEventListener('keydown', function(e) {
+        const visibleItems = Array.from(dropdownItems).filter(item => 
+            item.style.display !== 'none'
+        );
+        
+        if (e.key === 'ArrowDown') {
+            e.preventDefault();
+            if (visibleItems.length > 0) {
+                visibleItems[0].focus();
+            }
+        }
+    });
+    
+    // Handle Enter key - select first visible item
+    userSearchInput.addEventListener('keydown', function(e) {
+        if (e.key === 'Enter' && userDropdown.style.display === 'block') {
+            const visibleItems = Array.from(dropdownItems).filter(item => 
+                item.style.display !== 'none'
+            );
+            
+            if (visibleItems.length > 0) {
+                e.preventDefault();
+                const firstItem = visibleItems[0];
+                const userId = firstItem.getAttribute('data-user-id');
+                const displayName = firstItem.textContent.trim();
+                selectUser(userId, displayName);
+            }
+        }
+    });
+})();
+</script>
+{% endblock %}
+
 
