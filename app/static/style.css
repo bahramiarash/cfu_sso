@@ -138,10 +138,10 @@ table:not(.bd-table)  tbody tr td{
   border-radius: 5px;  
 }
 table:not(.bd-table)  tbody tr:nth-child(odd) {
-      background-color: #f68377c2; /* رنگ برای ردیف‌های فرد */
+      /* background-color removed */
   }
 table:not(.bd-table)  tbody tr:nth-child(even) {
-      background-color: #FBDB93; /* رنگ برای ردیف‌های زوج (اختیاری) */
+      /* background-color removed */
   }
 
 

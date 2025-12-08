@@ -30,6 +30,7 @@ def migrate():
                 title VARCHAR(500),
                 display_order INTEGER NOT NULL DEFAULT 0,
                 chart_type VARCHAR(50) NOT NULL DEFAULT 'line',
+                is_visible BOOLEAN NOT NULL DEFAULT 1,
                 show_labels BOOLEAN NOT NULL DEFAULT 1,
                 show_legend BOOLEAN NOT NULL DEFAULT 1,
                 allow_export BOOLEAN NOT NULL DEFAULT 1,

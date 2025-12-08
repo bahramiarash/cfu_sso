@@ -1,0 +1,29 @@
+warning: in the working copy of 'app/admin/routes.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'app/admin_models.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'app/app.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'app/dashboard.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'app/dashboards/visualizations/maps.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'app/static/style.css', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'app/templates/admin/dashboards/template_edit.html', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'app/templates/dashboards/d2.html', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'app/templates/dashboards/students_dashboard.html', LF will be replaced by CRLF the next time Git touches it
+ app/admin/routes.py                                | 3737 [32m++++++++++++++++++[m[31m--[m
+ app/admin_models.py                                |    4 [32m+[m
+ app/app.py                                         |   12 [32m+[m[31m-[m
+ app/dashboard.py                                   |  182 [32m+[m[31m-[m
+ app/dashboards/visualizations/maps.py              |   46 [32m+[m[31m-[m
+ app/migrations/create_chart_configs_table.py       |    1 [32m+[m
+ app/static/style.css                               |    4 [32m+[m[31m-[m
+ app/templates/admin/dashboards/template_edit.html  | 1293 [32m++++++[m[31m-[m
+ app/templates/dashboards/d1.html                   |  254 [32m+[m[31m-[m
+ app/templates/dashboards/d2.html                   | 1296 [32m++++[m[31m---[m
+ app/templates/dashboards/dashboards/_filters.html  |   65 [31m-[m
+ app/templates/dashboards/dashboards/d1.html        |  976 [31m-----[m
+ app/templates/dashboards/dashboards/d2.html        |   22 [31m-[m
+ app/templates/dashboards/dashboards/d3.html        |  132 [31m-[m
+ app/templates/dashboards/dashboards/d7.html        |   67 [31m-[m
+ app/templates/dashboards/dashboards/d8.html        |  428 [31m---[m
+ app/templates/dashboards/dashboards/d8_2.html      |  177 [31m-[m
+ .../dashboards/dashboards/students_dashboard.html  | 1200 [31m-------[m
+ app/templates/dashboards/students_dashboard.html   | 1820 [32m+++++[m[31m-----[m
+ 19 files changed, 6272 insertions(+), 5444 deletions(-)

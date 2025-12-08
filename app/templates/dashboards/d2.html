@@ -1,144 +1,427 @@
-<!DOCTYPE html>
-<html lang="fa" dir="rtl">
-<head>
-    <meta charset="UTF-8">
-    <title>نقشه توزیع جنسیتی اعضای هیئت علمی</title>
-    <meta name="viewport" content="width=device-width, initial-scale=1"> <!-- ✅ Required for responsiveness -->
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.rtl.min.css">
-    <link rel="stylesheet" href="https://cdn.datatables.net/1.13.7/css/dataTables.bootstrap5.min.css">
-    <style>
-        .province-tooltip {
-            position: absolute;
-            background-color: rgba(0, 0, 0, 0.9);
-            color: white;
-            padding: 12px 16px;
-            border-radius: 8px;
-            font-size: 14px;
-            pointer-events: none;
-            z-index: 1000;
-            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
-            min-width: 200px;
-            direction: rtl;
-            text-align: right;
-        }
-        .province-tooltip table {
-            color: white;
-            margin: 0;
-            width: 100%;
-        }
-        .province-tooltip th {
-            padding: 4px 8px;
-            text-align: right;
-            font-weight: bold;
-            border-bottom: 1px solid rgba(255, 255, 255, 0.3);
-        }
-        .province-tooltip td {
-            padding: 4px 8px;
-            text-align: right;
-        }
-        .province-tooltip .tooltip-title {
-            font-weight: bold;
-            font-size: 16px;
-            margin-bottom: 8px;
-            padding-bottom: 8px;
-            border-bottom: 2px solid rgba(255, 255, 255, 0.5);
-        }
-        #facultyTableControls {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            flex-wrap: wrap;
-            gap: 10px;
-            margin-bottom: 10px;
-        }
-        #facultyTableControls .dataTables_length,
-        #facultyTableControls .dataTables_filter {
-            margin: 0;
-        }
-        #facultyTableControls .dataTables_length label,
-        #facultyTableControls .dataTables_filter label {
-            margin: 0;
-            display: flex;
-            align-items: center;
-            gap: 5px;
-        }
-    </style>
-</head>
-<body class="bg-light">
-    <div class="container py-2">
-        <h2 class="text-center mb-2">توزیع جنسیتی اعضای هیئت علمی به تفکیک استان</h2>
-        <div class="card shadow mb-4">
-            <div class="card-body text-center position-relative">
-                <div id="map-container" style="position: relative; display: inline-block; width: 100%;">
-                    <img id="iran-map" src="data:image/png;base64,{{ image_data }}" style="width:100%; cursor: pointer;" usemap="#province-map">
-                    <div id="province-tooltip" class="province-tooltip" style="display: none;"></div>
-                </div>
+{% extends "dashboard_base.html" %}
+
+{% block title %}نقشه توزیع جنسیتی اعضای هیئت علمی{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="https://cdn.datatables.net/1.13.7/css/dataTables.bootstrap5.min.css">
+<style>
+    .province-tooltip {
+        position: absolute;
+        background-color: #000000;
+        color: white;
+        padding: 12px 16px;
+        border-radius: 8px;
+        font-size: 14px;
+        pointer-events: none;
+        z-index: 1000;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+        min-width: 200px;
+        direction: rtl;
+        text-align: right;
+    }
+    .province-tooltip table {
+        color: white;
+        margin: 0;
+        width: 100%;
+        background-color: transparent;
+    }
+    .province-tooltip tr {
+        background-color: transparent;
+    }
+    .province-tooltip th {
+        padding: 4px 8px;
+        text-align: right;
+        font-weight: bold;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.3);
+        background-color: transparent;
+    }
+    .province-tooltip td {
+        padding: 4px 8px;
+        text-align: right;
+        background-color: transparent;
+    }
+    .province-tooltip .tooltip-title {
+        font-weight: bold;
+        font-size: 16px;
+        margin-bottom: 8px;
+        padding-bottom: 8px;
+        border-bottom: 2px solid rgba(255, 255, 255, 0.5);
+    }
+    #facultyTableControls {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        flex-wrap: wrap;
+        gap: 10px;
+        margin-bottom: 10px;
+    }
+    #facultyTableControls .dataTables_length,
+    #facultyTableControls .dataTables_filter {
+        margin: 0;
+    }
+    #facultyTableControls .dataTables_length label,
+    #facultyTableControls .dataTables_filter label {
+        margin: 0;
+        display: flex;
+        align-items: center;
+        gap: 5px;
+    }
+    #map-container {
+        max-width: 100%;
+        height: 95vh;
+        overflow: hidden;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+    #iran-map {
+        max-width: 100%;
+        max-height: 100%;
+        width: auto;
+        height: auto;
+        object-fit: contain;
+    }
+    /* بزرگتر کردن فونت‌های جدول آمار اعضای هیئت علمی */
+    #statistics-table {
+        font-size: 16px;
+    }
+    #statistics-table thead th {
+        font-size: 17px;
+        font-weight: 600;
+        padding: 12px 8px;
+    }
+    #statistics-table tbody td {
+        font-size: 16px;
+        padding: 10px 8px;
+    }
+    #statistics-table tfoot td {
+        font-size: 17px;
+        font-weight: 600;
+        padding: 12px 8px;
+    }
+    #statistics-table .dataTables_wrapper .dataTables_length,
+    #statistics-table .dataTables_wrapper .dataTables_filter,
+    #statistics-table .dataTables_wrapper .dataTables_info,
+    #statistics-table .dataTables_wrapper .dataTables_paginate {
+        font-size: 15px;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container py-2">
+    <h2 class="text-center mb-2">توزیع جنسیتی اعضای هیئت علمی به تفکیک استان</h2>
+    <div class="card shadow mb-4">
+        <div class="card-body text-center position-relative">
+            <div id="map-container" style="position: relative; display: inline-block; width: 100%;">
+                <img id="iran-map" src="data:image/png;base64,{{ image_data }}" style="cursor: pointer;" usemap="#province-map">
+                <div id="province-tooltip" class="province-tooltip" style="display: none;"></div>
             </div>
         </div>
-        
-        <!-- Statistics Table -->
-        <div class="card shadow">
-            <div class="card-header bg-primary text-white">
-                <h4 class="mb-0">جدول آمار اعضای هیئت علمی به تفکیک استان</h4>
+    </div>
+    
+    <!-- Statistics Table -->
+    <div class="card shadow">
+        <div class="card-header bg-primary text-white">
+            <h4 class="mb-0">جدول آمار اعضای هیئت علمی به تفکیک استان</h4>
+        </div>
+        <div class="card-body">
+            <div class="table-responsive">
+                <table id="statistics-table" class="table table-striped table-hover table-bordered">
+                    <thead class="table-dark">
+                        <tr>
+                            <th>ردیف</th>
+                            <th>نام استان</th>
+                            <th>تعداد کل</th>
+                            <th>تعداد زن</th>
+                            <th>تعداد مرد</th>
+                            <th>درصد زن</th>
+                            <th>درصد مرد</th>
+                            <th>درصد از کل کشور</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for row in table_data %}
+                        <tr class="province-row" data-province-code="{{ row.province_code }}" data-province-name="{{ row.province_name }}" style="cursor: pointer;">
+                            <td data-sort="{{ loop.index }}">{{ loop.index }}</td>
+                            <td class="province-name-cell" data-sort="{{ row.province_name }}" style="color: #0d6efd; text-decoration: underline;">{{ row.province_name }}</td>
+                            <td data-sort="{{ row.total }}">{{ "{:,}".format(row.total) }}</td>
+                            <td data-sort="{{ row.female_count }}">{{ "{:,}".format(row.female_count) }}</td>
+                            <td data-sort="{{ row.male_count }}">{{ "{:,}".format(row.male_count) }}</td>
+                            <td data-sort="{{ row.female_percent }}">{{ "%.1f"|format(row.female_percent) }}%</td>
+                            <td data-sort="{{ row.male_percent }}">{{ "%.1f"|format(row.male_percent) }}%</td>
+                            <td data-sort="{{ row.country_percent }}">{{ "%.2f"|format(row.country_percent) }}%</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                    <tfoot class="table-secondary fw-bold">
+                        <tr>
+                            <td colspan="2">جمع کل کشور</td>
+                            <td>{{ "{:,}".format(total_country) }}</td>
+                            <td>{{ "{:,}".format(table_data|sum(attribute='female_count')) }}</td>
+                            <td>{{ "{:,}".format(table_data|sum(attribute='male_count')) }}</td>
+                            <td>{{ "%.1f"|format((table_data|sum(attribute='female_count') / total_country * 100) if total_country > 0 else 0) }}%</td>
+                            <td>{{ "%.1f"|format((table_data|sum(attribute='male_count') / total_country * 100) if total_country > 0 else 0) }}%</td>
+                            <td>100.00%</td>
+                        </tr>
+                    </tfoot>
+                </table>
             </div>
-            <div class="card-body">
+        </div>
+    </div>
+</div>
+
+<!-- Faculty Details Modal -->
+<div class="modal fade" id="facultyModal" tabindex="-1" aria-labelledby="facultyModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-fullscreen modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header py-2">
+                <h5 class="modal-title mb-0" id="facultyModalLabel">لیست اعضای هیئت علمی</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body p-2">
+                <div class="mb-2">
+                    <div class="row g-1 mb-1">
+                        <div class="col-6 col-md-3 col-lg-2">
+                            <input type="text" id="filterName" class="form-control form-control-sm" placeholder="نام...">
+                        </div>
+                        <div class="col-6 col-md-3 col-lg-2">
+                            <input type="text" id="filterFamily" class="form-control form-control-sm" placeholder="نام خانوادگی...">
+                        </div>
+                        <div class="col-6 col-md-3 col-lg-2">
+                            <select id="filterSex" class="form-select form-select-sm">
+                                <option value="">جنسیت - همه</option>
+                            </select>
+                        </div>
+                        <div class="col-6 col-md-3 col-lg-2">
+                            <select id="filterField" class="form-select form-select-sm">
+                                <option value="">رسته تحصیلی - همه</option>
+                            </select>
+                        </div>
+                        <div class="col-6 col-md-3 col-lg-2">
+                            <select id="filterEdugroup" class="form-select form-select-sm">
+                                <option value="">گروه آموزشی - همه</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="row g-1 mb-1">
+                        <div class="col-6 col-md-3 col-lg-3">
+                            <select id="filterMarkaz" class="form-select form-select-sm">
+                                <option value="">مرکز/دانشکده - همه</option>
+                            </select>
+                        </div>
+                        <div class="col-6 col-md-3 col-lg-2">
+                            <select id="filterCity" class="form-select form-select-sm">
+                                <option value="">شهر - همه</option>
+                            </select>
+                        </div>
+                        <div class="col-6 col-md-3 col-lg-2">
+                            <select id="filterMobile" class="form-select form-select-sm">
+                                <option value="">موبایل - همه</option>
+                            </select>
+                        </div>
+                        <div class="col-6 col-md-3 col-lg-2">
+                            <select id="filterEstekhdam" class="form-select form-select-sm">
+                                <option value="">نوع استخدام - همه</option>
+                            </select>
+                        </div>
+                        <div class="col-6 col-md-3 col-lg-1">
+                            <select id="filterEmployState" class="form-select form-select-sm">
+                                <option value="">وضعیت استخدام - همه</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
                 <div class="table-responsive">
-                    <table id="statistics-table" class="table table-striped table-hover table-bordered">
+                    <div id="facultyTableControls" class="d-flex justify-content-between align-items-center mb-2 flex-wrap gap-2">
+                        <button type="button" class="btn btn-sm btn-outline-secondary" onclick="clearFilters()" title="حذف فیلترها">
+                            <i class="bi bi-x-circle"></i> پاک کردن فیلترها
+                        </button>
+                    </div>
+                    <table id="facultyTable" class="table table-striped table-hover table-bordered" style="width:100%">
                         <thead class="table-dark">
                             <tr>
                                 <th>ردیف</th>
-                                <th>نام استان</th>
-                                <th>تعداد کل</th>
-                                <th>تعداد زن</th>
-                                <th>تعداد مرد</th>
-                                <th>درصد زن</th>
-                                <th>درصد مرد</th>
-                                <th>درصد از کل کشور</th>
+                                <th>نام</th>
+                                <th>نام خانوادگی</th>
+                                <th>جنسیت</th>
+                                <th>رسته تحصیلی</th>
+                                <th>کد</th>
+                                <th>گروه آموزشی</th>
+                                <th>مرکز/دانشکده</th>
+                                <th>شهر</th>
+                                <th>نوع استخدام</th>
+                                <th>وضعیت استخدام</th>
+                                <th>موبایل</th>
+                                <th>ایمیل</th>
                             </tr>
                         </thead>
                         <tbody>
-                            {% for row in table_data %}
-                            <tr class="province-row" data-province-code="{{ row.province_code }}" data-province-name="{{ row.province_name }}" style="cursor: pointer;">
-                                <td data-sort="{{ loop.index }}">{{ loop.index }}</td>
-                                <td class="province-name-cell" data-sort="{{ row.province_name }}" style="color: #0d6efd; text-decoration: underline;">{{ row.province_name }}</td>
-                                <td data-sort="{{ row.total }}">{{ "{:,}".format(row.total) }}</td>
-                                <td data-sort="{{ row.female_count }}">{{ "{:,}".format(row.female_count) }}</td>
-                                <td data-sort="{{ row.male_count }}">{{ "{:,}".format(row.male_count) }}</td>
-                                <td data-sort="{{ row.female_percent }}">{{ "%.1f"|format(row.female_percent) }}%</td>
-                                <td data-sort="{{ row.male_percent }}">{{ "%.1f"|format(row.male_percent) }}%</td>
-                                <td data-sort="{{ row.country_percent }}">{{ "%.2f"|format(row.country_percent) }}%</td>
-                            </tr>
-                            {% endfor %}
                         </tbody>
-                        <tfoot class="table-secondary fw-bold">
-                            <tr>
-                                <td colspan="2">جمع کل کشور</td>
-                                <td>{{ "{:,}".format(total_country) }}</td>
-                                <td>{{ "{:,}".format(table_data|sum(attribute='female_count')) }}</td>
-                                <td>{{ "{:,}".format(table_data|sum(attribute='male_count')) }}</td>
-                                <td>{{ "%.1f"|format((table_data|sum(attribute='female_count') / total_country * 100) if total_country > 0 else 0) }}%</td>
-                                <td>{{ "%.1f"|format((table_data|sum(attribute='male_count') / total_country * 100) if total_country > 0 else 0) }}%</td>
-                                <td>100.00%</td>
-                            </tr>
-                        </tfoot>
                     </table>
                 </div>
             </div>
         </div>
     </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="https://cdn.datatables.net/1.13.7/js/jquery.dataTables.min.js"></script>
+<script src="https://cdn.datatables.net/1.13.7/js/dataTables.bootstrap5.min.js"></script>
+
+<script>
+    // Province data from backend
+    var provinceData = {};
+    {% for code, data in province_data_json.items() %}
+    provinceData[{{ code }}] = {
+        name: {{ data.name | tojson }},
+        male: {{ data.male }},
+        female: {{ data.female }},
+        total: {{ data.total }},
+        x: {{ data.x | default(0) }},
+        y: {{ data.y | default(0) }}
+    };
+    {% endfor %}
     
-    <!-- Bootstrap JS Bundle -->
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
-    <!-- jQuery and DataTables JS -->
-    <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
-    <script src="https://cdn.datatables.net/1.13.7/js/jquery.dataTables.min.js"></script>
-    <script src="https://cdn.datatables.net/1.13.7/js/dataTables.bootstrap5.min.js"></script>
-    
-    <script>
-        var statisticsTable = null;
+    // Initialize map tooltip after DOM is ready (using vanilla JS to avoid jQuery dependency)
+    document.addEventListener('DOMContentLoaded', function() {
+        // Tooltip element
+        const tooltip = document.getElementById('province-tooltip');
+        const mapImage = document.getElementById('iran-map');
+        const mapContainer = document.getElementById('map-container');
         
-        // Initialize Statistics Table with DataTables
-        $(document).ready(function() {
+        if (!tooltip || !mapImage || !mapContainer) {
+            console.error('Map elements not found');
+            return;
+        }
+        
+        function showTooltip(event, data, provinceName) {
+            // Calculate percentages (rounded, no decimals)
+            var malePercent = data.total > 0 ? Math.round((data.male / data.total) * 100) : 0;
+            var femalePercent = data.total > 0 ? Math.round((data.female / data.total) * 100) : 0;
+            
+            tooltip.innerHTML = '<div class="tooltip-title">' + provinceName + '</div>' +
+                '<table>' +
+                '<tr><th>جنسیت</th><th>تعداد</th><th>درصد</th></tr>' +
+                '<tr><td>مرد</td><td>' + data.male.toLocaleString('fa-IR') + ' نفر</td><td>' + malePercent + '%</td></tr>' +
+                '<tr><td>زن</td><td>' + data.female.toLocaleString('fa-IR') + ' نفر</td><td>' + femalePercent + '%</td></tr>' +
+                '<tr style="border-top: 1px solid rgba(255,255,255,0.3);">' +
+                '<td><strong>جمع کل</strong></td>' +
+                '<td><strong>' + data.total.toLocaleString('fa-IR') + ' نفر</strong></td>' +
+                '<td><strong>100%</strong></td>' +
+                '</tr></table>';
+            
+            tooltip.style.display = 'block';
+            
+            // Position tooltip near mouse cursor
+            const rect = mapContainer.getBoundingClientRect();
+            let left = event.clientX - rect.left + 15;
+            let top = event.clientY - rect.top - 10;
+            
+            // Keep tooltip within container bounds
+            const tooltipRect = tooltip.getBoundingClientRect();
+            if (left + tooltipRect.width > rect.width) {
+                left = event.clientX - rect.left - tooltipRect.width - 15;
+            }
+            if (top + tooltipRect.height > rect.height) {
+                top = event.clientY - rect.top - tooltipRect.height - 10;
+            }
+            if (top < 0) {
+                top = 10;
+            }
+            
+            tooltip.style.left = left + 'px';
+            tooltip.style.top = top + 'px';
+        }
+        
+        function hideTooltip() {
+            tooltip.style.display = 'none';
+        }
+        
+        // Show tooltip when hovering over map
+        mapImage.addEventListener('mousemove', function(e) {
+            var rect = mapImage.getBoundingClientRect();
+            var x = e.clientX - rect.left;
+            var y = e.clientY - rect.top;
+            
+            // Normalize coordinates (0-1)
+            var relX = x / rect.width;
+            var relY = y / rect.height;
+            
+            // Find nearest province centroid
+            var nearestProvince = null;
+            var minDistance = Infinity;
+            
+            for (var code in provinceData) {
+                var prov = provinceData[code];
+                if (prov.x !== undefined && prov.y !== undefined) {
+                    var dx = relX - prov.x;
+                    var dy = relY - prov.y;
+                    var distance = Math.sqrt(dx * dx + dy * dy);
+                    // Threshold for detection (15% of map size)
+                    if (distance < minDistance && distance < 0.15) {
+                        minDistance = distance;
+                        nearestProvince = {code: code, data: prov};
+                    }
+                }
+            }
+            
+            if (nearestProvince) {
+                showTooltip(e, nearestProvince.data, nearestProvince.data.name);
+            } else {
+                hideTooltip();
+            }
+        });
+        
+        mapImage.addEventListener('mouseleave', function() {
+            hideTooltip();
+        });
+        
+        // Handle click on map to show faculty list
+        mapImage.addEventListener('click', function(e) {
+            var rect = mapImage.getBoundingClientRect();
+            var x = e.clientX - rect.left;
+            var y = e.clientY - rect.top;
+            
+            // Normalize coordinates (0-1)
+            var relX = x / rect.width;
+            var relY = y / rect.height;
+            
+            // Find nearest province centroid
+            var nearestProvince = null;
+            var minDistance = Infinity;
+            
+            for (var code in provinceData) {
+                var prov = provinceData[code];
+                if (prov.x !== undefined && prov.y !== undefined) {
+                    var dx = relX - prov.x;
+                    var dy = relY - prov.y;
+                    var distance = Math.sqrt(dx * dx + dy * dy);
+                    if (distance < minDistance && distance < 0.15) {
+                        minDistance = distance;
+                        nearestProvince = {code: code, data: prov};
+                    }
+                }
+            }
+            
+            if (nearestProvince) {
+                showFacultyModal(parseInt(nearestProvince.code), nearestProvince.data.name);
+            }
+        });
+    });
+    
+    var facultyTable = null;
+    var statisticsTable = null;
+    var currentProvinceCode = null;
+    var currentProvinceName = null;
+    
+    // Initialize Statistics Table with DataTables
+    $(document).ready(function() {
+        // Check if DataTable is already initialized
+        if ($.fn.DataTable.isDataTable('#statistics-table')) {
+            statisticsTable = $('#statistics-table').DataTable();
+        } else {
             statisticsTable = $('#statistics-table').DataTable({
                 language: {
                     url: 'https://cdn.datatables.net/plug-ins/1.13.7/i18n/fa.json'
@@ -158,10 +441,6 @@
                 drawCallback: function() {
                     // Re-attach click event listeners after table redraw
                     $('.province-row').off('click').on('click', function(e) {
-                        // Don't trigger if clicking on sortable header
-                        if ($(e.target).closest('th').length) {
-                            return;
-                        }
                         e.stopPropagation();
                         var row = this;
                         var provinceCode = parseInt($(row).attr('data-province-code'));
@@ -178,575 +457,266 @@
                     });
                 }
             });
-            
-            // Attach initial click event listeners
-            $('.province-row').on('click', function(e) {
-                // Don't trigger if clicking on sortable header
-                if ($(e.target).closest('th').length) {
+        }
+        
+        // Attach initial click event listeners
+        $('.province-row').on('click', function(e) {
+            e.stopPropagation();
+            var row = this;
+            var provinceCode = parseInt($(row).attr('data-province-code'));
+            var provinceName = $(row).attr('data-province-name');
+            showFacultyModal(provinceCode, provinceName);
+        });
+        
+        $('.province-name-cell').on('click', function(e) {
+            e.stopPropagation();
+            var row = this.closest('tr');
+            var provinceCode = parseInt($(row).attr('data-province-code'));
+            var provinceName = $(row).attr('data-province-name');
+            showFacultyModal(provinceCode, provinceName);
+        });
+    });
+    
+    function showFacultyModal(provinceCode, provinceName) {
+        currentProvinceCode = provinceCode;
+        currentProvinceName = provinceName;
+        
+        document.getElementById('facultyModalLabel').textContent = 'لیست اعضای هیئت علمی استان ' + provinceName;
+        
+        // Destroy existing table if it exists
+        if (facultyTable) {
+            facultyTable.destroy();
+            facultyTable = null;
+        }
+        
+        // Clear table body
+        $('#facultyTable tbody').empty();
+        
+        // Clear filters
+        clearFilters();
+        
+        // Show modal
+        var modal = new bootstrap.Modal(document.getElementById('facultyModal'));
+        modal.show();
+        
+        // Load data
+        loadFacultyData(provinceCode);
+    }
+    
+    function loadFacultyData(provinceCode) {
+        // Show loading
+        $('#facultyTable tbody').html('<tr><td colspan="13" class="text-center">در حال بارگذاری...</td></tr>');
+        
+        fetch('/api/dashboards/faculty-by-province/' + provinceCode)
+            .then(function(response) {
+                if (!response.ok) {
+                    throw new Error('خطا در دریافت اطلاعات');
+                }
+                return response.json();
+            })
+            .then(function(data) {
+                if (data.error) {
+                    $('#facultyTable tbody').html('<tr><td colspan="13" class="text-center text-danger">' + data.error + '</td></tr>');
                     return;
                 }
-                e.stopPropagation();
-                var row = this;
-                var provinceCode = parseInt($(row).attr('data-province-code'));
-                var provinceName = $(row).attr('data-province-name');
-                showFacultyModal(provinceCode, provinceName);
-            });
-            
-            $('.province-name-cell').on('click', function(e) {
-                e.stopPropagation();
-                var row = this.closest('tr');
-                var provinceCode = parseInt($(row).attr('data-province-code'));
-                var provinceName = $(row).attr('data-province-name');
-                showFacultyModal(provinceCode, provinceName);
-            });
-        });
-        
-        // Province data from backend
-        var provinceData = {};
-        {% for code, data in province_data_json.items() %}
-        provinceData[{{ code }}] = {
-            name: {{ data.name | tojson }},
-            male: {{ data.male }},
-            female: {{ data.female }},
-            total: {{ data.total }},
-            x: {{ data.x | default(0) }},
-            y: {{ data.y | default(0) }}
-        };
-        {% endfor %}
-        
-        // Initialize map tooltip after DOM is ready (using vanilla JS to avoid jQuery dependency)
-        document.addEventListener('DOMContentLoaded', function() {
-            // Tooltip element
-            const tooltip = document.getElementById('province-tooltip');
-            const mapImage = document.getElementById('iran-map');
-            const mapContainer = document.getElementById('map-container');
-            
-            if (!tooltip || !mapImage || !mapContainer) {
-                console.error('Map elements not found');
-                return;
-            }
-            
-            function showTooltip(event, data, provinceName) {
-                tooltip.innerHTML = '<div class="tooltip-title">' + provinceName + '</div>' +
-                    '<table>' +
-                    '<tr><th>جنسیت</th><th>تعداد</th></tr>' +
-                    '<tr><td>مرد</td><td>' + data.male.toLocaleString('fa-IR') + ' نفر</td></tr>' +
-                    '<tr><td>زن</td><td>' + data.female.toLocaleString('fa-IR') + ' نفر</td></tr>' +
-                    '<tr style="border-top: 1px solid rgba(255,255,255,0.3);">' +
-                    '<td><strong>جمع کل</strong></td>' +
-                    '<td><strong>' + data.total.toLocaleString('fa-IR') + ' نفر</strong></td>' +
-                    '</tr></table>';
                 
-                tooltip.style.display = 'block';
-                
-                // Position tooltip near mouse cursor
-                const rect = mapContainer.getBoundingClientRect();
-                let left = event.clientX - rect.left + 15;
-                let top = event.clientY - rect.top - 10;
-                
-                // Keep tooltip within container bounds
-                const tooltipRect = tooltip.getBoundingClientRect();
-                if (left + tooltipRect.width > rect.width) {
-                    left = event.clientX - rect.left - tooltipRect.width - 15;
-                }
-                if (top + tooltipRect.height > rect.height) {
-                    top = event.clientY - rect.top - tooltipRect.height - 10;
-                }
-                if (top < 0) {
-                    top = 10;
-                }
-                
-                tooltip.style.left = left + 'px';
-                tooltip.style.top = top + 'px';
-            }
-            
-            function hideTooltip() {
-                tooltip.style.display = 'none';
-            }
-            
-            // Tooltip is only shown on map hover, not on table rows
-            
-            // Show tooltip when hovering over map
-            // Find nearest province based on mouse position using centroid coordinates
-            mapImage.addEventListener('mousemove', function(e) {
-                var rect = mapImage.getBoundingClientRect();
-                var x = e.clientX - rect.left;
-                var y = e.clientY - rect.top;
-                
-                // Normalize coordinates (0-1)
-                var relX = x / rect.width;
-                var relY = y / rect.height;
-                
-                // Find nearest province centroid
-                var nearestProvince = null;
-                var minDistance = Infinity;
-                
-                for (var code in provinceData) {
-                    var prov = provinceData[code];
-                    if (prov.x !== undefined && prov.y !== undefined) {
-                        var dx = relX - prov.x;
-                        var dy = relY - prov.y;
-                        var distance = Math.sqrt(dx * dx + dy * dy);
-                        // Threshold for detection (15% of map size)
-                        if (distance < minDistance && distance < 0.15) {
-                            minDistance = distance;
-                            nearestProvince = {code: code, data: prov};
-                        }
-                    }
-                }
-                
-                if (nearestProvince) {
-                    showTooltip(e, nearestProvince.data, nearestProvince.data.name);
-                } else {
-                    hideTooltip();
-                }
-            });
-            
-            mapImage.addEventListener('mouseleave', function() {
-                hideTooltip();
-            });
-            
-            // Handle click on map to show faculty list
-            mapImage.addEventListener('click', function(e) {
-                var rect = mapImage.getBoundingClientRect();
-                var x = e.clientX - rect.left;
-                var y = e.clientY - rect.top;
-                
-                // Normalize coordinates (0-1)
-                var relX = x / rect.width;
-                var relY = y / rect.height;
-                
-                // Find nearest province centroid
-                var nearestProvince = null;
-                var minDistance = Infinity;
-                
-                for (var code in provinceData) {
-                    var prov = provinceData[code];
-                    if (prov.x !== undefined && prov.y !== undefined) {
-                        var dx = relX - prov.x;
-                        var dy = relY - prov.y;
-                        var distance = Math.sqrt(dx * dx + dy * dy);
-                        if (distance < minDistance && distance < 0.15) {
-                            minDistance = distance;
-                            nearestProvince = {code: code, data: prov};
-                        }
-                    }
-                }
-                
-                if (nearestProvince) {
-                    showFacultyModal(parseInt(nearestProvince.code), nearestProvince.data.name);
-                }
-            });
-        });
-    </script>
-    
-    <!-- Faculty Details Modal -->
-    <div class="modal fade" id="facultyModal" tabindex="-1" aria-labelledby="facultyModalLabel" aria-hidden="true">
-        <div class="modal-dialog modal-fullscreen modal-dialog-scrollable">
-            <div class="modal-content">
-                <div class="modal-header py-2">
-                    <h5 class="modal-title mb-0" id="facultyModalLabel">لیست اعضای هیئت علمی</h5>
-                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-                </div>
-                <div class="modal-body p-2">
-                    <div class="mb-2">
-                        <div class="row g-1 mb-1">
-                            <div class="col-6 col-md-3 col-lg-2">
-                                <input type="text" id="filterName" class="form-control form-control-sm" placeholder="نام...">
-                            </div>
-                            <div class="col-6 col-md-3 col-lg-2">
-                                <input type="text" id="filterFamily" class="form-control form-control-sm" placeholder="نام خانوادگی...">
-                            </div>
-                            <div class="col-6 col-md-3 col-lg-2">
-                                <select id="filterSex" class="form-select form-select-sm">
-                                    <option value="">جنسیت - همه</option>
-                                </select>
-                            </div>
-                            <div class="col-6 col-md-3 col-lg-2">
-                                <select id="filterField" class="form-select form-select-sm">
-                                    <option value="">رسته تحصیلی - همه</option>
-                                </select>
-                            </div>
-                            <div class="col-6 col-md-3 col-lg-2">
-                                <select id="filterEdugroup" class="form-select form-select-sm">
-                                    <option value="">گروه آموزشی - همه</option>
-                                </select>
-                            </div>
-                        </div>
-                        <div class="row g-1 mb-1">
-                            <div class="col-6 col-md-3 col-lg-3">
-                                <select id="filterMarkaz" class="form-select form-select-sm">
-                                    <option value="">مرکز/دانشکده - همه</option>
-                                </select>
-                            </div>
-                            <div class="col-6 col-md-3 col-lg-2">
-                                <select id="filterCity" class="form-select form-select-sm">
-                                    <option value="">شهر - همه</option>
-                                </select>
-                            </div>
-                            <div class="col-6 col-md-3 col-lg-2">
-                                <select id="filterMobile" class="form-select form-select-sm">
-                                    <option value="">موبایل - همه</option>
-                                </select>
-                            </div>
-                            <div class="col-6 col-md-3 col-lg-2">
-                                <select id="filterEstekhdam" class="form-select form-select-sm">
-                                    <option value="">نوع استخدام - همه</option>
-                                </select>
-                            </div>
-                            <div class="col-6 col-md-3 col-lg-1">
-                                <select id="filterEmployState" class="form-select form-select-sm">
-                                    <option value="">وضعیت استخدام - همه</option>
-                                </select>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="table-responsive">
-                        <div id="facultyTableControls" class="d-flex justify-content-between align-items-center mb-2 flex-wrap gap-2">
-                            <button type="button" class="btn btn-sm btn-outline-secondary" onclick="clearFilters()" title="حذف فیلترها">
-                                <i class="bi bi-x-circle"></i> پاک کردن فیلترها
-                            </button>
-                        </div>
-                        <table id="facultyTable" class="table table-striped table-hover table-bordered" style="width:100%">
-                            <thead class="table-dark">
-                                <tr>
-                                    <th>ردیف</th>
-                                    <th>نام</th>
-                                    <th>نام خانوادگی</th>
-                                    <th>جنسیت</th>
-                                    <th>رسته تحصیلی</th>
-                                    <th>کد</th>
-                                    <th>گروه آموزشی</th>
-                                    <th>مرکز/دانشکده</th>
-                                    <th>شهر</th>
-                                    <th>نوع استخدام</th>
-                                    <th>وضعیت استخدام</th>
-                                    <th>موبایل</th>
-                                    <th>ایمیل</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </div>
-    
-    <!-- Bootstrap JS Bundle -->
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
-    <!-- jQuery and DataTables JS -->
-    <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
-    <script src="https://cdn.datatables.net/1.13.7/js/jquery.dataTables.min.js"></script>
-    <script src="https://cdn.datatables.net/1.13.7/js/dataTables.bootstrap5.min.js"></script>
-    
-    <script>
-        var facultyTable = null;
-        var statisticsTable = null;
-        var currentProvinceCode = null;
-        var currentProvinceName = null;
-        
-        // Initialize Statistics Table with DataTables
-        $(document).ready(function() {
-            statisticsTable = $('#statistics-table').DataTable({
-                language: {
-                    url: 'https://cdn.datatables.net/plug-ins/1.13.7/i18n/fa.json'
-                },
-                order: [[1, 'asc']], // Sort by province name ascending by default
-                pageLength: 50,
-                columnDefs: [
-                    {
-                        type: 'num',
-                        targets: [0, 2, 3, 4, 5, 6, 7] // Numeric columns: row, total, female, male, percentages
-                    },
-                    {
-                        type: 'string',
-                        targets: [1] // Province name column
-                    }
-                ],
-                drawCallback: function() {
-                    // Re-attach click event listeners after table redraw
-                    $('.province-row').off('click').on('click', function(e) {
-                        e.stopPropagation();
-                        var row = this;
-                        var provinceCode = parseInt($(row).attr('data-province-code'));
-                        var provinceName = $(row).attr('data-province-name');
-                        showFacultyModal(provinceCode, provinceName);
-                    });
-                    
-                    $('.province-name-cell').off('click').on('click', function(e) {
-                        e.stopPropagation();
-                        var row = this.closest('tr');
-                        var provinceCode = parseInt($(row).attr('data-province-code'));
-                        var provinceName = $(row).attr('data-province-name');
-                        showFacultyModal(provinceCode, provinceName);
-                    });
-                }
-            });
-            
-            // Attach initial click event listeners
-            $('.province-row').on('click', function(e) {
-                e.stopPropagation();
-                var row = this;
-                var provinceCode = parseInt($(row).attr('data-province-code'));
-                var provinceName = $(row).attr('data-province-name');
-                showFacultyModal(provinceCode, provinceName);
-            });
-            
-            $('.province-name-cell').on('click', function(e) {
-                e.stopPropagation();
-                var row = this.closest('tr');
-                var provinceCode = parseInt($(row).attr('data-province-code'));
-                var provinceName = $(row).attr('data-province-name');
-                showFacultyModal(provinceCode, provinceName);
-            });
-        });
-        
-        function showFacultyModal(provinceCode, provinceName) {
-            currentProvinceCode = provinceCode;
-            currentProvinceName = provinceName;
-            
-            document.getElementById('facultyModalLabel').textContent = 'لیست اعضای هیئت علمی استان ' + provinceName;
-            
-            // Destroy existing table if it exists
-            if (facultyTable) {
-                facultyTable.destroy();
-                facultyTable = null;
-            }
-            
-            // Clear table body
-            $('#facultyTable tbody').empty();
-            
-            // Clear filters
-            clearFilters();
-            
-            // Show modal
-            var modal = new bootstrap.Modal(document.getElementById('facultyModal'));
-            modal.show();
-            
-            // Load data
-            loadFacultyData(provinceCode);
-        }
-        
-        function loadFacultyData(provinceCode) {
-            // Show loading
-            $('#facultyTable tbody').html('<tr><td colspan="13" class="text-center">در حال بارگذاری...</td></tr>');
-            
-            fetch('/api/dashboards/faculty-by-province/' + provinceCode)
-                .then(function(response) {
-                    if (!response.ok) {
-                        throw new Error('خطا در دریافت اطلاعات');
-                    }
-                    return response.json();
-                })
-                .then(function(data) {
-                    if (data.error) {
-                        $('#facultyTable tbody').html('<tr><td colspan="13" class="text-center text-danger">' + data.error + '</td></tr>');
-                        return;
-                    }
-                    
-                    // Initialize DataTable
-                    facultyTable = $('#facultyTable').DataTable({
-                        data: data.faculty,
-                        columns: [
-                            { data: 'row_num' },
-                            { data: 'name' },
-                            { data: 'family' },
-                            { data: 'sex_label' },
-                            { data: 'field' },
-                            { data: 'code' },
-                            { data: 'edugroup' },
-                            { data: 'markaz' },
-                            { data: 'city' },
-                            { data: 'estekhdamtype_title' },
-                            { data: 'employ_state' },
-                            { 
-                                data: 'mobile',
-                                render: function(data, type, row) {
-                                    if (data) {
-                                        return '<a href="tel:+98' + data + '">' + data + '</a>';
-                                    }
-                                    return '';
+                // Initialize DataTable
+                facultyTable = $('#facultyTable').DataTable({
+                    data: data.faculty,
+                    columns: [
+                        { data: 'row_num' },
+                        { data: 'name' },
+                        { data: 'family' },
+                        { data: 'sex_label' },
+                        { data: 'field' },
+                        { data: 'code' },
+                        { data: 'edugroup' },
+                        { data: 'markaz' },
+                        { data: 'city' },
+                        { data: 'estekhdamtype_title' },
+                        { data: 'employ_state' },
+                        { 
+                            data: 'mobile',
+                            render: function(data, type, row) {
+                                if (data) {
+                                    return '<a href="tel:+98' + data + '">' + data + '</a>';
                                 }
-                            },
-                            { 
-                                data: 'email',
-                                render: function(data, type, row) {
-                                    if (data) {
-                                        return '<a href="mailto:' + data + '">' + data + '</a>';
-                                    }
-                                    return '';
-                                }
+                                return '';
                             }
-                        ],
-                        language: {
-                            url: 'https://cdn.datatables.net/plug-ins/1.13.7/i18n/fa.json'
                         },
-                        order: [[1, 'asc']], // Sort by name
-                        pageLength: 25,
-                        responsive: true,
-                        dom: '<"row"<"col-sm-12 col-md-6"l><"col-sm-12 col-md-6"f>>rtip',
-                        initComplete: function() {
-                            // Move DataTables controls to custom container
-                            var controlsContainer = document.getElementById('facultyTableControls');
-                            var lengthMenu = document.querySelector('#facultyTable_wrapper .dataTables_length');
-                            var searchBox = document.querySelector('#facultyTable_wrapper .dataTables_filter');
-                            
-                            if (lengthMenu && controlsContainer) {
-                                controlsContainer.appendChild(lengthMenu);
-                            }
-                            if (searchBox && controlsContainer) {
-                                controlsContainer.appendChild(searchBox);
-                            }
-                            
-                            // Style the controls container
-                            if (controlsContainer) {
-                                controlsContainer.style.display = 'flex';
-                                controlsContainer.style.justifyContent = 'space-between';
-                                controlsContainer.style.alignItems = 'center';
-                                controlsContainer.style.flexWrap = 'wrap';
-                                controlsContainer.style.gap = '10px';
+                        { 
+                            data: 'email',
+                            render: function(data, type, row) {
+                                if (data) {
+                                    return '<a href="mailto:' + data + '">' + data + '</a>';
+                                }
+                                return '';
                             }
                         }
-                    });
-                    
-                    // Populate dropdown filters with unique values from all data (not filtered)
-                    populateDropdownFilters(data.faculty);
-                    
-                    // Add custom filters
-                    // Name filter - LIKE search
-                    $('#filterName').on('keyup', function() {
-                        var searchValue = this.value;
-                        facultyTable.column(1).search(searchValue, false, false).draw();
-                    });
-                    
-                    // Family filter - LIKE search
-                    $('#filterFamily').on('keyup', function() {
-                        var searchValue = this.value;
-                        facultyTable.column(2).search(searchValue, false, false).draw();
-                    });
-                    
-                    // Dropdown filters - exact match
-                    $('#filterSex').on('change', function() {
-                        facultyTable.column(3).search(this.value).draw();
-                    });
-                    
-                    $('#filterField').on('change', function() {
-                        facultyTable.column(4).search(this.value).draw();
-                    });
-                    
-                    $('#filterEdugroup').on('change', function() {
-                        facultyTable.column(6).search(this.value).draw();
-                    });
-                    
-                    $('#filterMarkaz').on('change', function() {
-                        facultyTable.column(7).search(this.value).draw();
-                    });
-                    
-                    $('#filterCity').on('change', function() {
-                        facultyTable.column(8).search(this.value).draw();
-                    });
-                    
-                    $('#filterEstekhdam').on('change', function() {
-                        facultyTable.column(9).search(this.value).draw();
-                    });
-                    
-                    $('#filterEmployState').on('change', function() {
-                        facultyTable.column(10).search(this.value).draw();
-                    });
-                    
-                    $('#filterMobile').on('change', function() {
-                        facultyTable.column(11).search(this.value).draw();
-                    });
-                })
-                .catch(function(error) {
-                    console.error('Error:', error);
-                    $('#facultyTable tbody').html('<tr><td colspan="13" class="text-center text-danger">خطا در دریافت اطلاعات: ' + error.message + '</td></tr>');
+                    ],
+                    language: {
+                        url: 'https://cdn.datatables.net/plug-ins/1.13.7/i18n/fa.json'
+                    },
+                    order: [[1, 'asc']], // Sort by name
+                    pageLength: 25,
+                    responsive: true,
+                    dom: '<"row"<"col-sm-12 col-md-6"l><"col-sm-12 col-md-6"f>>rtip',
+                    initComplete: function() {
+                        // Move DataTables controls to custom container
+                        var controlsContainer = document.getElementById('facultyTableControls');
+                        var lengthMenu = document.querySelector('#facultyTable_wrapper .dataTables_length');
+                        var searchBox = document.querySelector('#facultyTable_wrapper .dataTables_filter');
+                        
+                        if (lengthMenu && controlsContainer) {
+                            controlsContainer.appendChild(lengthMenu);
+                        }
+                        if (searchBox && controlsContainer) {
+                            controlsContainer.appendChild(searchBox);
+                        }
+                        
+                        // Style the controls container
+                        if (controlsContainer) {
+                            controlsContainer.style.display = 'flex';
+                            controlsContainer.style.justifyContent = 'space-between';
+                            controlsContainer.style.alignItems = 'center';
+                            controlsContainer.style.flexWrap = 'wrap';
+                            controlsContainer.style.gap = '10px';
+                        }
+                    }
                 });
-        }
-        
-        function populateDropdownFilters(allFacultyData) {
-            // Get unique values for each column from all data (not filtered)
-            var uniqueValues = {
-                sex: new Set(),
-                field: new Set(),
-                edugroup: new Set(),
-                markaz: new Set(),
-                city: new Set(),
-                mobile: new Set(),
-                estekhdamtype_title: new Set(),
-                employ_state: new Set()
-            };
-            
-            // Collect unique values
-            allFacultyData.forEach(function(row) {
-                if (row.sex_label) uniqueValues.sex.add(row.sex_label);
-                if (row.field) uniqueValues.field.add(row.field);
-                if (row.edugroup) uniqueValues.edugroup.add(row.edugroup);
-                if (row.markaz) uniqueValues.markaz.add(row.markaz);
-                if (row.city) uniqueValues.city.add(row.city);
-                if (row.mobile) uniqueValues.mobile.add(row.mobile);
-                if (row.estekhdamtype_title) uniqueValues.estekhdamtype_title.add(row.estekhdamtype_title);
-                if (row.employ_state) uniqueValues.employ_state.add(row.employ_state);
+                
+                // Populate dropdown filters with unique values from all data (not filtered)
+                populateDropdownFilters(data.faculty);
+                
+                // Add custom filters
+                $('#filterName').on('keyup', function() {
+                    var searchValue = this.value;
+                    facultyTable.column(1).search(searchValue, false, false).draw();
+                });
+                
+                $('#filterFamily').on('keyup', function() {
+                    var searchValue = this.value;
+                    facultyTable.column(2).search(searchValue, false, false).draw();
+                });
+                
+                $('#filterSex').on('change', function() {
+                    facultyTable.column(3).search(this.value).draw();
+                });
+                
+                $('#filterField').on('change', function() {
+                    facultyTable.column(4).search(this.value).draw();
+                });
+                
+                $('#filterEdugroup').on('change', function() {
+                    facultyTable.column(6).search(this.value).draw();
+                });
+                
+                $('#filterMarkaz').on('change', function() {
+                    facultyTable.column(7).search(this.value).draw();
+                });
+                
+                $('#filterCity').on('change', function() {
+                    facultyTable.column(8).search(this.value).draw();
+                });
+                
+                $('#filterEstekhdam').on('change', function() {
+                    facultyTable.column(9).search(this.value).draw();
+                });
+                
+                $('#filterEmployState').on('change', function() {
+                    facultyTable.column(10).search(this.value).draw();
+                });
+                
+                $('#filterMobile').on('change', function() {
+                    facultyTable.column(11).search(this.value).draw();
+                });
+            })
+            .catch(function(error) {
+                console.error('Error:', error);
+                $('#facultyTable tbody').html('<tr><td colspan="13" class="text-center text-danger">خطا در دریافت اطلاعات: ' + error.message + '</td></tr>');
             });
+    }
+    
+    function populateDropdownFilters(allFacultyData) {
+        // Get unique values for each column from all data (not filtered)
+        var uniqueValues = {
+            sex: new Set(),
+            field: new Set(),
+            edugroup: new Set(),
+            markaz: new Set(),
+            city: new Set(),
+            mobile: new Set(),
+            estekhdamtype_title: new Set(),
+            employ_state: new Set()
+        };
+        
+        // Collect unique values
+        allFacultyData.forEach(function(row) {
+            if (row.sex_label) uniqueValues.sex.add(row.sex_label);
+            if (row.field) uniqueValues.field.add(row.field);
+            if (row.edugroup) uniqueValues.edugroup.add(row.edugroup);
+            if (row.markaz) uniqueValues.markaz.add(row.markaz);
+            if (row.city) uniqueValues.city.add(row.city);
+            if (row.mobile) uniqueValues.mobile.add(row.mobile);
+            if (row.estekhdamtype_title) uniqueValues.estekhdamtype_title.add(row.estekhdamtype_title);
+            if (row.employ_state) uniqueValues.employ_state.add(row.employ_state);
+        });
+        
+        // Populate dropdowns with field labels
+        var fieldLabels = {
+            'filterSex': 'جنسیت',
+            'filterField': 'رسته تحصیلی',
+            'filterEdugroup': 'گروه آموزشی',
+            'filterMarkaz': 'مرکز/دانشکده',
+            'filterCity': 'شهر',
+            'filterMobile': 'موبایل',
+            'filterEstekhdam': 'نوع استخدام',
+            'filterEmployState': 'وضعیت استخدام'
+        };
+        
+        function populateSelect(selectId, values, sortFunc) {
+            var select = $('#' + selectId);
+            var label = fieldLabels[selectId] || 'همه';
+            select.empty();
+            select.append('<option value="">' + label + ' - همه</option>');
             
-            // Populate dropdowns with field labels
-            var fieldLabels = {
-                'filterSex': 'جنسیت',
-                'filterField': 'رسته تحصیلی',
-                'filterEdugroup': 'گروه آموزشی',
-                'filterMarkaz': 'مرکز/دانشکده',
-                'filterCity': 'شهر',
-                'filterMobile': 'موبایل',
-                'filterEstekhdam': 'نوع استخدام',
-                'filterEmployState': 'وضعیت استخدام'
-            };
-            
-            function populateSelect(selectId, values, sortFunc) {
-                var select = $('#' + selectId);
-                var label = fieldLabels[selectId] || 'همه';
-                select.empty();
-                select.append('<option value="">' + label + ' - همه</option>');
-                
-                var sortedValues = Array.from(values).filter(function(v) { return v && v.trim() !== ''; });
-                if (sortFunc) {
-                    sortedValues.sort(sortFunc);
-                } else {
-                    sortedValues.sort();
-                }
-                
-                sortedValues.forEach(function(value) {
-                    select.append('<option value="' + value + '">' + value + '</option>');
-                });
+            var sortedValues = Array.from(values).filter(function(v) { return v && v.trim() !== ''; });
+            if (sortFunc) {
+                sortedValues.sort(sortFunc);
+            } else {
+                sortedValues.sort();
             }
             
-            populateSelect('filterSex', uniqueValues.sex);
-            populateSelect('filterField', uniqueValues.field);
-            populateSelect('filterEdugroup', uniqueValues.edugroup);
-            populateSelect('filterMarkaz', uniqueValues.markaz);
-            populateSelect('filterCity', uniqueValues.city);
-            populateSelect('filterMobile', uniqueValues.mobile);
-            populateSelect('filterEstekhdam', uniqueValues.estekhdamtype_title);
-            populateSelect('filterEmployState', uniqueValues.employ_state);
+            sortedValues.forEach(function(value) {
+                select.append('<option value="' + value + '">' + value + '</option>');
+            });
         }
         
-        function clearFilters() {
-            $('#filterName').val('');
-            $('#filterFamily').val('');
-            $('#filterSex').val('');
-            $('#filterField').val('');
-            $('#filterEdugroup').val('');
-            $('#filterMarkaz').val('');
-            $('#filterCity').val('');
-            $('#filterMobile').val('');
-            $('#filterEstekhdam').val('');
-            $('#filterEmployState').val('');
-            
-            if (facultyTable) {
-                facultyTable.search('').columns().search('').draw();
-            }
+        populateSelect('filterSex', uniqueValues.sex);
+        populateSelect('filterField', uniqueValues.field);
+        populateSelect('filterEdugroup', uniqueValues.edugroup);
+        populateSelect('filterMarkaz', uniqueValues.markaz);
+        populateSelect('filterCity', uniqueValues.city);
+        populateSelect('filterMobile', uniqueValues.mobile);
+        populateSelect('filterEstekhdam', uniqueValues.estekhdamtype_title);
+        populateSelect('filterEmployState', uniqueValues.employ_state);
+    }
+    
+    function clearFilters() {
+        $('#filterName').val('');
+        $('#filterFamily').val('');
+        $('#filterSex').val('');
+        $('#filterField').val('');
+        $('#filterEdugroup').val('');
+        $('#filterMarkaz').val('');
+        $('#filterCity').val('');
+        $('#filterMobile').val('');
+        $('#filterEstekhdam').val('');
+        $('#filterEmployState').val('');
+        
+        if (facultyTable) {
+            facultyTable.search('').columns().search('').draw();
         }
-    </script>
-</body>
-</html>
+    }
+</script>
+{% endblock %}

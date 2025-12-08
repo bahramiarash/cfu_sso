@@ -2,9 +2,15 @@
 Map Visualization Components
 Reusable components for creating geographic maps
 """
+# CRITICAL: Set matplotlib backend BEFORE any other imports that might use matplotlib
+# This prevents tkinter errors when running in non-main threads
+import matplotlib
+matplotlib.use('Agg')
+
 import geopandas as gpd
 import matplotlib.pyplot as plt
 import pandas as pd
+import numpy as np
 from matplotlib.backends.backend_agg import FigureCanvasAgg as FigureCanvas
 from matplotlib.patches import Patch
 import matplotlib.font_manager as font_manager
@@ -209,8 +215,8 @@ class MapBuilder:
                     continue  # Skip provinces without mapping
             
             # Log Esfahan mapping specifically
-            if province_code == 4 or 'esfahan' in province_name_norm:
-                logger.info(f"Esfahan mapping check: shapefile_name='{province_name_original}' (normalized='{province_name_norm}'), province_code={province_code}")
+            # if province_code == 4 or 'esfahan' in province_name_norm:
+            #     logger.info(f"Esfahan mapping check: shapefile_name='{province_name_original}' (normalized='{province_name_norm}'), province_code={province_code}")
             
             data = province_data.get(province_code, {})
             # Ensure we get the correct values - '1' for male, '2' for female
@@ -245,7 +251,7 @@ class MapBuilder:
                 
                 pie_ax = inset_axes(
                     ax,
-                    width=0.65,
+                    width=0.95,
                     height=1.65,
                     loc='center',
                     bbox_to_anchor=(centroid.x, centroid.y),
@@ -253,18 +259,28 @@ class MapBuilder:
                     borderpad=15
                 )
                 
-                # matplotlib's pie() function automatically calculates percentages correctly from values
-                # For Esfahan: values=[29, 29] will show 50% and 50%
-                # The autopct='%1.0f%%' format string will display the percentage that matplotlib calculates
-                # which is based on the actual values, so it should be correct
-                pie_ax.pie(
+                # Create pie chart with autopct, then modify font size
+                # Use round() instead of int() to ensure proper rounding
+                def autopct_format(pct):
+                    return f'{round(pct)}%'
+                
+                wedges, texts, autotexts = pie_ax.pie(
                     values,
                     labels=None,
                     colors=colors,
                     explode=(0.1, 0),
-                    autopct='%1.0f%%',
+                    autopct=autopct_format,
                     startangle=90
                 )
+                
+                # Set font size for percentage text (autotexts) - double the default size
+                # Default is usually around 10, so 20 should be double
+                for autotext in autotexts:
+                    autotext.set_fontsize(16)
+                    autotext.set_fontweight('bold')
+                    # Force update
+                    autotext.set_visible(True)
+                
                 pie_ax.axis('equal')
             except Exception as e:
                 logger.warning(f"Error rendering pie chart for {province_name_original} (code: {province_code}): {e}")
@@ -307,13 +323,21 @@ class MapBuilder:
             reshape_rtl(f"تاریخ: {today_shamsi}"),
             transform=ax.transAxes,
             ha='center',
-            fontsize=16,
+            fontsize=28,
             fontproperties=font_prop
         )
         ax.axis('off')
         
         # Apply tight layout before saving to minimize empty space
-        plt.tight_layout(pad=1.0)
+        # Use try-except to handle cases where tight_layout might not work with certain axes
+        try:
+            plt.tight_layout(pad=1.0)
+        except (UserWarning, ValueError, Exception) as e:
+            # If tight_layout fails, just continue without it
+            # Import logger if not already available
+            import logging
+            logging.getLogger(__name__).warning(f"Could not apply tight_layout: {e}")
+            pass
         
         # Convert to BytesIO with tight bounding box to remove empty space
         img = io.BytesIO()

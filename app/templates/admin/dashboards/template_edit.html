@@ -119,37 +119,77 @@
         min-width: 40px;
         text-align: center;
     }
+    .chart-content-wrapper {
+        display: flex;
+        flex-direction: row-reverse; /* RTL: right-to-left layout */
+        gap: 20px;
+        margin-top: 15px;
+    }
     .chart-preview {
         background: #f8f9fa;
         border: 1px dashed #dee2e6;
         border-radius: 4px;
         padding: 20px;
-        min-height: 150px;
+        min-height: 200px;
         display: flex;
         align-items: center;
         justify-content: center;
-        margin-bottom: 15px;
+        flex: 1; /* Take remaining space */
     }
     .chart-preview canvas {
         max-width: 100%;
-        max-height: 200px;
+        max-height: 300px;
+    }
+    .element-settings {
+        flex: 0 0 150px; /* Fixed width for settings (half of original) */
+        min-width: 140px;
     }
     .chart-settings {
         display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+        grid-template-columns: 1fr;
         gap: 15px;
-        margin-top: 15px;
+    }
+    @media (max-width: 768px) {
+        .chart-content-wrapper {
+            flex-direction: column;
+        }
+        .element-settings {
+            flex: 1;
+            min-width: auto;
+        }
     }
     .chart-setting-item {
         display: flex;
-        align-items: center;
-        gap: 10px;
+        flex-direction: column;
+        gap: 5px;
+    }
+    .chart-setting-item label {
+        font-size: 0.9rem;
+        margin-bottom: 0;
+    }
+    .chart-setting-item .form-label {
+        font-weight: 500;
+        font-size: 0.85rem;
+        margin-bottom: 4px;
     }
     .chart-type-select {
         width: 100%;
     }
     .sortable-ghost {
         opacity: 0.4;
+    }
+    .chart-type-icon {
+        font-size: 1.2rem;
+        color: #0d6efd;
+        display: inline-flex;
+        align-items: center;
+        flex-shrink: 0;
+    }
+    .element-title-wrapper {
+        flex: 1;
+        display: flex;
+        align-items: center;
+        gap: 8px;
     }
 </style>
 {% endblock %}
@@ -173,12 +213,16 @@
     </div>
     {% endif %}
 
-    <div class="card">
+    <!-- ویرایشگر HTML در ابتدای صفحه -->
+    <div class="card mb-4">
         <div class="card-header d-flex justify-content-between align-items-center">
-            <h5 class="mb-0">محتوای تمپلیت</h5>
+            <h5 class="mb-0"><i class="bi bi-code-slash"></i> ویرایشگر کد HTML</h5>
             <div>
                 <button type="button" class="btn btn-sm btn-secondary" onclick="toggleSearch()" id="searchToggleBtn">
                     <i class="bi bi-search"></i> جستجو
+                </button>
+                <button type="button" class="btn btn-sm btn-warning" onclick="validateCode()">
+                    <i class="bi bi-shield-check"></i> کنترل کدهای داشبورد
                 </button>
                 <button type="button" class="btn btn-sm btn-info" onclick="previewTemplate()">
                     <i class="bi bi-eye"></i> پیش‌نمایش
@@ -231,29 +275,64 @@
                 <div class="save-status alert" id="saveStatus"></div>
             </form>
         </div>
+        <div class="card-footer">
+            <small class="text-muted">
+                <i class="bi bi-info-circle"></i>
+                قبل از ذخیره، یک نسخه پشتیبان (.backup) از فایل فعلی ایجاد می‌شود.
+                اندازه فایل: {% if file_size %}{{ "%.2f"|format(file_size / 1024.0) }} KB{% else %}نامشخص{% endif %}
+                {% if modified_time %}
+                | آخرین تغییر: {{ modified_time.strftime('%Y/%m/%d %H:%M') }}
+                {% endif %}
+            </small>
+        </div>
     </div>
 
-    <div class="mt-3">
-        <small class="text-muted">
-            <i class="bi bi-info-circle"></i>
-            قبل از ذخیره، یک نسخه پشتیبان (.backup) از فایل فعلی ایجاد می‌شود.
-            اندازه فایل: {% if file_size %}{{ "%.2f"|format(file_size / 1024.0) }} KB{% else %}نامشخص{% endif %}
-            {% if modified_time %}
-            | آخرین تغییر: {{ modified_time.strftime('%Y/%m/%d %H:%M') }}
-            {% endif %}
-        </small>
+    <!-- فهرست نمودارها -->
+    {% if charts_list and charts_list|length > 0 %}
+    <div class="card mt-4">
+        <div class="card-header">
+            <h5 class="mb-0"><i class="bi bi-list-ul"></i> فهرست نمودارهای تمپلیت</h5>
+        </div>
+        <div class="card-body">
+            <div class="table-responsive">
+                <table class="table table-striped table-hover table-bordered">
+                    <thead class="table-dark">
+                        <tr>
+                            <th style="width: 50px;">ردیف</th>
+                            <th>عنوان فارسی</th>
+                            <th>ID نمودار</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for chart in charts_list %}
+                        <tr>
+                            <td class="text-center">{{ loop.index }}</td>
+                            <td>{{ chart.title }}</td>
+                            <td><code>{{ chart.chart_id }}</code></td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            <div class="alert alert-info mt-3 mb-0">
+                <i class="bi bi-info-circle"></i> 
+                <strong>توجه:</strong> این جدول فهرست تمام نمودارهای موجود در تمپلیت را نمایش می‌دهد. 
+                برای ویرایش تنظیمات هر نمودار، از بخش "طراحی گرافیک تمپلیت" استفاده کنید.
+            </div>
+        </div>
     </div>
+    {% endif %}
 
     <!-- طراحی گرافیک تمپلیت -->
     <div class="card mt-4" id="visual-editor">
         <div class="card-header d-flex justify-content-between align-items-center">
             <h5 class="mb-0"><i class="bi bi-palette"></i> طراحی گرافیک تمپلیت</h5>
             <div>
-                <button type="button" class="btn btn-sm btn-primary" onclick="loadCharts()">
+                <button type="button" class="btn btn-sm btn-primary" onclick="loadVisualElements()">
                     <i class="bi bi-arrow-clockwise"></i> بارگذاری مجدد
                 </button>
-                <button type="button" class="btn btn-sm btn-success" onclick="saveChartSettings(event)">
-                    <i class="bi bi-save"></i> ذخیره
+                <button type="button" class="btn btn-sm btn-success" onclick="saveAllSettings(event)">
+                    <i class="bi bi-save"></i> ذخیره همه تنظیمات
                 </button>
                 <button type="button" class="btn btn-sm btn-info" onclick="showVersions()">
                     <i class="bi bi-clock-history"></i> نسخه‌های قبلی
@@ -263,13 +342,80 @@
         <div class="card-body">
             <!-- Status message for save operation -->
             <div class="save-status alert" id="chartSaveStatus" style="display: none; margin-bottom: 1rem;"></div>
-            <div id="chartsContainer">
+            <div id="visualElementsContainer">
                 <div class="text-center py-5">
                     <div class="spinner-border text-primary" role="status">
                         <span class="visually-hidden">در حال بارگذاری...</span>
                     </div>
-                    <p class="mt-3">در حال بارگذاری نمودارها...</p>
+                    <p class="mt-3">در حال بارگذاری نمودارها و جداول...</p>
                 </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Modal for Code Validation Results -->
+<div class="modal fade" id="validationModal" tabindex="-1" aria-labelledby="validationModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-xl">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="validationModalLabel">
+                    <i class="bi bi-shield-check"></i> نتایج کنترل کدهای داشبورد
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div id="validationResults">
+                    <div class="text-center py-5">
+                        <div class="spinner-border text-primary" role="status">
+                            <span class="visually-hidden">در حال بررسی...</span>
+                        </div>
+                        <p class="mt-3">در حال بررسی کدها...</p>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">
+                    <i class="bi bi-x-circle"></i> بستن
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Modal for Chart Diff Preview -->
+<div class="modal fade" id="chartDiffModal" tabindex="-1" aria-labelledby="chartDiffModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-xl">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="chartDiffModalLabel">
+                    <i class="bi bi-code-square"></i> پیش‌نمایش تغییرات نمودار
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div class="row">
+                    <div class="col-md-6">
+                        <h6 class="text-danger mb-3">
+                            <i class="bi bi-file-earmark-minus"></i> کد قبل از تغییر
+                        </h6>
+                        <pre id="diffBeforeCode" class="bg-light p-3 rounded" style="max-height: 500px; overflow-y: auto; direction: ltr; text-align: left; font-size: 12px;"></pre>
+                    </div>
+                    <div class="col-md-6">
+                        <h6 class="text-success mb-3">
+                            <i class="bi bi-file-earmark-plus"></i> کد بعد از تغییر
+                        </h6>
+                        <pre id="diffAfterCode" class="bg-light p-3 rounded" style="max-height: 500px; overflow-y: auto; direction: ltr; text-align: left; font-size: 12px;"></pre>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">
+                    <i class="bi bi-x-circle"></i> انصراف
+                </button>
+                <button type="button" class="btn btn-primary" id="confirmSaveChartBtn" onclick="confirmSaveSingleChart()">
+                    <i class="bi bi-check-circle"></i> تایید و ذخیره
+                </button>
             </div>
         </div>
     </div>
@@ -712,6 +858,110 @@
         previewWindow.document.close();
     }
 
+    async function validateCode() {
+        const content = editor.getValue();
+        const resultsDiv = document.getElementById('validationResults');
+        const modal = new bootstrap.Modal(document.getElementById('validationModal'));
+        
+        // Show loading
+        resultsDiv.innerHTML = '<div class="text-center py-5"><div class="spinner-border text-primary" role="status"><span class="visually-hidden">در حال بررسی...</span></div><p class="mt-3">در حال بررسی کدها...</p></div>';
+        modal.show();
+        
+        try {
+            const templateName = '{{ template_name|e }}';
+            const response = await fetch(`/admin/dashboards/templates/${templateName}/validate`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ content: content })
+            });
+            
+            const data = await response.json();
+            displayValidationResults(data);
+        } catch (error) {
+            resultsDiv.innerHTML = `<div class="alert alert-danger"><i class="bi bi-exclamation-circle"></i> خطا در بررسی کدها: ${error.message}</div>`;
+        }
+    }
+
+    function displayValidationResults(data) {
+        const resultsDiv = document.getElementById('validationResults');
+        let html = '';
+        
+        if (data.success) {
+            const hasErrors = (data.html_errors && data.html_errors.length > 0) ||
+                             (data.css_errors && data.css_errors.length > 0) ||
+                             (data.js_errors && data.js_errors.length > 0);
+            
+            if (!hasErrors) {
+                html = '<div class="alert alert-success"><i class="bi bi-check-circle"></i> <strong>عالی!</strong> هیچ مشکلی در کدها یافت نشد.</div>';
+            } else {
+                html = '<div class="alert alert-warning"><i class="bi bi-exclamation-triangle"></i> <strong>توجه:</strong> برخی مشکلات در کدها شناسایی شد:</div>';
+                
+                // HTML Errors
+                if (data.html_errors && data.html_errors.length > 0) {
+                    html += '<div class="mb-4"><h5 class="text-danger"><i class="bi bi-filetype-html"></i> خطاهای HTML (' + data.html_errors.length + ' مورد)</h5>';
+                    html += '<div class="list-group">';
+                    data.html_errors.forEach((error, index) => {
+                        html += `<div class="list-group-item list-group-item-danger">
+                            <div class="d-flex w-100 justify-content-between">
+                                <h6 class="mb-1">خطا ${index + 1}</h6>
+                                ${error.line ? '<small>خط ' + error.line + '</small>' : ''}
+                            </div>
+                            <p class="mb-1">${escapeHtml(error.message)}</p>
+                            ${error.suggestion ? '<div class="mt-2"><strong>پیشنهاد:</strong><pre class="bg-light p-2 rounded mt-1"><code>' + escapeHtml(error.suggestion) + '</code></pre></div>' : ''}
+                        </div>`;
+                    });
+                    html += '</div></div>';
+                }
+                
+                // CSS Errors
+                if (data.css_errors && data.css_errors.length > 0) {
+                    html += '<div class="mb-4"><h5 class="text-danger"><i class="bi bi-filetype-css"></i> خطاهای CSS (' + data.css_errors.length + ' مورد)</h5>';
+                    html += '<div class="list-group">';
+                    data.css_errors.forEach((error, index) => {
+                        html += `<div class="list-group-item list-group-item-danger">
+                            <div class="d-flex w-100 justify-content-between">
+                                <h6 class="mb-1">خطا ${index + 1}</h6>
+                                ${error.line ? '<small>خط ' + error.line + '</small>' : ''}
+                            </div>
+                            <p class="mb-1">${escapeHtml(error.message)}</p>
+                            ${error.suggestion ? '<div class="mt-2"><strong>پیشنهاد:</strong><pre class="bg-light p-2 rounded mt-1"><code>' + escapeHtml(error.suggestion) + '</code></pre></div>' : ''}
+                        </div>`;
+                    });
+                    html += '</div></div>';
+                }
+                
+                // JS Errors
+                if (data.js_errors && data.js_errors.length > 0) {
+                    html += '<div class="mb-4"><h5 class="text-danger"><i class="bi bi-filetype-js"></i> خطاهای JavaScript (' + data.js_errors.length + ' مورد)</h5>';
+                    html += '<div class="list-group">';
+                    data.js_errors.forEach((error, index) => {
+                        html += `<div class="list-group-item list-group-item-danger">
+                            <div class="d-flex w-100 justify-content-between">
+                                <h6 class="mb-1">خطا ${index + 1}</h6>
+                                ${error.line ? '<small>خط ' + error.line + '</small>' : ''}
+                            </div>
+                            <p class="mb-1">${escapeHtml(error.message)}</p>
+                            ${error.suggestion ? '<div class="mt-2"><strong>پیشنهاد:</strong><pre class="bg-light p-2 rounded mt-1"><code>' + escapeHtml(error.suggestion) + '</code></pre></div>' : ''}
+                        </div>`;
+                    });
+                    html += '</div></div>';
+                }
+            }
+        } else {
+            html = `<div class="alert alert-danger"><i class="bi bi-exclamation-circle"></i> خطا: ${data.message || 'خطای نامشخص'}</div>`;
+        }
+        
+        resultsDiv.innerHTML = html;
+    }
+
+    function escapeHtml(text) {
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+    }
+
     // Warn before leaving with unsaved changes
     let isDirty = false;
     editor.on('change', function() {
@@ -739,11 +989,12 @@
 
     // ==================== Visual Chart Editor ====================
     let chartsData = [];
+    let tablesData = [];
     let sortableInstance = null;
 
-    // Load charts on page load
+    // Load visual elements on page load
     document.addEventListener('DOMContentLoaded', function() {
-        loadCharts();
+        loadVisualElements();
         
         // Scroll to visual editor if anchor is present
         if (window.location.hash === '#visual-editor') {
@@ -756,164 +1007,446 @@
         }
     });
 
-    async function loadCharts() {
-        const container = document.getElementById('chartsContainer');
-        container.innerHTML = '<div class="text-center py-5"><div class="spinner-border text-primary" role="status"><span class="visually-hidden">در حال بارگذاری...</span></div><p class="mt-3">در حال بارگذاری نمودارها...</p></div>';
+    async function loadVisualElements() {
+        const container = document.getElementById('visualElementsContainer');
+        if (!container) {
+            console.error('visualElementsContainer not found');
+            return;
+        }
+        container.innerHTML = '<div class="text-center py-5"><div class="spinner-border text-primary" role="status"><span class="visually-hidden">در حال بارگذاری...</span></div><p class="mt-3">در حال بارگذاری نمودارها و جداول...</p></div>';
         
         try {
             const templateName = '{{ template_name|e }}';
             const response = await fetch(`/admin/dashboards/templates/${templateName}/charts`);
+            
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+            
             const data = await response.json();
             
             if (data.success) {
-                chartsData = data.charts;
-                renderCharts();
+                chartsData = data.charts || [];
+                tablesData = data.tables || [];
+                
+                // Debug: Log color_palette for all charts
+                console.log('Loaded charts with color_palette:', chartsData.map(c => ({
+                    chart_id: c.chart_id,
+                    color_palette: c.color_palette || 'default (not set)'
+                })));
+                
+                // Ensure color_palette is set for all charts
+                chartsData.forEach(chart => {
+                    if (!chart.color_palette) {
+                        chart.color_palette = 'default';
+                        console.log(`Set default color_palette for chart: ${chart.chart_id}`);
+                    }
+                });
+                
+                // Check if there are any elements
+                if (!data.has_elements || (chartsData.length === 0 && tablesData.length === 0)) {
+                    container.innerHTML = '<div class="alert alert-info text-center py-5"><i class="bi bi-info-circle"></i> این داشبرد حاوی هیچ نمودار و جدولی نیست.</div>';
+                    return;
+                }
+                
+                renderVisualElements();
             } else {
-                container.innerHTML = `<div class="alert alert-danger">${data.message || 'خطا در بارگذاری نمودارها'}</div>`;
+                container.innerHTML = `<div class="alert alert-danger">${data.message || 'خطا در بارگذاری نمودارها و جداول'}</div>`;
             }
         } catch (error) {
+            console.error('Error loading visual elements:', error);
             container.innerHTML = `<div class="alert alert-danger">خطا: ${error.message}</div>`;
         }
     }
+    
+    // Keep old function for backward compatibility
+    async function loadCharts() {
+        await loadVisualElements();
+    }
 
-    function renderCharts() {
-        const container = document.getElementById('chartsContainer');
+    function renderVisualElements() {
+        const container = document.getElementById('visualElementsContainer');
         
-        if (chartsData.length === 0) {
-            container.innerHTML = '<div class="alert alert-info">هیچ نموداری در این تمپلیت یافت نشد. لطفاً از بخش ویرایش HTML نمودارها را اضافه کنید.</div>';
+        // Combine charts and tables, sort by display_order
+        const allElements = [
+            ...chartsData.map(c => ({...c, type: 'chart'})),
+            ...tablesData.map(t => ({...t, type: 'table'}))
+        ].sort((a, b) => (a.display_order || 0) - (b.display_order || 0));
+
+        if (allElements.length === 0) {
+            container.innerHTML = '<div class="alert alert-info text-center py-5"><i class="bi bi-info-circle"></i> این داشبرد حاوی هیچ نمودار و جدولی نیست.</div>';
             return;
         }
 
-        // Sort by display_order
-        chartsData.sort((a, b) => (a.display_order || 0) - (b.display_order || 0));
-
-        let html = '<div id="chartsList">';
-        chartsData.forEach((chart, index) => {
-            html += `
-                <div class="chart-item" data-chart-id="${chart.chart_id}" data-index="${index}">
-                    <div class="chart-header">
-                        <span class="chart-order-badge">${index + 1}</span>
-                        <input type="text" class="form-control chart-title-input" value="${chart.title || chart.chart_id}" 
-                               data-chart-id="${chart.chart_id}" onchange="updateChartTitle('${chart.chart_id}', this.value)">
-                    </div>
-                    <div class="chart-preview" id="preview_${chart.chart_id}">
-                        <canvas id="canvas_${chart.chart_id}"></canvas>
-                    </div>
-                    <div class="chart-settings">
-                        <div class="chart-setting-item">
-                            <label class="form-check-label">
-                                <input type="checkbox" class="form-check-input" ${chart.show_labels ? 'checked' : ''} 
-                                       onchange="updateChartSetting('${chart.chart_id}', 'show_labels', this.checked)">
-                                نمایش Labelها
-                            </label>
-                        </div>
-                        <div class="chart-setting-item">
-                            <label class="form-check-label">
-                                <input type="checkbox" class="form-check-input" ${chart.show_legend ? 'checked' : ''} 
-                                       onchange="updateChartSetting('${chart.chart_id}', 'show_legend', this.checked)">
-                                نمایش راهنمای رنگ‌بندی
-                            </label>
-                        </div>
-                        <div class="chart-setting-item">
-                            <label class="form-check-label">
-                                <input type="checkbox" class="form-check-input" ${chart.allow_export ? 'checked' : ''} 
-                                       onchange="updateChartSetting('${chart.chart_id}', 'allow_export', this.checked)">
-                                امکان خروجی تصویر
-                            </label>
-                        </div>
-                        <div class="chart-setting-item">
-                            <label>نوع نمودار:</label>
-                            <select class="form-select chart-type-select" onchange="updateChartType('${chart.chart_id}', this.value)">
-                                <option value="line" ${chart.chart_type === 'line' ? 'selected' : ''}>خطی</option>
-                                <option value="bar" ${chart.chart_type === 'bar' ? 'selected' : ''}>ستونی</option>
-                                <option value="pie" ${chart.chart_type === 'pie' ? 'selected' : ''}>دایره‌ای</option>
-                                <option value="doughnut" ${chart.chart_type === 'doughnut' ? 'selected' : ''}>حلقه‌ای</option>
-                                <option value="radar" ${chart.chart_type === 'radar' ? 'selected' : ''}>راداری</option>
-                                <option value="polarArea" ${chart.chart_type === 'polarArea' ? 'selected' : ''}>قطبی</option>
-                            </select>
-                        </div>
-                        <div class="chart-setting-item">
-                            <label>اولویت نمایش:</label>
-                            <input type="number" class="form-control chart-order-input" data-chart-id="${chart.chart_id}" 
-                                   value="${chart.display_order || index}" min="0" 
-                                   onchange="updateChartOrder('${chart.chart_id}', parseInt(this.value))">
-                        </div>
-                    </div>
-                </div>
-            `;
+        let html = '<div id="visualElementsList">';
+        
+        allElements.forEach((element, index) => {
+            if (element.type === 'chart') {
+                html += renderChartElement(element, index);
+            } else if (element.type === 'table') {
+                html += renderTableElement(element, index);
+            }
         });
+        
         html += '</div>';
         container.innerHTML = html;
 
-        // Initialize Sortable
+        // Initialize Sortable for drag & drop
         if (sortableInstance) {
             sortableInstance.destroy();
         }
-        const chartsList = document.getElementById('chartsList');
-        if (chartsList) {
-            sortableInstance = new Sortable(chartsList, {
+        const elementsList = document.getElementById('visualElementsList');
+        if (elementsList) {
+            sortableInstance = new Sortable(elementsList, {
                 animation: 150,
-                handle: '.chart-item',
+                handle: '.element-item',
                 ghostClass: 'sortable-ghost',
                 onEnd: function(evt) {
-                    updateChartOrders();
+                    updateAllOrders();
                 }
             });
         }
 
-        // Render preview charts
+        // Render chart previews
         renderChartPreviews();
+    }
+    
+    function getChartTypeIcon(chartType) {
+        const icons = {
+            'line': '<i class="bi bi-graph-up"></i>',
+            'area': '<i class="bi bi-layers-fill"></i>',
+            'bar': '<i class="bi bi-bar-chart"></i>',
+            'pie': '<i class="bi bi-pie-chart"></i>',
+            'doughnut': '<i class="bi bi-circle"></i>',
+            'radar': '<i class="bi bi-radar"></i>',
+            'polarArea': '<i class="bi bi-compass"></i>'
+        };
+        return icons[chartType] || icons['line'];
+    }
+    
+    function renderChartElement(chart, index) {
+        const chartType = chart.chart_type || 'line';
+        const chartIcon = getChartTypeIcon(chartType);
+        
+        return `
+            <div class="element-item chart-item" data-element-type="chart" data-chart-id="${chart.chart_id}" data-index="${index}">
+                <div class="element-header">
+                    <span class="element-order-badge">${index + 1}</span>
+                    <div class="element-title-wrapper">
+                        <span class="chart-type-icon">${chartIcon}</span>
+                        <input type="text" class="form-control element-title-input" value="${escapeHtml(chart.title || chart.chart_id)}" 
+                               data-chart-id="${chart.chart_id}" onchange="updateChartTitle('${chart.chart_id}', this.value)">
+                    </div>
+                </div>
+                <div class="chart-content-wrapper">
+                    <div class="chart-preview" id="preview_${chart.chart_id}">
+                        <canvas id="canvas_${chart.chart_id}"></canvas>
+                    </div>
+                    <div class="element-settings">
+                        <div class="chart-settings">
+                            <div class="chart-setting-item">
+                                <label class="form-check-label">
+                                    <input type="checkbox" class="form-check-input" ${chart.is_visible !== false ? 'checked' : ''} 
+                                           onchange="updateChartSetting('${chart.chart_id}', 'is_visible', this.checked)">
+                                    نمایش نمودار
+                                </label>
+                            </div>
+                            <div class="chart-setting-item">
+                                <label class="form-check-label">
+                                    <input type="checkbox" class="form-check-input" ${chart.show_labels !== false ? 'checked' : ''} 
+                                           onchange="updateChartSetting('${chart.chart_id}', 'show_labels', this.checked)">
+                                    نمایش Labelها
+                                </label>
+                            </div>
+                            <div class="chart-setting-item">
+                                <label class="form-check-label">
+                                    <input type="checkbox" class="form-check-input" ${chart.show_legend !== false ? 'checked' : ''} 
+                                           onchange="updateChartSetting('${chart.chart_id}', 'show_legend', this.checked)">
+                                    نمایش راهنمای رنگ‌بندی
+                                </label>
+                            </div>
+                            <div class="chart-setting-item">
+                                <label class="form-check-label">
+                                    <input type="checkbox" class="form-check-input" ${chart.allow_export !== false ? 'checked' : ''} 
+                                           onchange="updateChartSetting('${chart.chart_id}', 'allow_export', this.checked)">
+                                    امکان خروجی تصویر
+                                </label>
+                            </div>
+                            <div class="chart-setting-item">
+                                <label class="form-label">نوع نمودار:</label>
+                                <select class="form-select form-select-sm chart-type-select" onchange="updateChartType('${chart.chart_id}', this.value)">
+                                    <option value="line" ${(chart.chart_type || 'line') === 'line' ? 'selected' : ''}>خطی</option>
+                                    <option value="area" ${chart.chart_type === 'area' ? 'selected' : ''}>مساحت</option>
+                                    <option value="bar" ${chart.chart_type === 'bar' ? 'selected' : ''}>ستونی</option>
+                                    <option value="pie" ${chart.chart_type === 'pie' ? 'selected' : ''}>دایره‌ای</option>
+                                    <option value="doughnut" ${chart.chart_type === 'doughnut' ? 'selected' : ''}>حلقه‌ای</option>
+                                    <option value="radar" ${chart.chart_type === 'radar' ? 'selected' : ''}>راداری</option>
+                                    <option value="polarArea" ${chart.chart_type === 'polarArea' ? 'selected' : ''}>قطبی</option>
+                                </select>
+                            </div>
+                            <div class="chart-setting-item">
+                                <label class="form-label">پالت رنگی:</label>
+                                <select class="form-select form-select-sm color-palette-select" 
+                                        onchange="updateChartSetting('${chart.chart_id}', 'color_palette', this.value)"
+                                        data-chart-id="${chart.chart_id}">
+                                    <option value="default" ${(chart.color_palette || 'default') === 'default' ? 'selected' : ''}>پیش‌فرض</option>
+                                    <option value="warm" ${chart.color_palette === 'warm' ? 'selected' : ''}>گرم</option>
+                                    <option value="cool" ${chart.color_palette === 'cool' ? 'selected' : ''}>سرد</option>
+                                    <option value="pastel" ${chart.color_palette === 'pastel' ? 'selected' : ''}>پاستیلی</option>
+                                    <option value="formal" ${chart.color_palette === 'formal' ? 'selected' : ''}>رسمی</option>
+                                    <option value="vibrant" ${chart.color_palette === 'vibrant' ? 'selected' : ''}>زنده</option>
+                                    <option value="ocean" ${chart.color_palette === 'ocean' ? 'selected' : ''}>اقیانوسی</option>
+                                </select>
+                            </div>
+                            <div class="chart-setting-item">
+                                <label class="form-label">اولویت نمایش:</label>
+                                <input type="number" class="form-control form-control-sm element-order-input" data-chart-id="${chart.chart_id}" 
+                                       value="${chart.display_order || index}" min="0" 
+                                       onchange="updateChartOrder('${chart.chart_id}', parseInt(this.value))">
+                            </div>
+                            <div class="chart-setting-item mt-3">
+                                <div class="d-flex flex-column gap-2">
+                                    <button type="button" class="btn btn-primary btn-sm w-100" 
+                                            onclick="saveSingleChart('${chart.chart_id}')">
+                                        <i class="bi bi-save"></i> ذخیره این نمودار
+                                    </button>
+                                    <div class="text-center">
+                                        <small class="text-muted d-flex align-items-center justify-content-center gap-1">
+                                            <i class="bi bi-tag" style="font-size: 0.7rem;"></i>
+                                            <span style="font-size: 0.7rem;">ID:</span>
+                                            <code style="font-size: 0.7rem; background: #f8f9fa; padding: 2px 6px; border-radius: 3px; color: #495057;">${chart.chart_id}</code>
+                                        </small>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `;
+    }
+    
+    function renderTableElement(table, index) {
+        // Build table HTML with actual data
+        let tableHtml = '<div class="table-responsive"><table class="table table-striped table-bordered table-sm">';
+        
+        // Headers
+        if (table.headers && table.headers.length > 0) {
+            tableHtml += '<thead class="table-dark"><tr>';
+            table.headers.forEach(header => {
+                tableHtml += `<th>${escapeHtml(header)}</th>`;
+            });
+            tableHtml += '</tr></thead>';
+        }
+        
+        // Body
+        tableHtml += '<tbody>';
+        if (table.rows && table.rows.length > 0) {
+            table.rows.forEach(row => {
+                tableHtml += '<tr>';
+                row.forEach(cell => {
+                    tableHtml += `<td>${escapeHtml(cell)}</td>`;
+                });
+                tableHtml += '</tr>';
+            });
+        } else {
+            tableHtml += '<tr><td colspan="' + (table.headers?.length || 1) + '" class="text-center text-muted">هیچ داده‌ای موجود نیست</td></tr>';
+        }
+        tableHtml += '</tbody></table></div>';
+        
+        return `
+            <div class="element-item table-item" data-element-type="table" data-table-id="${table.table_id}" data-index="${index}">
+                <div class="element-header">
+                    <span class="element-order-badge">${index + 1}</span>
+                    <input type="text" class="form-control element-title-input" value="${escapeHtml(table.title)}" 
+                           data-table-id="${table.table_id}" onchange="updateTableTitle('${table.table_id}', this.value)">
+                </div>
+                <div class="table-preview" id="preview_${table.table_id}">
+                    ${tableHtml}
+                </div>
+                <div class="element-settings">
+                    <div class="row g-2">
+                        <div class="col-6 col-md-3">
+                            <label class="form-check-label">
+                                <input type="checkbox" class="form-check-input" ${table.is_visible !== false ? 'checked' : ''} 
+                                       onchange="updateTableSetting('${table.table_id}', 'is_visible', this.checked)">
+                                نمایش جدول
+                            </label>
+                        </div>
+                        <div class="col-6 col-md-3">
+                            <label class="form-check-label">
+                                <input type="checkbox" class="form-check-input" ${table.allow_excel_export !== false ? 'checked' : ''} 
+                                       onchange="updateTableSetting('${table.table_id}', 'allow_excel_export', this.checked)">
+                                امکان خروجی اکسل
+                            </label>
+                        </div>
+                        <div class="col-6 col-md-3">
+                            <label>اولویت نمایش:</label>
+                            <input type="number" class="form-control form-control-sm element-order-input" data-table-id="${table.table_id}" 
+                                   value="${table.display_order || index}" min="0" 
+                                   onchange="updateTableOrder('${table.table_id}', parseInt(this.value))">
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `;
+    }
+    
+    function escapeHtml(text) {
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+    }
+    
+    function updateAllOrders() {
+        const elements = document.querySelectorAll('.element-item');
+        elements.forEach((item, index) => {
+            const chartId = item.getAttribute('data-chart-id');
+            const tableId = item.getAttribute('data-table-id');
+            if (chartId) {
+                updateChartOrder(chartId, index);
+            } else if (tableId) {
+                updateTableOrder(tableId, index);
+            }
+        });
+    }
+    
+    function updateTableTitle(tableId, title) {
+        const table = tablesData.find(t => t.table_id === tableId);
+        if (table) {
+            table.title = title;
+        }
+    }
+    
+    function updateTableSetting(tableId, setting, value) {
+        const table = tablesData.find(t => t.table_id === tableId);
+        if (table) {
+            table[setting] = value;
+        }
+    }
+    
+    function updateTableOrder(tableId, order) {
+        const table = tablesData.find(t => t.table_id === tableId);
+        if (table) {
+            table.display_order = order;
+        }
+    }
+    
+    // Keep old function for backward compatibility
+    function renderCharts() {
+        renderVisualElements();
     }
 
     function renderChartPreviews() {
         chartsData.forEach(chart => {
             const canvas = document.getElementById(`canvas_${chart.chart_id}`);
-            if (!canvas) return;
+            if (!canvas) {
+                console.warn(`Canvas not found for chart: ${chart.chart_id}`);
+                return;
+            }
 
             const ctx = canvas.getContext('2d');
             
-            // Get sample data from chart options or use defaults
+            // Use actual data from chart_options if available, otherwise use sample data
             const chartOptions = chart.chart_options || {};
-            const sampleLabels = chartOptions.sample_labels || ['فروردین', 'اردیبهشت', 'خرداد', 'تیر', 'مرداد'];
-            const sampleDatasets = chartOptions.sample_datasets || [{
-                label: 'نمونه داده',
-                data: [12, 19, 3, 5, 2],
-                backgroundColor: 'rgba(54, 162, 235, 0.2)',
-                borderColor: 'rgba(54, 162, 235, 1)',
-                borderWidth: 1
-            }];
+            
+            // Try to get actual labels and datasets from chart_options
+            let labels = chartOptions.sample_labels;
+            let datasets = chartOptions.sample_datasets;
+            
+            // If actual data is available, use it
+            if (!labels || !datasets) {
+                // Fallback to defaults
+                labels = labels || ['فروردین', 'اردیبهشت', 'خرداد', 'تیر', 'مرداد'];
+                datasets = datasets || [{
+                    label: 'نمونه داده',
+                    data: [12, 19, 3, 5, 2],
+                    backgroundColor: 'rgba(54, 162, 235, 0.2)',
+                    borderColor: 'rgba(54, 162, 235, 1)',
+                    borderWidth: 1
+                }];
+            }
+            
+            // Get color palette for this chart - ensure it's set
+            const paletteName = chart.color_palette || 'default';
+            const palette = getColorPalette(paletteName);
+            
+            // Debug log to verify palette is being used
+            console.log(`Rendering chart ${chart.chart_id}: palette=${paletteName}, colors=${palette.length}`);
             
             // Prepare datasets - ensure they have proper structure
-            const datasets = sampleDatasets.map((ds, idx) => {
+            const preparedDatasets = datasets.map((ds, idx) => {
                 if (typeof ds === 'object' && ds.data) {
-                    return {
-                        label: ds.label || `نمونه داده ${idx + 1}`,
+                    // Always use palette colors based on color_palette setting
+                    // Ignore any existing backgroundColor in ds
+                    let bgColor;
+                    if (chart.chart_type === 'pie' || chart.chart_type === 'doughnut') {
+                        // For pie/doughnut, use array of colors from palette (one color per data point)
+                        const dataLength = Array.isArray(ds.data) ? ds.data.length : 0;
+                        bgColor = palette.slice(0, dataLength);
+                        console.log(`  Dataset ${idx} (${chart.chart_type}): using ${bgColor.length} colors from palette`);
+                    } else {
+                        // For other chart types (bar, line, etc.), use one color per dataset
+                        // Each dataset gets a different color from the palette
+                        bgColor = palette[idx % palette.length];
+                        console.log(`  Dataset ${idx} (${chart.chart_type}): using color ${bgColor} from palette index ${idx % palette.length}`);
+                    }
+                    
+                    const datasetConfig = {
+                        label: ds.label || `داده ${idx + 1}`,
                         data: ds.data,
-                        backgroundColor: ds.backgroundColor || (chart.chart_type === 'pie' || chart.chart_type === 'doughnut' 
-                            ? ['#36A2EB', '#FF6384', '#FFCE56', '#4BC0C0', '#9966FF', '#FF9F40']
-                            : 'rgba(54, 162, 235, 0.2)'),
-                        borderColor: ds.borderColor || 'rgba(54, 162, 235, 1)',
+                        backgroundColor: bgColor, // Always use palette colors, ignore ds.backgroundColor
+                        borderColor: ds.borderColor || (chart.chart_type === 'pie' || chart.chart_type === 'doughnut' ? 'rgba(255, 255, 255, 1)' : bgColor),
                         borderWidth: ds.borderWidth || 1
                     };
+                    
+                    // For area charts, add fill and tension properties
+                    if (chart.chart_type === 'area') {
+                        datasetConfig.fill = true;
+                        datasetConfig.tension = ds.tension || 0.4;
+                        // Use a slightly darker border color for area charts
+                        if (!ds.borderColor) {
+                            datasetConfig.borderColor = bgColor.replace('0.6', '1');
+                        }
+                    }
+                    
+                    return datasetConfig;
                 } else if (Array.isArray(ds)) {
                     // If it's just an array of numbers
-                    return {
-                        label: `نمونه داده ${idx + 1}`,
+                    let bgColor;
+                    if (chart.chart_type === 'pie' || chart.chart_type === 'doughnut') {
+                        // For pie/doughnut, use array of colors (one per data point)
+                        bgColor = palette.slice(0, ds.length);
+                    } else {
+                        // For other chart types, use one color per dataset
+                        bgColor = palette[idx % palette.length];
+                    }
+                    
+                    const datasetConfig = {
+                        label: `داده ${idx + 1}`,
                         data: ds,
-                        backgroundColor: chart.chart_type === 'pie' || chart.chart_type === 'doughnut'
-                            ? ['#36A2EB', '#FF6384', '#FFCE56', '#4BC0C0', '#9966FF']
-                            : 'rgba(54, 162, 235, 0.2)',
-                        borderColor: 'rgba(54, 162, 235, 1)',
+                        backgroundColor: bgColor,
+                        borderColor: chart.chart_type === 'pie' || chart.chart_type === 'doughnut' ? 'rgba(255, 255, 255, 1)' : bgColor,
                         borderWidth: 1
                     };
+                    
+                    // For area charts, add fill and tension properties
+                    if (chart.chart_type === 'area') {
+                        datasetConfig.fill = true;
+                        datasetConfig.tension = 0.4;
+                        // Use a slightly darker border color for area charts
+                        datasetConfig.borderColor = bgColor.replace('0.6', '1');
+                    }
+                    
+                    return datasetConfig;
                 }
                 return ds;
             });
             
-            // Sample data for preview
-            const sampleData = {
-                labels: sampleLabels,
-                datasets: datasets
+            // Chart data
+            const chartData = {
+                labels: labels,
+                datasets: preparedDatasets
             };
 
             const options = {
@@ -938,9 +1471,25 @@
                 window[`chart_${chart.chart_id}`].destroy();
             }
 
+            // Use chart_type from chart object, fallback to 'line' if not set
+            let chartType = chart.chart_type || 'line';
+            
+            // Area chart is implemented as line chart with fill: true
+            let actualChartType = chartType;
+            if (chartType === 'area') {
+                actualChartType = 'line';
+                // Set fill: true for all datasets to make it an area chart
+                if (chartData.datasets) {
+                    chartData.datasets.forEach(dataset => {
+                        dataset.fill = true;
+                        dataset.tension = dataset.tension || 0.4;
+                    });
+                }
+            }
+            
             window[`chart_${chart.chart_id}`] = new Chart(ctx, {
-                type: chart.chart_type || 'line',
-                data: sampleData,
+                type: actualChartType,
+                data: chartData,
                 options: options
             });
         });
@@ -958,11 +1507,121 @@
         }
     }
 
+    // Color palettes definition (must match server-side)
+    const COLOR_PALETTES = {
+        'default': [
+            'rgba(255, 99, 132, 0.6)',
+            'rgba(54, 162, 235, 0.6)',
+            'rgba(255, 206, 86, 0.6)',
+            'rgba(75, 192, 192, 0.6)',
+            'rgba(153, 102, 255, 0.6)',
+            'rgba(255, 159, 64, 0.6)',
+            'rgba(201, 203, 207, 0.6)'
+        ],
+        'warm': [
+            'rgba(255, 99, 71, 0.6)',
+            'rgba(255, 140, 0, 0.6)',
+            'rgba(255, 165, 0, 0.6)',
+            'rgba(255, 20, 147, 0.6)',
+            'rgba(220, 20, 60, 0.6)',
+            'rgba(255, 69, 0, 0.6)',
+            'rgba(255, 105, 180, 0.6)'
+        ],
+        'cool': [
+            'rgba(70, 130, 180, 0.6)',
+            'rgba(100, 149, 237, 0.6)',
+            'rgba(65, 105, 225, 0.6)',
+            'rgba(30, 144, 255, 0.6)',
+            'rgba(0, 191, 255, 0.6)',
+            'rgba(72, 209, 204, 0.6)',
+            'rgba(32, 178, 170, 0.6)'
+        ],
+        'pastel': [
+            'rgba(255, 182, 193, 0.6)',
+            'rgba(255, 218, 185, 0.6)',
+            'rgba(221, 160, 221, 0.6)',
+            'rgba(176, 224, 230, 0.6)',
+            'rgba(175, 238, 238, 0.6)',
+            'rgba(144, 238, 144, 0.6)',
+            'rgba(255, 228, 196, 0.6)'
+        ],
+        'formal': [
+            'rgba(47, 79, 79, 0.6)',
+            'rgba(105, 105, 105, 0.6)',
+            'rgba(128, 128, 128, 0.6)',
+            'rgba(169, 169, 169, 0.6)',
+            'rgba(192, 192, 192, 0.6)',
+            'rgba(112, 128, 144, 0.6)',
+            'rgba(119, 136, 153, 0.6)'
+        ],
+        'vibrant': [
+            'rgba(255, 0, 0, 0.6)',
+            'rgba(0, 255, 0, 0.6)',
+            'rgba(0, 0, 255, 0.6)',
+            'rgba(255, 255, 0, 0.6)',
+            'rgba(255, 0, 255, 0.6)',
+            'rgba(0, 255, 255, 0.6)',
+            'rgba(255, 128, 0, 0.6)'
+        ],
+        'ocean': [
+            'rgba(0, 119, 190, 0.6)',
+            'rgba(0, 150, 255, 0.6)',
+            'rgba(64, 224, 208, 0.6)',
+            'rgba(0, 206, 209, 0.6)',
+            'rgba(72, 209, 204, 0.6)',
+            'rgba(95, 158, 160, 0.6)',
+            'rgba(176, 196, 222, 0.6)'
+        ]
+    };
+    
+    function getColorPalette(paletteName) {
+        return COLOR_PALETTES[paletteName] || COLOR_PALETTES['default'];
+    }
+
     function updateChartSetting(chartId, setting, value) {
         const chart = chartsData.find(c => c.chart_id === chartId);
         if (chart) {
             chart[setting] = value;
-            // Update preview
+            // If color_palette changed, update chart immediately
+            if (setting === 'color_palette') {
+                updateChartColors(chartId, value);
+            } else {
+                // Update preview for other settings
+                renderChartPreviews();
+            }
+        }
+    }
+    
+    function updateChartColors(chartId, paletteName) {
+        const chart = chartsData.find(c => c.chart_id === chartId);
+        if (!chart) return;
+        
+        const palette = getColorPalette(paletteName);
+        const chartInstance = window[`chart_${chartId}`];
+        
+        if (chartInstance && chartInstance.data && chartInstance.data.datasets) {
+            // Update colors for all datasets
+            chartInstance.data.datasets.forEach((dataset, idx) => {
+                if (chart.chart_type === 'pie' || chart.chart_type === 'doughnut') {
+                    // For pie/doughnut charts, use array of colors (one color per data point)
+                    const dataLength = dataset.data ? dataset.data.length : 0;
+                    dataset.backgroundColor = palette.slice(0, dataLength);
+                } else {
+                    // For other chart types (bar, line, area, etc.), use one color per dataset
+                    // Each dataset gets a different color from the palette
+                    const newColor = palette[idx % palette.length];
+                    dataset.backgroundColor = newColor;
+                    // Update borderColor to match backgroundColor for consistency
+                    if (dataset.borderColor !== 'rgba(255, 255, 255, 1)') {
+                        // For area charts, use a slightly darker border color
+                        dataset.borderColor = chart.chart_type === 'area' ? newColor.replace('0.6', '1') : newColor;
+                    }
+                }
+            });
+            
+            chartInstance.update();
+        } else {
+            // If chart doesn't exist yet, re-render
             renderChartPreviews();
         }
     }
@@ -971,6 +1630,14 @@
         const chart = chartsData.find(c => c.chart_id === chartId);
         if (chart) {
             chart.chart_type = type;
+            // Update icon in header
+            const chartItem = document.querySelector(`[data-chart-id="${chartId}"]`);
+            if (chartItem) {
+                const iconWrapper = chartItem.querySelector('.chart-type-icon');
+                if (iconWrapper) {
+                    iconWrapper.innerHTML = getChartTypeIcon(type);
+                }
+            }
             // Re-render preview
             renderChartPreviews();
         }
@@ -1010,9 +1677,9 @@
     function updateChartOrderBadges() {
         // Update only the badge numbers without changing display_order values
         // This is used when collecting data to show current visual position
-        const items = document.querySelectorAll('.chart-item');
+        const items = document.querySelectorAll('.element-item');
         items.forEach((item, index) => {
-            const badge = item.querySelector('.chart-order-badge');
+            const badge = item.querySelector('.element-order-badge');
             if (badge) {
                 badge.textContent = index + 1;
             }
@@ -1029,8 +1696,8 @@
                 return;
             }
             
-            // Get title from input
-            const titleInput = chartItem.querySelector('.chart-title-input');
+            // Get title from input - use element-title-input for new structure
+            const titleInput = chartItem.querySelector('.element-title-input') || chartItem.querySelector('.chart-title-input');
             if (titleInput) {
                 const newTitle = titleInput.value.trim();
                 if (newTitle) {
@@ -1041,9 +1708,9 @@
                 console.warn(`Title input not found for: ${chart.chart_id}`);
             }
             
-            // Get display_order from number input with class chart-order-input
+            // Get display_order from number input - use element-order-input for new structure
             // Priority: Use the value from input field (user's manual change) over drag & drop position
-            const orderInput = chartItem.querySelector('.chart-order-input');
+            const orderInput = chartItem.querySelector('.element-order-input') || chartItem.querySelector('.chart-order-input');
             if (orderInput) {
                 const orderValue = parseInt(orderInput.value);
                 if (!isNaN(orderValue)) {
@@ -1051,7 +1718,15 @@
                     console.log(`Updated display_order for ${chart.chart_id} from input: ${orderValue}`);
                 }
             } else {
-                console.warn(`Order input not found for: ${chart.chart_id}`);
+                // If no input found, use position from drag & drop
+                const allElements = document.querySelectorAll('.element-item');
+                const elementIndex = Array.from(allElements).indexOf(chartItem);
+                if (elementIndex >= 0) {
+                    chart.display_order = elementIndex;
+                    console.log(`Updated display_order for ${chart.chart_id} from position: ${elementIndex}`);
+                } else {
+                    console.warn(`Order input not found for: ${chart.chart_id}`);
+                }
             }
             
             // Get chart_type from select
@@ -1061,6 +1736,17 @@
                 console.log(`Updated chart_type for ${chart.chart_id}: ${chart.chart_type}`);
             } else {
                 console.warn(`Type select not found for: ${chart.chart_id}`);
+            }
+            
+            // Get color_palette from select
+            const paletteSelect = chartItem.querySelector('.color-palette-select');
+            if (paletteSelect) {
+                chart.color_palette = paletteSelect.value || 'default';
+                console.log(`Updated color_palette for ${chart.chart_id}: ${chart.color_palette}`);
+            } else {
+                console.warn(`Color palette select not found for: ${chart.chart_id}`);
+                // Set default if not found
+                chart.color_palette = chart.color_palette || 'default';
             }
             
             // Get show_labels from checkbox - find by onchange attribute
@@ -1105,6 +1791,18 @@
             } else {
                 console.warn(`Export checkbox not found for: ${chart.chart_id}`);
             }
+            
+            // Get is_visible from checkbox
+            const visibleCheckbox = Array.from(allCheckboxes).find(
+                cb => {
+                    const onchange = cb.getAttribute('onchange');
+                    return onchange && onchange.includes('is_visible');
+                }
+            );
+            if (visibleCheckbox) {
+                chart.is_visible = visibleCheckbox.checked;
+                console.log(`Updated is_visible for ${chart.chart_id}: ${visibleCheckbox.checked}`);
+            }
         });
         
         // Update orders from drag & drop position only if user hasn't manually changed input values
@@ -1112,6 +1810,70 @@
         updateChartOrderBadges();
         
         console.log('Final chartsData:', JSON.stringify(chartsData, null, 2));
+    }
+    
+    function collectAllTableData() {
+        // Collect all table data from DOM inputs before saving
+        console.log('Collecting table data from DOM...');
+        tablesData.forEach(table => {
+            const tableItem = document.querySelector(`[data-table-id="${table.table_id}"]`);
+            if (!tableItem) {
+                console.warn(`Table item not found for: ${table.table_id}`);
+                return;
+            }
+            
+            // Get title from input
+            const titleInput = tableItem.querySelector('.element-title-input');
+            if (titleInput) {
+                const newTitle = titleInput.value.trim();
+                if (newTitle) {
+                    table.title = newTitle;
+                    console.log(`Updated title for ${table.table_id}: ${newTitle}`);
+                }
+            }
+            
+            // Get display_order from number input
+            const orderInput = tableItem.querySelector('.element-order-input');
+            if (orderInput) {
+                const orderValue = parseInt(orderInput.value);
+                if (!isNaN(orderValue)) {
+                    table.display_order = orderValue;
+                    console.log(`Updated display_order for ${table.table_id} from input: ${orderValue}`);
+                }
+            } else {
+                // If no input found, use position from drag & drop
+                const allElements = document.querySelectorAll('.element-item');
+                const elementIndex = Array.from(allElements).indexOf(tableItem);
+                if (elementIndex >= 0) {
+                    table.display_order = elementIndex;
+                    console.log(`Updated display_order for ${table.table_id} from position: ${elementIndex}`);
+                }
+            }
+            
+            // Get checkboxes
+            const allCheckboxes = tableItem.querySelectorAll('input[type="checkbox"]');
+            const visibleCheckbox = Array.from(allCheckboxes).find(
+                cb => {
+                    const onchange = cb.getAttribute('onchange');
+                    return onchange && onchange.includes('is_visible');
+                }
+            );
+            if (visibleCheckbox) {
+                table.is_visible = visibleCheckbox.checked;
+            }
+            
+            const exportCheckbox = Array.from(allCheckboxes).find(
+                cb => {
+                    const onchange = cb.getAttribute('onchange');
+                    return onchange && onchange.includes('allow_excel_export');
+                }
+            );
+            if (exportCheckbox) {
+                table.allow_excel_export = exportCheckbox.checked;
+            }
+        });
+        
+        console.log('Final tablesData:', JSON.stringify(tablesData, null, 2));
     }
 
     async function saveChartSettings(event) {
@@ -1169,6 +1931,124 @@
             statusDiv.innerHTML = '<i class="bi bi-exclamation-circle"></i> خطا در ذخیره: ' + error.message;
             statusDiv.style.display = 'block';
             // Scroll to show the message near the save button
+            setTimeout(() => {
+                statusDiv.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+            }, 100);
+        } finally {
+            // Restore button state
+            saveBtn.disabled = false;
+            saveBtn.innerHTML = originalText;
+        }
+    }
+    
+    async function saveAllSettings(event) {
+        const statusDiv = document.getElementById('chartSaveStatus');
+        const saveBtn = event ? event.target.closest('button') : document.querySelector('button[onclick*="saveAllSettings"]');
+        if (!saveBtn) {
+            console.error('Save button not found');
+            return;
+        }
+        const originalText = saveBtn.innerHTML;
+        
+        // Show loading state
+        saveBtn.disabled = true;
+        saveBtn.innerHTML = '<i class="bi bi-hourglass-split"></i> در حال ذخیره...';
+        statusDiv.style.display = 'none';
+        
+        try {
+            // Collect all data from DOM inputs
+            collectAllChartData();
+            collectAllTableData();
+            
+            // Update display_order from current position in DOM (drag & drop)
+            // This ensures that the order reflects the actual visual position after drag & drop
+            const allElements = document.querySelectorAll('.element-item');
+            allElements.forEach((item, index) => {
+                const chartId = item.getAttribute('data-chart-id');
+                const tableId = item.getAttribute('data-table-id');
+                
+                if (chartId) {
+                    const chart = chartsData.find(c => c.chart_id === chartId);
+                    if (chart) {
+                        // Check if user has manually set a value in the input
+                        const orderInput = item.querySelector('.element-order-input');
+                        if (orderInput && orderInput.value !== '' && !isNaN(parseInt(orderInput.value))) {
+                            // User has manually set a value - use it
+                            const manualValue = parseInt(orderInput.value);
+                            chart.display_order = manualValue;
+                            console.log(`Using manual display_order for ${chartId}: ${manualValue}`);
+                        } else {
+                            // No manual value - use position from drag & drop
+                            chart.display_order = index;
+                            console.log(`Using drag & drop position for ${chartId}: ${index}`);
+                        }
+                    }
+                } else if (tableId) {
+                    const table = tablesData.find(t => t.table_id === tableId);
+                    if (table) {
+                        const orderInput = item.querySelector('.element-order-input');
+                        if (orderInput && orderInput.value !== '' && !isNaN(parseInt(orderInput.value))) {
+                            // User has manually set a value - use it
+                            const manualValue = parseInt(orderInput.value);
+                            table.display_order = manualValue;
+                            console.log(`Using manual display_order for ${tableId}: ${manualValue}`);
+                        } else {
+                            // No manual value - use position from drag & drop
+                            table.display_order = index;
+                            console.log(`Using drag & drop position for ${tableId}: ${index}`);
+                        }
+                    }
+                }
+            });
+            
+            // Sort charts and tables by display_order before sending
+            chartsData.sort((a, b) => (a.display_order || 0) - (b.display_order || 0));
+            tablesData.sort((a, b) => (a.display_order || 0) - (b.display_order || 0));
+            
+            console.log('Final sorted chartsData:', JSON.stringify(chartsData.map(c => ({id: c.chart_id, order: c.display_order, title: c.title})), null, 2));
+            console.log('Final sorted tablesData:', JSON.stringify(tablesData.map(t => ({id: t.table_id, order: t.display_order, title: t.title})), null, 2));
+            
+            const templateName = '{{ template_name|e }}';
+            
+            // Log data before sending
+            console.log('Sending all data to server:');
+            console.log('Charts:', JSON.stringify(chartsData, null, 2));
+            console.log('Tables:', JSON.stringify(tablesData, null, 2));
+            
+            const response = await fetch(`/admin/dashboards/templates/${templateName}/save-settings`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    charts: chartsData,
+                    tables: tablesData
+                })
+            });
+            
+            const data = await response.json();
+            
+            if (data.success) {
+                statusDiv.className = 'save-status alert alert-success';
+                statusDiv.innerHTML = '<i class="bi bi-check-circle"></i> ' + (data.message || 'تمام تنظیمات با موفقیت ذخیره شد');
+                statusDiv.style.display = 'block';
+                // Scroll to show the message
+                setTimeout(() => {
+                    statusDiv.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+                }, 100);
+            } else {
+                statusDiv.className = 'save-status alert alert-danger';
+                statusDiv.innerHTML = '<i class="bi bi-exclamation-circle"></i> ' + (data.message || 'خطا در ذخیره تنظیمات');
+                statusDiv.style.display = 'block';
+                setTimeout(() => {
+                    statusDiv.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+                }, 100);
+            }
+        } catch (error) {
+            console.error('Error saving all settings:', error);
+            statusDiv.className = 'save-status alert alert-danger';
+            statusDiv.innerHTML = '<i class="bi bi-exclamation-circle"></i> خطا در ذخیره: ' + error.message;
+            statusDiv.style.display = 'block';
             setTimeout(() => {
                 statusDiv.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
             }, 100);
@@ -1264,6 +2144,157 @@
         // Show modal
         const modal = new bootstrap.Modal(document.getElementById('versionsModal'));
         modal.show();
+    }
+
+    // Variables for single chart save
+    let pendingChartId = null;
+    let pendingChartData = null;
+    let pendingDiffData = null;
+
+    async function saveSingleChart(chartId) {
+        pendingChartId = chartId;
+        
+        // Collect data for this specific chart
+        const chart = chartsData.find(c => c.chart_id === chartId);
+        if (!chart) {
+            alert('نمودار یافت نشد');
+            return;
+        }
+        
+        // Update chart data from DOM
+        const chartItem = document.querySelector(`[data-chart-id="${chartId}"]`);
+        if (chartItem) {
+            // Update all settings from DOM
+            const isVisibleCheckbox = chartItem.querySelector('input[onchange*="is_visible"]');
+            if (isVisibleCheckbox) chart.is_visible = isVisibleCheckbox.checked;
+            
+            const showLabelsCheckbox = chartItem.querySelector('input[onchange*="show_labels"]');
+            if (showLabelsCheckbox) chart.show_labels = showLabelsCheckbox.checked;
+            
+            const showLegendCheckbox = chartItem.querySelector('input[onchange*="show_legend"]');
+            if (showLegendCheckbox) chart.show_legend = showLegendCheckbox.checked;
+            
+            const allowExportCheckbox = chartItem.querySelector('input[onchange*="allow_export"]');
+            if (allowExportCheckbox) chart.allow_export = allowExportCheckbox.checked;
+            
+            const chartTypeSelect = chartItem.querySelector('select[onchange*="updateChartType"]');
+            if (chartTypeSelect) chart.chart_type = chartTypeSelect.value;
+            
+            const colorPaletteSelect = chartItem.querySelector('select.color-palette-select');
+            if (colorPaletteSelect) chart.color_palette = colorPaletteSelect.value;
+            
+            const orderInput = chartItem.querySelector('.element-order-input');
+            if (orderInput) chart.display_order = parseInt(orderInput.value) || 0;
+        }
+        
+        pendingChartData = chart;
+        
+        // Show loading
+        const saveBtn = chartItem.querySelector('button[onclick*="saveSingleChart"]');
+        const originalText = saveBtn.innerHTML;
+        saveBtn.disabled = true;
+        saveBtn.innerHTML = '<i class="bi bi-hourglass-split"></i> در حال آماده‌سازی...';
+        
+        try {
+            const templateName = '{{ template_name|e }}';
+            
+            // Request diff preview
+            const response = await fetch(`/admin/dashboards/templates/${templateName}/charts/${chartId}/preview`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ chart: chart })
+            });
+            
+            const data = await response.json();
+            
+            if (data.success) {
+                pendingDiffData = data;
+                
+                // Display diff in modal
+                document.getElementById('diffBeforeCode').textContent = data.before_code || 'کد قبل از تغییر یافت نشد';
+                document.getElementById('diffAfterCode').textContent = data.after_code || 'کد بعد از تغییر یافت نشد';
+                
+                // Update modal title
+                document.getElementById('chartDiffModalLabel').innerHTML = 
+                    `<i class="bi bi-code-square"></i> پیش‌نمایش تغییرات نمودار: ${chart.title || chartId}`;
+                
+                // Show modal
+                const modal = new bootstrap.Modal(document.getElementById('chartDiffModal'));
+                modal.show();
+            } else {
+                alert('خطا در دریافت پیش‌نمایش: ' + (data.message || 'خطای نامشخص'));
+            }
+        } catch (error) {
+            alert('خطا: ' + error.message);
+        } finally {
+            saveBtn.disabled = false;
+            saveBtn.innerHTML = originalText;
+        }
+    }
+    
+    async function confirmSaveSingleChart() {
+        if (!pendingChartId || !pendingChartData) {
+            alert('خطا: اطلاعات نمودار یافت نشد');
+            return;
+        }
+        
+        const confirmBtn = document.getElementById('confirmSaveChartBtn');
+        const originalText = confirmBtn.innerHTML;
+        confirmBtn.disabled = true;
+        confirmBtn.innerHTML = '<i class="bi bi-hourglass-split"></i> در حال ذخیره...';
+        
+        try {
+            const templateName = '{{ template_name|e }}';
+            
+            // Save the chart
+            const response = await fetch(`/admin/dashboards/templates/${templateName}/charts/${pendingChartId}/save`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ chart: pendingChartData })
+            });
+            
+            const data = await response.json();
+            
+            if (data.success) {
+                // Close modal
+                const modal = bootstrap.Modal.getInstance(document.getElementById('chartDiffModal'));
+                if (modal) {
+                    modal.hide();
+                }
+                
+                // Show success message
+                const statusDiv = document.getElementById('chartSaveStatus');
+                statusDiv.className = 'save-status alert alert-success';
+                statusDiv.innerHTML = `<i class="bi bi-check-circle"></i> نمودار "${pendingChartData.title || pendingChartId}" با موفقیت ذخیره شد`;
+                statusDiv.style.display = 'block';
+                
+                // Scroll to status
+                setTimeout(() => {
+                    statusDiv.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+                }, 100);
+                
+                // Reload charts to reflect changes
+                setTimeout(() => {
+                    loadVisualElements();
+                }, 1000);
+            } else {
+                alert('خطا در ذخیره: ' + (data.message || 'خطای نامشخص'));
+            }
+        } catch (error) {
+            alert('خطا: ' + error.message);
+        } finally {
+            confirmBtn.disabled = false;
+            confirmBtn.innerHTML = originalText;
+            
+            // Clear pending data
+            pendingChartId = null;
+            pendingChartData = null;
+            pendingDiffData = null;
+        }
     }
 
     async function restoreVersion(versionNumber) {

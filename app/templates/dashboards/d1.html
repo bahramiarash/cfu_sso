@@ -72,7 +72,7 @@ function fetchFacultyDetails(markazName) {
     </div>
     
     <!-- Chart 0: Pie Chart for Sex -->
-    <div class="mb-5">
+    <div class="mb-5" >
         <h4 class="mb-3">تعداد اعضای هیئت علمی به تفکیک جنسیت</h4>
         <canvas id="sextype" class="w-100" style="max-width: 400px; margin: auto;"></canvas>
     </div>
@@ -81,7 +81,7 @@ function fetchFacultyDetails(markazName) {
         <canvas id="facultytype" class="w-100" style="width: 100%; height: 600px;"></canvas>
     </div> -->
     <!-- Chart 3 -->
-    <div class="mb-5">
+    <div class="mb-5" >
         <h4 class="mb-3">تعداد اعضای هیئت علمی به تفکیک گروه آموزشی (گلستان)</h4>
         <canvas id="facultyByEduGroup" style="height: {{ field_labels_edugroup|length * 22 }}px;" class="w-100"></canvas>
     </div>
@@ -141,7 +141,7 @@ const chartFont = {
 
 const ctxMarkaz = document.getElementById('facultyByMarkaz').getContext('2d');
 const markazChart = new Chart(ctxMarkaz, {
-    type: 'bar',
+    type: 'line',
     data: {
         labels: {{ markaz_labels | tojson }},
         datasets: [
@@ -149,7 +149,7 @@ const markazChart = new Chart(ctxMarkaz, {
                 label: 'مرد',
                 data: {{ male_counts | tojson }},
                 backgroundColor: 'rgba(54, 162, 235, 0.7)',
-                borderColor: 'rgba(54, 162, 235, 1)',
+  , fill: true              borderColor: 'rgba(54, 162, 235, 1)',
                 borderWidth: 2
             },
             {
@@ -173,8 +173,12 @@ const markazChart = new Chart(ctxMarkaz, {
         },
         plugins: {
             legend: {
+                display: true,
                 position: 'top',
                 labels: { font: chartFont }
+            },
+            datalabels: {
+                display: true
             }
         },
         scales: {
@@ -262,11 +266,13 @@ setTimeout(() => {
             indexAxis: 'y',
             plugins: {
                 legend: {
+                    display: true,
                     labels: {
                         font: chartFont
                     }
                 },
                 datalabels: {
+                    display: true,
                     anchor: 'start',
                     align: 'right',
                     clamp: true,
@@ -311,7 +317,7 @@ const fieldEduGroupChart = new Chart(ctxFieldEduGroup, {
             label: 'تعداد اعضا',
             data: {{ field_counts_edugroup|tojson }},
             backgroundColor: 'rgba(255, 159, 64, 0.6)',
-            borderColor: 'rgba(255, 159, 64, 1)',
+            borderCo, fill: truelor: 'rgba(255, 159, 64, 1)',
             borderWidth: 1
         }]
     },
@@ -320,11 +326,13 @@ const fieldEduGroupChart = new Chart(ctxFieldEduGroup, {
         indexAxis: 'y',
         plugins: {
             legend: {
+                display: true,
                 labels: {
                     font: chartFont
                 }
             },
             datalabels: {
+                display: true,
                 anchor: 'start',
                 align: 'right',
                 clamp: false,
@@ -442,15 +450,7 @@ const estekhdamChart = new Chart(ctxEstekhdam, {
         datasets: [{
             label: 'تعداد اعضا',
             data: {{ estekhdamtype_counts|tojson }},
-            backgroundColor: [
-                'rgba(255, 99, 132, 0.6)',
-                'rgba(54, 162, 235, 0.6)',
-                'rgba(255, 206, 86, 0.6)',
-                'rgba(75, 192, 192, 0.6)',
-                'rgba(153, 102, 255, 0.6)',
-                'rgba(255, 159, 64, 0.6)',
-                'rgba(201, 203, 207, 0.6)'
-            ],
+            backgroundColor: ['rgba(255, 182, 193, 0.6)', 'rgba(255, 218, 185, 0.6)', 'rgba(221, 160, 221, 0.6)', 'rgba(176, 224, 230, 0.6)', 'rgba(175, 238, 238, 0.6)', 'rgba(144, 238, 144, 0.6)', 'rgba(255, 228, 196, 0.6)'],
             borderColor: 'rgba(255, 255, 255, 1)',
             borderWidth: 1
         }]
@@ -468,16 +468,8 @@ const estekhdamChart = new Chart(ctxEstekhdam, {
                     }
                 }
             },
-            tooltip: {
-                callbacks: {
-                    label: function (context) {
-                        const label = context.dataset.label || '';
-                        const value = context.parsed.y;
-                        return `${label}: ${value} نفر`;
-                    }
-                }
-            },
             datalabels: {
+                display: true,
                 anchor: 'start',
                 align: 'end',   // Pushes inside bar
                 offset: 10,       // Adjust distance from top
@@ -531,15 +523,7 @@ const estekhdamGolestanChart = new Chart(ctxEstekhdamGolestan, {
         datasets: [{
             label: 'تعداد اعضا',
             data: {{ estekhdamtypeGolestan_counts|tojson }},
-            backgroundColor: [
-                'rgba(255, 99, 132, 0.6)',
-                'rgba(54, 162, 235, 0.6)',
-                'rgba(255, 206, 86, 0.6)',
-                'rgba(75, 192, 192, 0.6)',
-                'rgba(153, 102, 255, 0.6)',
-                'rgba(255, 159, 64, 0.6)',
-                'rgba(201, 203, 207, 0.6)'
-            ],
+            backgroundColor: ['rgba(255, 99, 132, 0.6)', 'rgba(54, 162, 235, 0.6)', 'rgba(255, 206, 86, 0.6)', 'rgba(75, 192, 192, 0.6)', 'rgba(153, 102, 255, 0.6)', 'rgba(255, 159, 64, 0.6)', 'rgba(201, 203, 207, 0.6)'],
             borderColor: 'rgba(255, 255, 255, 1)',
             borderWidth: 1
         }]
@@ -557,16 +541,8 @@ const estekhdamGolestanChart = new Chart(ctxEstekhdamGolestan, {
                     }
                 }
             },
-            tooltip: {
-                callbacks: {
-                    label: function (context) {
-                        const label = context.dataset.label || '';
-                        const value = context.parsed.y;
-                        return `${label}: ${value} نفر`;
-                    }
-                }
-            },
             datalabels: {
+                display: true,
                 anchor: 'start',
                 align: 'center',   // put inside top
                 offset: 20,
@@ -579,6 +555,15 @@ const estekhdamGolestanChart = new Chart(ctxEstekhdamGolestan, {
                 },
                 formatter: function (value) {
                     return value;
+                }
+            },
+            tooltip: {
+                callbacks: {
+                    label: function (context) {
+                        const label = context.dataset.label || '';
+                        const value = context.parsed.y;
+                        return `${label}: ${value} نفر`;
+                    }
                 }
             }
         },
@@ -614,21 +599,13 @@ setTimeout(() => {
 
     const ctxGrade = document.getElementById('facultyByGrade').getContext('2d');
     const gradeChart = new Chart(ctxGrade, {
-        type: 'pie',
+        type: 'doughnut',
         data: {
             labels: {{ grade_labels|tojson }},
             datasets: [{
                 label: 'تعداد اعضا',
                 data: {{ grade_counts|tojson }},
-                backgroundColor: [
-                    'rgba(255, 99, 132, 0.6)',
-                    'rgba(54, 162, 235, 0.6)',
-                    'rgba(255, 206, 86, 0.6)',
-                    'rgba(75, 192, 192, 0.6)',
-                    'rgba(153, 102, 255, 0.6)',
-                    'rgba(255, 159, 64, 0.6)',
-                    'rgba(201, 203, 207, 0.6)'
-                ],
+                backgroundColor: ['rgba(0, 119, 190, 0.6)', 'rgba(0, 150, 255, 0.6)', 'rgba(64, 224, 208, 0.6)', 'rgba(0, 206, 209, 0.6)', 'rgba(72, 209, 204, 0.6)', 'rgba(95, 158, 160, 0.6)', 'rgba(176, 196, 222, 0.6)'],
                 borderColor: 'rgba(255, 255, 255, 1)',
                 borderWidth: 1
             }]
@@ -637,6 +614,7 @@ setTimeout(() => {
             responsive: true,
             plugins: {
                 legend: {
+                    display: true,
                     position: 'bottom',
                     align: 'end',
                     labels: {
@@ -645,21 +623,24 @@ setTimeout(() => {
                             size: 12
                         },
                         generateLabels: function(chart) {
-                        const data = chart.data;
-                        const dataset = data.datasets[0];
-                        return data.labels.map((label, i) => {
-                            const value = dataset.data[i];
-                            return {
-                                text: `(${value}) ${label}`,
-                                fillStyle: dataset.backgroundColor[i],
-                                strokeStyle: dataset.borderColor,
-                                lineWidth: dataset.borderWidth,
-                                hidden: !chart.getDataVisibility(i),
-                                index: i
-                            };
-                        });
+                            const data = chart.data;
+                            const dataset = data.datasets[0];
+                            return data.labels.map((label, i) => {
+                                const value = dataset.data[i];
+                                return {
+                                    text: `(${value}) ${label}`,
+                                    fillStyle: dataset.backgroundColor[i],
+                                    strokeStyle: dataset.borderColor,
+                                    lineWidth: dataset.borderWidth,
+                                    hidden: !chart.getDataVisibility(i),
+                                    index: i
+                                };
+                            });
+                        }
                     }
-                    }
+                },
+                datalabels: {
+                    display: true
                 },
                 tooltip: {
                     callbacks: {
@@ -689,15 +670,7 @@ const madrakChart = new Chart(ctxMadrak, {
         datasets: [{
             label: 'تعداد اعضا',
             data: {{ madrak_counts|tojson }},
-            backgroundColor: [
-                'rgba(255, 99, 132, 0.6)',
-                'rgba(54, 162, 235, 0.6)',
-                'rgba(255, 206, 86, 0.6)',
-                'rgba(75, 192, 192, 0.6)',
-                'rgba(153, 102, 255, 0.6)',
-                'rgba(255, 159, 64, 0.6)',
-                'rgba(201, 203, 207, 0.6)'
-            ],
+            backgroundColor: ['rgba(0, 119, 190, 0.6)', 'rgba(0, 150, 255, 0.6)', 'rgba(64, 224, 208, 0.6)', 'rgba(0, 206, 209, 0.6)', 'rgba(72, 209, 204, 0.6)', 'rgba(95, 158, 160, 0.6)', 'rgba(176, 196, 222, 0.6)'],
             borderColor: 'rgba(255, 255, 255, 1)',
             borderWidth: 1
         }]
@@ -715,16 +688,8 @@ const madrakChart = new Chart(ctxMadrak, {
                     }
                 }
             },
-            tooltip: {
-                callbacks: {
-                    label: function (context) {
-                        const label = context.dataset.label || '';
-                        const value = context.parsed.y;
-                        return `${label}: ${value} نفر`;
-                    }
-                }
-            },
             datalabels: {
+                display: true,
                 anchor: 'start',
                 align: 'center',   // place inside at top
                 offset: 20,
@@ -736,7 +701,16 @@ const madrakChart = new Chart(ctxMadrak, {
                     weight: 'bold'
                 },
                 formatter: function (value) {
-                    return value ;
+                    return value;
+                }
+            },
+            tooltip: {
+                callbacks: {
+                    label: function (context) {
+                        const label = context.dataset.label || '';
+                        const value = context.parsed.y;
+                        return `${label}: ${value} نفر`;
+                    }
                 }
             }
         },
@@ -775,21 +749,13 @@ setTimeout(() => {
     // Chart 0: Pie Chart - Faculty by Sex Type
     const ctxsex = document.getElementById('sextype').getContext('2d');
     const sexChart = new Chart(ctxsex, {
-        type: 'pie',
+        type: 'doughnut',
         data: {
             labels: {{ sex_labels|tojson }},
             datasets: [{
                 label: 'تعداد اعضا',
                 data: {{ sex_counts|tojson }},
-                backgroundColor: [
-                    'rgba(255, 99, 132, 0.6)',
-                    'rgba(54, 162, 235, 0.6)',
-                    'rgba(255, 206, 86, 0.6)',
-                    'rgba(75, 192, 192, 0.6)',
-                    'rgba(153, 102, 255, 0.6)',
-                    'rgba(255, 159, 64, 0.6)',
-                    'rgba(201, 203, 207, 0.6)'
-                ],
+                backgroundColor: ['rgba(255, 99, 71, 0.6)', 'rgba(255, 140, 0, 0.6)', 'rgba(255, 165, 0, 0.6)', 'rgba(255, 20, 147, 0.6)', 'rgba(220, 20, 60, 0.6)', 'rgba(255, 69, 0, 0.6)', 'rgba(255, 105, 180, 0.6)'],
                 borderColor: 'rgba(255, 255, 255, 1)',
                 borderWidth: 1
             }]
@@ -798,6 +764,7 @@ setTimeout(() => {
             responsive: true,
             plugins: {
                 legend: {
+                    display: true,
                     position: 'left',
                     align: 'center',
                     labels: {
@@ -806,21 +773,24 @@ setTimeout(() => {
                             size: 12
                         },
                         generateLabels: function(chart) {
-                        const data = chart.data;
-                        const dataset = data.datasets[0];
-                        return data.labels.map((label, i) => {
-                            const value = dataset.data[i];
-                            return {
-                                text: `(${value}) ${label}`,
-                                fillStyle: dataset.backgroundColor[i],
-                                strokeStyle: dataset.borderColor,
-                                lineWidth: dataset.borderWidth,
-                                hidden: !chart.getDataVisibility(i),
-                                index: i
-                            };
-                        });
+                            const data = chart.data;
+                            const dataset = data.datasets[0];
+                            return data.labels.map((label, i) => {
+                                const value = dataset.data[i];
+                                return {
+                                    text: `(${value}) ${label}`,
+                                    fillStyle: dataset.backgroundColor[i],
+                                    strokeStyle: dataset.borderColor,
+                                    lineWidth: dataset.borderWidth,
+                                    hidden: !chart.getDataVisibility(i),
+                                    index: i
+                                };
+                            });
+                        }
                     }
-                    }
+                },
+                datalabels: {
+                    display: true
                 },
                 tooltip: {
                     callbacks: {
@@ -842,72 +812,6 @@ setTimeout(() => {
 }, 200);
 
 
-/*const ctxfacultytype = document.getElementById('facultytype').getContext('2d');
-new Chart(ctxfacultytype, {
-    type: 'bar',
-    data: {
-        labels: {{ facultytype_labels|tojson }},
-        datasets: [{
-            label: 'تعداد اعضا',
-            data: {{ facultytype_counts|tojson }},
-            backgroundColor: [
-                'rgba(255, 99, 132, 0.6)',
-                'rgba(54, 162, 235, 0.6)',
-                'rgba(255, 206, 86, 0.6)',
-                'rgba(75, 192, 192, 0.6)',
-                'rgba(153, 102, 255, 0.6)',
-                'rgba(255, 159, 64, 0.6)',
-                'rgba(201, 203, 207, 0.6)'
-            ],
-            borderColor: 'rgba(255, 255, 255, 1)',
-            borderWidth: 1
-        }]
-    },
-    options: {
-        responsive: true,
-        plugins: {
-            legend: {
-                display: true,
-                position: 'top',
-                labels: {
-                    font: {
-                        family: 'Vazir',
-                        size: 12
-                    }
-                }
-            },
-            tooltip: {
-                callbacks: {
-                    label: function (context) {
-                        const label = context.dataset.label || '';
-                        const value = context.parsed.y;
-                        return `${label}: ${value} نفر`;
-                    }
-                }
-            }
-        },
-        scales: {
-            x: {
-                ticks: {
-                    font: {
-                        family: 'Vazir'
-                    }
-                }
-            },
-            y: {
-                beginAtZero: true,
-                title: {
-                    display: true,
-                    text: 'تعداد',
-                    font: {
-                        family: 'Vazir'
-                    }
-                }
-            }
-        }
-    }
-});
-*/
 </script>
 
 <script>
@@ -943,7 +847,7 @@ new Chart(ctx, {
         cutout: '50%',
         plugins: {
             legend: {
-                display: false // حذف legend
+                display: true // حذف legend
             },
             tooltip: {
                 callbacks: {

@@ -20,7 +20,612 @@ from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
+# Color palettes for charts
+COLOR_PALETTES = {
+    'default': {
+        'name': 'پیش‌فرض',
+        'colors': [
+            'rgba(255, 99, 132, 0.6)',
+            'rgba(54, 162, 235, 0.6)',
+            'rgba(255, 206, 86, 0.6)',
+            'rgba(75, 192, 192, 0.6)',
+            'rgba(153, 102, 255, 0.6)',
+            'rgba(255, 159, 64, 0.6)',
+            'rgba(201, 203, 207, 0.6)'
+        ]
+    },
+    'warm': {
+        'name': 'گرم',
+        'colors': [
+            'rgba(255, 99, 71, 0.6)',   # Tomato
+            'rgba(255, 140, 0, 0.6)',   # Dark Orange
+            'rgba(255, 165, 0, 0.6)',   # Orange
+            'rgba(255, 20, 147, 0.6)',  # Deep Pink
+            'rgba(220, 20, 60, 0.6)',   # Crimson
+            'rgba(255, 69, 0, 0.6)',    # Red Orange
+            'rgba(255, 105, 180, 0.6)'  # Hot Pink
+        ]
+    },
+    'cool': {
+        'name': 'سرد',
+        'colors': [
+            'rgba(70, 130, 180, 0.6)',  # Steel Blue
+            'rgba(100, 149, 237, 0.6)', # Cornflower Blue
+            'rgba(65, 105, 225, 0.6)',   # Royal Blue
+            'rgba(30, 144, 255, 0.6)',   # Dodger Blue
+            'rgba(0, 191, 255, 0.6)',    # Deep Sky Blue
+            'rgba(72, 209, 204, 0.6)',   # Medium Turquoise
+            'rgba(32, 178, 170, 0.6)'    # Light Sea Green
+        ]
+    },
+    'pastel': {
+        'name': 'پاستیلی',
+        'colors': [
+            'rgba(255, 182, 193, 0.6)',  # Light Pink
+            'rgba(255, 218, 185, 0.6)',  # Peach Puff
+            'rgba(221, 160, 221, 0.6)',  # Plum
+            'rgba(176, 224, 230, 0.6)',  # Powder Blue
+            'rgba(175, 238, 238, 0.6)',  # Pale Turquoise
+            'rgba(144, 238, 144, 0.6)',   # Light Green
+            'rgba(255, 228, 196, 0.6)'   # Bisque
+        ]
+    },
+    'formal': {
+        'name': 'رسمی',
+        'colors': [
+            'rgba(47, 79, 79, 0.6)',    # Dark Slate Gray
+            'rgba(105, 105, 105, 0.6)',  # Dim Gray
+            'rgba(128, 128, 128, 0.6)',  # Gray
+            'rgba(169, 169, 169, 0.6)',  # Dark Gray
+            'rgba(192, 192, 192, 0.6)',  # Silver
+            'rgba(112, 128, 144, 0.6)',  # Slate Gray
+            'rgba(119, 136, 153, 0.6)'   # Light Slate Gray
+        ]
+    },
+    'vibrant': {
+        'name': 'زنده',
+        'colors': [
+            'rgba(255, 0, 0, 0.6)',      # Red
+            'rgba(0, 255, 0, 0.6)',      # Lime
+            'rgba(0, 0, 255, 0.6)',      # Blue
+            'rgba(255, 255, 0, 0.6)',    # Yellow
+            'rgba(255, 0, 255, 0.6)',    # Magenta
+            'rgba(0, 255, 255, 0.6)',    # Cyan
+            'rgba(255, 128, 0, 0.6)'     # Orange
+        ]
+    },
+    'ocean': {
+        'name': 'اقیانوسی',
+        'colors': [
+            'rgba(0, 119, 190, 0.6)',    # Deep Blue
+            'rgba(0, 150, 255, 0.6)',    # Bright Blue
+            'rgba(64, 224, 208, 0.6)',   # Turquoise
+            'rgba(0, 206, 209, 0.6)',    # Dark Turquoise
+            'rgba(72, 209, 204, 0.6)',   # Medium Turquoise
+            'rgba(95, 158, 160, 0.6)',   # Cadet Blue
+            'rgba(176, 196, 222, 0.6)'   # Light Steel Blue
+        ]
+    }
+}
+
+def get_color_palette(palette_name='default'):
+    """Get color palette by name, return default if not found"""
+    return COLOR_PALETTES.get(palette_name, COLOR_PALETTES['default'])
+
 # Helper function to apply chart configurations to HTML template
+def validate_html(content: str) -> list:
+    """Validate HTML code and return list of errors"""
+    errors = []
+    import re
+    
+    try:
+        # Remove HTML comments first
+        content_no_comments = re.sub(r'<!--.*?-->', '', content, flags=re.DOTALL)
+        
+        # Remove content inside <script> tags (we'll validate JS separately)
+        script_pattern = r'<script[^>]*>.*?</script>'
+        content_no_scripts = re.sub(script_pattern, '', content_no_comments, flags=re.DOTALL | re.IGNORECASE)
+        
+        # Remove content inside <style> tags (we'll validate CSS separately)
+        style_pattern = r'<style[^>]*>.*?</style>'
+        content_no_styles = re.sub(style_pattern, '', content_no_scripts, flags=re.DOTALL | re.IGNORECASE)
+        
+        # Remove Jinja2 template syntax blocks ({% ... %}, {{ ... }}, {# ... #})
+        jinja_blocks = r'\{[%#]?[^}]*[%#]?\}'
+        content_clean = re.sub(jinja_blocks, '', content_no_styles, flags=re.DOTALL)
+        
+        # Check for malformed tags first (tags without closing >)
+        # Look for <tag that doesn't have > before newline or end of content
+        lines = content_clean.split('\n')
+        for line_idx, line in enumerate(lines):
+            # Find all < that might be start of tags
+            pos = 0
+            while pos < len(line):
+                tag_start = line.find('<', pos)
+                if tag_start == -1:
+                    break
+                
+                # Check if this looks like a tag (starts with letter after <)
+                if tag_start + 1 < len(line) and line[tag_start + 1].isalpha():
+                    # Find where this tag should end
+                    tag_end = line.find('>', tag_start)
+                    if tag_end == -1:
+                        # Tag doesn't close on this line - it's malformed
+                        tag_match = re.search(r'<([a-zA-Z][a-zA-Z0-9]*)', line[tag_start:])
+                        if tag_match:
+                            tag_name = tag_match.group(1)
+                            # Check if it's not a self-closing tag pattern
+                            if not line[tag_start:].strip().endswith('/>'):
+                                errors.append({
+                                    'line': line_idx + 1,
+                                    'message': f'تگ ناقص: <{tag_name}> (نشان > گم شده)',
+                                    'suggestion': f'تگ <{tag_name}> را کامل کنید و نشان > را اضافه کنید: <{tag_name} ...>'
+                                })
+                        pos = len(line)
+                    else:
+                        pos = tag_end + 1
+                else:
+                    pos = tag_start + 1
+        
+        # Check for invalid tag names (tags starting with numbers or special chars, but not comments or doctype)
+        invalid_tag_pattern = r'<(?![!/?])([^a-zA-Z/!][^>]*)>'
+        for match in re.finditer(invalid_tag_pattern, content_clean):
+            # Skip if it's a valid comment or doctype
+            tag_content = match.group(0)
+            if tag_content.startswith('<!--') or tag_content.startswith('<!DOCTYPE'):
+                continue
+            line_num = content[:match.start()].count('\n') + 1
+            errors.append({
+                'line': line_num,
+                'message': f'نام تگ نامعتبر: {tag_content[:50]}',
+                'suggestion': 'نام تگ باید با حرف انگلیسی شروع شود: <div>, <span>, <p> و غیره'
+            })
+        
+        # Check for tags with spaces before closing bracket (common typo: <div > instead of <div>)
+        space_before_close_pattern = r'<([a-zA-Z][a-zA-Z0-9]*)\b[^>]*\s+>'
+        for match in re.finditer(space_before_close_pattern, content_clean):
+            tag_name = match.group(1)
+            tag_full = match.group(0)
+            # Only flag if there's a space right before >
+            if tag_full.rstrip().endswith(' >'):
+                line_num = content[:match.start()].count('\n') + 1
+                errors.append({
+                    'line': line_num,
+                    'message': f'فاصله اضافی قبل از > در تگ <{tag_name}>',
+                    'suggestion': f'فاصله اضافی را حذف کنید: <{tag_name} ...> (بدون فاصله قبل از >)'
+                })
+        
+        # Now check for unclosed tags in cleaned content
+        open_tags = []
+        tag_pattern = r'<(/?)([a-zA-Z][a-zA-Z0-9]*)\b[^>]*>'
+        
+        # Self-closing tags that don't need closing
+        self_closing_tags = {
+            'br', 'hr', 'img', 'input', 'meta', 'link', 'area', 'base', 'col', 
+            'embed', 'source', 'track', 'wbr', 'param', 'keygen', 'menuitem'
+        }
+        
+        for match in re.finditer(tag_pattern, content_clean):
+            is_closing = match.group(1) == '/'
+            tag_name = match.group(2).lower()
+            
+            # Check if it's a self-closing tag (either in list or has />)
+            tag_full = match.group(0)
+            is_self_closing = tag_name in self_closing_tags or tag_full.endswith('/>')
+            
+            if is_self_closing:
+                continue
+            
+            if is_closing:
+                # Find matching opening tag
+                if open_tags and open_tags[-1] == tag_name:
+                    open_tags.pop()
+                elif tag_name in [t for t in open_tags]:
+                    # Mismatched closing tag - find line number in original content
+                    line_num = content[:match.start()].count('\n') + 1
+                    errors.append({
+                        'line': line_num,
+                        'message': f'تگ بسته نامطابق: </{tag_name}>',
+                        'suggestion': f'مطمئن شوید که تگ <{tag_name}> قبل از این تگ بسته شده است.'
+                    })
+            else:
+                open_tags.append(tag_name)
+        
+        # Check for remaining unclosed tags (but ignore common template tags)
+        # Filter out tags that are commonly used in templates and might be intentionally left open
+        template_tags = {'extends', 'block', 'endblock', 'if', 'endif', 'for', 'endfor', 'macro', 'endmacro'}
+        
+        for tag in open_tags:
+            if tag not in template_tags:
+                # Try to find where this tag was opened in original content
+                tag_open_pattern = rf'<{re.escape(tag)}\b[^>]*>'
+                matches = list(re.finditer(tag_open_pattern, content_clean, re.IGNORECASE))
+                if matches:
+                    last_match = matches[-1]
+                    line_num = content[:last_match.start()].count('\n') + 1
+                    errors.append({
+                        'line': line_num,
+                        'message': f'تگ باز نشده: <{tag}>',
+                        'suggestion': f'تگ <{tag}> را ببندید: </{tag}>'
+                    })
+                else:
+                    errors.append({
+                        'line': None,
+                        'message': f'تگ باز نشده: <{tag}>',
+                        'suggestion': f'تگ <{tag}> را ببندید: </{tag}>'
+                    })
+        
+        # Check for common HTML errors in original content (not cleaned)
+        # Missing closing quotes in attributes
+        # This is a more careful check - look for = followed by quote but no closing quote on same line
+        attr_pattern = r'=\s*["\']([^"\']*?)(?:\n|$)'
+        for match in re.finditer(attr_pattern, content, re.MULTILINE):
+            attr_value = match.group(1)
+            # If the value doesn't end with a quote and the line doesn't continue, it's an error
+            if not attr_value.endswith('"') and not attr_value.endswith("'"):
+                # Check if this is actually inside a script or style tag
+                pos = match.start()
+                before_pos = content[:pos]
+                # Count script and style tags before this position
+                script_before = len(re.findall(r'<script[^>]*>', before_pos, re.IGNORECASE))
+                script_close_before = len(re.findall(r'</script>', before_pos, re.IGNORECASE))
+                style_before = len(re.findall(r'<style[^>]*>', before_pos, re.IGNORECASE))
+                style_close_before = len(re.findall(r'</style>', before_pos, re.IGNORECASE))
+                
+                # Only report if we're not inside a script or style tag
+                if script_before == script_close_before and style_before == style_close_before:
+                    line_num = content[:match.start()].count('\n') + 1
+                    errors.append({
+                        'line': line_num,
+                        'message': 'نقل قول بسته نشده در attribute',
+                        'suggestion': 'مطمئن شوید که تمام attribute ها نقل قول بسته دارند: attribute="value"'
+                    })
+        
+    except Exception as e:
+        errors.append({
+            'line': None,
+            'message': f'خطا در بررسی HTML: {str(e)}',
+            'suggestion': None
+        })
+    
+    return errors
+
+
+def validate_css(content: str) -> list:
+    """Validate CSS code and return list of errors"""
+    errors = []
+    import re
+    
+    try:
+        # Extract CSS from style tags and inline styles
+        css_pattern = r'<style[^>]*>(.*?)</style>'
+        style_matches = re.finditer(css_pattern, content, re.DOTALL | re.IGNORECASE)
+        
+        css_content = ''
+        for match in style_matches:
+            css_content += match.group(1) + '\n'
+        
+        # Also extract inline styles
+        inline_style_pattern = r'style\s*=\s*["\']([^"\']*)["\']'
+        inline_matches = re.finditer(inline_style_pattern, content, re.IGNORECASE)
+        for match in inline_matches:
+            css_content += match.group(1) + '\n'
+        
+        if not css_content.strip():
+            return errors  # No CSS to validate
+        
+        # Check for unclosed braces
+        brace_count = 0
+        lines = css_content.split('\n')
+        for i, line in enumerate(lines):
+            brace_count += line.count('{')
+            brace_count -= line.count('}')
+            
+            if brace_count < 0:
+                errors.append({
+                    'line': i + 1,
+                    'message': 'بریس بسته اضافی }',
+                    'suggestion': 'بریس اضافی را حذف کنید یا بریس باز { را اضافه کنید.'
+                })
+        
+        if brace_count > 0:
+            errors.append({
+                'line': None,
+                'message': f'{brace_count} بریس باز بسته نشده',
+                'suggestion': 'تمام بریس‌های باز { را ببندید: }'
+            })
+        
+        # Check for common CSS errors
+        # Missing semicolons (basic check)
+        selector_pattern = r'([^{]+)\{([^}]+)\}'
+        for match in re.finditer(selector_pattern, css_content):
+            properties = match.group(2)
+            # Check if last property has semicolon (excluding whitespace and closing brace)
+            props = [p.strip() for p in properties.split(';') if p.strip()]
+            if props:
+                last_prop = props[-1]
+                if not last_prop.endswith(';') and ':' in last_prop:
+                    # This might be intentional, but we'll flag it
+                    line_num = css_content[:match.start()].count('\n') + 1
+                    errors.append({
+                        'line': line_num,
+                        'message': 'نقطه‌ویرگول در انتهای property ممکن است گم شده باشد',
+                        'suggestion': 'مطمئن شوید که تمام property ها با ; تمام می‌شوند: property: value;'
+                    })
+        
+        # Check for invalid property names (basic)
+        invalid_props = re.finditer(r'([a-zA-Z-]+)\s*:\s*[^;}]*(?:;|})', css_content)
+        for match in invalid_props:
+            prop_name = match.group(1).strip()
+            # Common typos
+            typos = {
+                'backgound': 'background',
+                'backgroun': 'background',
+                'widht': 'width',
+                'heigth': 'height',
+                'colr': 'color',
+                'font-szie': 'font-size',
+                'margn': 'margin',
+                'paddng': 'padding'
+            }
+            if prop_name.lower() in typos:
+                line_num = css_content[:match.start()].count('\n') + 1
+                errors.append({
+                    'line': line_num,
+                    'message': f'نام property اشتباه: {prop_name}',
+                    'suggestion': f'احتمالاً منظور شما {typos[prop_name.lower()]} بوده است.'
+                })
+        
+    except Exception as e:
+        errors.append({
+            'line': None,
+            'message': f'خطا در بررسی CSS: {str(e)}',
+            'suggestion': None
+        })
+    
+    return errors
+
+
+def validate_javascript(content: str) -> list:
+    """Validate JavaScript code and return list of errors"""
+    errors = []
+    import re
+    
+    try:
+        # First check for unclosed script tags
+        script_open_pattern = r'<script[^>]*>'
+        script_close_pattern = r'</script>'
+        
+        script_opens = list(re.finditer(script_open_pattern, content, re.IGNORECASE))
+        script_closes = list(re.finditer(script_close_pattern, content, re.IGNORECASE))
+        
+        # Check for mismatched script tags
+        open_count = 0
+        for script_open in script_opens:
+            # Check if this script has src attribute (external script, might not have closing tag in content)
+            script_tag = content[script_open.start():script_open.end() + 100]
+            if 'src=' not in script_tag.lower():
+                open_count += 1
+        
+        close_count = len(script_closes)
+        
+        if open_count > close_count:
+            # Find the unclosed script tag
+            for i, script_open in enumerate(script_opens):
+                script_tag = content[script_open.start():script_open.end() + 100]
+                if 'src=' not in script_tag.lower():
+                    # Check if there's a closing tag after this
+                    has_close = False
+                    for script_close in script_closes:
+                        if script_close.start() > script_open.end():
+                            has_close = True
+                            break
+                    if not has_close:
+                        line_num = content[:script_open.start()].count('\n') + 1
+                        errors.append({
+                            'line': line_num,
+                            'message': 'تگ <script> بسته نشده',
+                            'suggestion': 'تگ <script> را ببندید: </script>'
+                        })
+        
+        # Extract JavaScript from script tags
+        script_pattern = r'<script[^>]*>(.*?)</script>'
+        script_matches = re.finditer(script_pattern, content, re.DOTALL | re.IGNORECASE)
+        
+        js_content = ''
+        script_starts = []
+        for match in script_matches:
+            script_content = match.group(1)
+            # Skip if it's an external script (has src attribute)
+            script_tag = content[match.start():match.start() + 200]
+            if 'src=' in script_tag.lower():
+                continue
+            
+            # Store where this script starts in original content
+            script_starts.append(content[:match.start()].count('\n') + 1)
+            js_content += script_content + '\n'
+        
+        if not js_content.strip():
+            return errors  # No JS to validate
+        
+        # Check for unclosed braces
+        brace_count = 0
+        paren_count = 0
+        bracket_count = 0
+        lines = js_content.split('\n')
+        
+        for i, line in enumerate(lines):
+            # Count braces, parentheses, brackets
+            brace_count += line.count('{')
+            brace_count -= line.count('}')
+            paren_count += line.count('(')
+            paren_count -= line.count(')')
+            bracket_count += line.count('[')
+            bracket_count -= line.count(']')
+            
+            if brace_count < 0:
+                line_num = script_starts[0] + i if script_starts else i + 1
+                errors.append({
+                    'line': line_num,
+                    'message': 'بریس بسته اضافی }',
+                    'suggestion': 'بریس اضافی را حذف کنید یا بریس باز { را اضافه کنید.'
+                })
+            if paren_count < 0:
+                line_num = script_starts[0] + i if script_starts else i + 1
+                errors.append({
+                    'line': line_num,
+                    'message': 'پرانتز بسته اضافی )',
+                    'suggestion': 'پرانتز اضافی را حذف کنید یا پرانتز باز ( را اضافه کنید.'
+                })
+            if bracket_count < 0:
+                line_num = script_starts[0] + i if script_starts else i + 1
+                errors.append({
+                    'line': line_num,
+                    'message': 'براکت بسته اضافی ]',
+                    'suggestion': 'براکت اضافی را حذف کنید یا براکت باز [ را اضافه کنید.'
+                })
+        
+        if brace_count > 0:
+            errors.append({
+                'line': None,
+                'message': f'{brace_count} بریس باز بسته نشده',
+                'suggestion': 'تمام بریس‌های باز { را ببندید: }'
+            })
+        if paren_count > 0:
+            errors.append({
+                'line': None,
+                'message': f'{paren_count} پرانتز باز بسته نشده',
+                'suggestion': 'تمام پرانتزهای باز ( را ببندید: )'
+            })
+        if bracket_count > 0:
+            errors.append({
+                'line': None,
+                'message': f'{bracket_count} براکت باز بسته نشده',
+                'suggestion': 'تمام براکت‌های باز [ را ببندید: ]'
+            })
+        
+        # Check for common JS errors using regex
+        # Missing semicolons (optional but good practice)
+        # Check for common typos
+        common_typos = {
+            'fucntion': 'function',
+            'funtion': 'function',
+            'fucnction': 'function',
+            'retun': 'return',
+            'retrun': 'return',
+            'varibale': 'variable',
+            'consol': 'console',
+            'docuemnt': 'document',
+            'getElemenById': 'getElementById',
+            'getElemenByClass': 'getElementsByClassName',
+            'addEventListner': 'addEventListener'
+        }
+        
+        for typo, correct in common_typos.items():
+            typo_pattern = r'\b' + re.escape(typo) + r'\b'
+            for match in re.finditer(typo_pattern, js_content, re.IGNORECASE):
+                line_num = js_content[:match.start()].count('\n') + 1
+                if script_starts:
+                    line_num = script_starts[0] + line_num - 1
+                errors.append({
+                    'line': line_num,
+                    'message': f'اشتباه تایپی: {match.group(0)}',
+                    'suggestion': f'احتمالاً منظور شما {correct} بوده است.'
+                })
+        
+        # Check for undefined variables (basic check - look for common patterns)
+        # This is a simple heuristic, not a full parser
+        var_pattern = r'\b(var|let|const)\s+([a-zA-Z_$][a-zA-Z0-9_$]*)\s*='
+        declared_vars = set()
+        for match in re.finditer(var_pattern, js_content):
+            declared_vars.add(match.group(2))
+        
+        # Check for common undefined references
+        undefined_patterns = [
+            (r'\bconsole\.log\s*\(', 'console.log'),
+            (r'\bdocument\.', 'document'),
+            (r'\bwindow\.', 'window'),
+        ]
+        
+        # Check for common JavaScript syntax errors
+        # Check for malformed property assignments (like "borderCo, fill: truelor:")
+        malformed_prop_pattern = r'([a-zA-Z_$][a-zA-Z0-9_$]*)\s*,\s*([a-zA-Z_$][a-zA-Z0-9_$]*)\s*:\s*([^,}]+)'
+        for match in re.finditer(malformed_prop_pattern, js_content):
+            prop1 = match.group(1)
+            prop2 = match.group(2)
+            value = match.group(3).strip()
+            # Check if this looks like a typo (property name cut off and continued)
+            if len(prop1) < 8 and prop2 in ['fill', 'color', 'width', 'height', 'size']:
+                # Find line number in original content
+                match_pos = match.start()
+                # Find which script this belongs to
+                line_offset = 0
+                for i, script_start in enumerate(script_starts):
+                    if i < len(script_starts) - 1:
+                        next_start = script_starts[i + 1] if i + 1 < len(script_starts) else len(content)
+                    else:
+                        next_start = len(content)
+                    # This is approximate - we'd need to track exact positions
+                    pass
+                
+                # Try to find the line in js_content
+                line_in_js = js_content[:match_pos].count('\n') + 1
+                if script_starts:
+                    # Approximate line number
+                    line_num = script_starts[0] + line_in_js - 1
+                else:
+                    line_num = line_in_js
+                
+                errors.append({
+                    'line': line_num,
+                    'message': f'خطای syntax: {prop1}, {prop2}: {value[:30]}',
+                    'suggestion': f'احتمالاً {prop1} ناقص است. بررسی کنید که آیا {prop1}Color یا {prop1}Width و غیره منظور بوده است.'
+                })
+        
+        # Check for common typos in property names
+        common_js_typos = {
+            'borderCo': 'borderColor',
+            'backgound': 'background',
+            'backgroun': 'background',
+            'widht': 'width',
+            'heigth': 'height',
+            'colr': 'color',
+            'fucntion': 'function',
+            'retun': 'return',
+            'consol': 'console',
+            'docuemnt': 'document'
+        }
+        
+        for typo, correct in common_js_typos.items():
+            typo_pattern = r'\b' + re.escape(typo) + r'\b'
+            for match in re.finditer(typo_pattern, js_content, re.IGNORECASE):
+                line_in_js = js_content[:match.start()].count('\n') + 1
+                if script_starts:
+                    line_num = script_starts[0] + line_in_js - 1
+                else:
+                    line_num = line_in_js
+                errors.append({
+                    'line': line_num,
+                    'message': f'اشتباه تایپی: {match.group(0)}',
+                    'suggestion': f'احتمالاً منظور شما {correct} بوده است.'
+                })
+        
+        # Try to parse with basic syntax check
+        # Check for string quote mismatches
+        single_quotes = js_content.count("'")
+        double_quotes = js_content.count('"')
+        # This is a very basic check - real validation would need a proper parser
+        
+    except Exception as e:
+        errors.append({
+            'line': None,
+            'message': f'خطا در بررسی JavaScript: {str(e)}',
+            'suggestion': None
+        })
+    
+    return errors
+
+
 def apply_chart_configs_to_html(template_path: Path, chart_configs: list) -> bool:
     """
     Apply chart configurations to HTML template file.
@@ -41,6 +646,10 @@ def apply_chart_configs_to_html(template_path: Path, chart_configs: list) -> boo
         original_content = content
         import re
         
+        # Collect all changes first, then apply them from end to start
+        # This prevents position shifts when making multiple replacements
+        changes = []  # List of (start_pos, end_pos, new_text) tuples
+        
         # Apply configurations to each chart
         for chart_config in chart_configs:
             chart_id = chart_config.get('chart_id')
@@ -51,11 +660,76 @@ def apply_chart_configs_to_html(template_path: Path, chart_configs: list) -> boo
             title = chart_config.get('title')
             show_legend = chart_config.get('show_legend')
             show_labels = chart_config.get('show_labels')
+            is_visible = chart_config.get('is_visible')
+            allow_export = chart_config.get('allow_export')
+            color_palette = chart_config.get('color_palette', 'default')
+            
+            logger.info(f"Processing chart {chart_id}: type={chart_type}, title={title}, visible={is_visible}, labels={show_labels}, legend={show_legend}, export={allow_export}, palette={color_palette}")
             
             # 1. Update chart type in JavaScript
             # Find getElementById for this chart_id, then find the Chart initialization after it
-            ctx_pattern = rf'getElementById\s*\([\'"]{re.escape(chart_id)}[\'"]\)'
-            ctx_match = re.search(ctx_pattern, content)
+            # Use exact match to ensure chart_id is not part of another id
+            escaped_chart_id = re.escape(chart_id)
+            # Pattern: getElementById('chart_id') where chart_id is exact match (not part of longer id)
+            # We use negative lookahead to ensure chart_id is not followed by alphanumeric or underscore
+            ctx_pattern = rf'getElementById\s*\([\'"]{escaped_chart_id}(?![a-zA-Z0-9_])[\'"]\)'
+            
+            # Find all matches and verify we get the exact one
+            all_matches = list(re.finditer(ctx_pattern, content))
+            ctx_match = None
+            
+            if all_matches:
+                # Verify each match to ensure the extracted ID is exactly chart_id
+                # This is critical to prevent 'genderChart' from matching 'genderChart404'
+                logger.info(f"apply_chart_configs_to_html: Found {len(all_matches)} potential matches for chart_id '{chart_id}'")
+                for i, match in enumerate(all_matches):
+                    full_match = match.group(0)
+                    logger.debug(f"apply_chart_configs_to_html: Checking match {i+1}: {full_match[:100]}")
+                    
+                    # Extract the ID directly from the match using a simpler, more reliable method
+                    # Find all quoted strings in the match and verify one is exactly chart_id
+                    quoted_id_pattern = rf'[\'"]([^\'"]+)[\'"]'
+                    quoted_matches = list(re.finditer(quoted_id_pattern, full_match))
+                    
+                    found_exact_match = False
+                    for quoted_match in quoted_matches:
+                        extracted_id = quoted_match.group(1)  # Get the content inside quotes
+                        logger.debug(f"apply_chart_configs_to_html: Match {i+1} found quoted ID: '{extracted_id}'")
+                        
+                        # CRITICAL CHECK: extracted ID must be exactly chart_id
+                        # This prevents 'genderChart' from matching 'genderChart404'
+                        if extracted_id == chart_id:
+                            ctx_match = match
+                            found_exact_match = True
+                            logger.info(f"apply_chart_configs_to_html: ✓ Found exact match for chart_id '{chart_id}' at position {match.start()}")
+                            break
+                        elif chart_id in extracted_id and extracted_id != chart_id:
+                            # This is a substring match (e.g., 'genderChart' in 'genderChart404')
+                            logger.warning(f"apply_chart_configs_to_html: ✗ Match {i+1} rejected: extracted_id '{extracted_id}' contains '{chart_id}' but is not exact match")
+                    
+                    if found_exact_match:
+                        break
+                
+                # DO NOT use fallback - if no exact match, skip this chart
+                if not ctx_match:
+                    logger.error(f"apply_chart_configs_to_html: ✗ No exact match found for chart_id '{chart_id}'. Skipping this chart to prevent incorrect updates.")
+                    for i, match in enumerate(all_matches[:3]):
+                        logger.error(f"  Rejected match {i+1}: {match.group(0)[:150]}")
+                    # Skip this chart - don't try to update it
+                    continue
+            
+            if not ctx_match:
+                logger.warning(f"Chart {chart_id} not found in template. Searching for canvas element...")
+                # Try to find canvas element directly
+                # Use exact match to ensure chart_id is not part of another id
+                escaped_chart_id = re.escape(chart_id)
+                canvas_pattern = rf'<canvas[^>]*id\s*=\s*["\']{escaped_chart_id}(?![a-zA-Z0-9_])["\']'
+                canvas_match = re.search(canvas_pattern, content, re.IGNORECASE)
+                if canvas_match:
+                    logger.info(f"Found canvas element for {chart_id}, but no getElementById. Chart may be initialized differently.")
+                else:
+                    logger.error(f"Chart {chart_id} not found in template at all!")
+                    continue
             
             if ctx_match and chart_type:
                 # Find the Chart initialization after this context
@@ -69,25 +743,111 @@ def apply_chart_configs_to_html(template_path: Path, chart_configs: list) -> boo
                     chart_start_in_block = chart_init_match.end()
                     chart_init_full = chart_block[chart_start_in_block:]
                     
-                    # Find type: 'xxx' pattern
-                    type_pattern = r"type\s*:\s*['\"]([^'\"]+)['\"]"
-                    type_match = re.search(type_pattern, chart_init_full)
+                    # Find type: 'xxx' pattern - try multiple patterns
+                    type_patterns = [
+                        r"type\s*:\s*['\"]([^'\"]+)['\"]",  # type: 'pie'
+                        r"type\s*:\s*([a-zA-Z]+)\s*[,}]",  # type: pie,
+                        r"['\"]type['\"]\s*:\s*['\"]([^'\"]+)['\"]",  # "type": "pie"
+                    ]
+                    
+                    type_match = None
+                    for pattern in type_patterns:
+                        type_match = re.search(pattern, chart_init_full)
+                        if type_match:
+                            break
                     
                     if type_match:
                         old_type = type_match.group(1)
-                        if old_type != chart_type:
-                            # Replace the type
+                        # For area charts, we need to use 'line' type in Chart.js with fill: true
+                        # So if chart_type is 'area', we write 'line' to the file
+                        js_chart_type = 'line' if chart_type == 'area' else chart_type
+                        
+                        if old_type != js_chart_type:
+                            # Calculate absolute position
                             absolute_pos = start_pos + chart_start_in_block + type_match.start()
                             type_full_match = type_match.group(0)
-                            new_type = type_full_match.replace(old_type, chart_type)
-                            content = content[:absolute_pos] + new_type + content[absolute_pos + len(type_full_match):]
-                            logger.debug(f"Updated chart type for {chart_id} from {old_type} to {chart_type}")
+                            # Create replacement - preserve quotes and format
+                            if "'" in type_full_match:
+                                new_type = type_full_match.replace(old_type, js_chart_type)
+                            elif '"' in type_full_match:
+                                new_type = type_full_match.replace(old_type, js_chart_type)
+                            else:
+                                # No quotes, add them
+                                new_type = f"type: '{js_chart_type}'"
+                            
+                            changes.append((absolute_pos, absolute_pos + len(type_full_match), new_type))
+                            logger.info(f"Queued chart type update for {chart_id}: {old_type} -> {js_chart_type} (DB type: {chart_type})")
+                            
+                            # If this is an area chart, ensure fill: true is set in datasets
+                            if chart_type == 'area':
+                                # Find the datasets array and ensure fill: true is present
+                                # Look for datasets array after the type definition
+                                dataset_section = chart_init_full[type_match.end():]
+                                # Check if fill property exists
+                                fill_pattern = r'fill\s*:\s*(true|false)'
+                                fill_match = re.search(fill_pattern, dataset_section)
+                                
+                                if not fill_match:
+                                    # Find the datasets array and add fill: true
+                                    datasets_pattern = r'datasets\s*:\s*\['
+                                    datasets_match = re.search(datasets_pattern, dataset_section)
+                                    if datasets_match:
+                                        # Find the first dataset object
+                                        dataset_obj_pattern = r'\{[^}]*\}'
+                                        dataset_obj_match = re.search(dataset_obj_pattern, dataset_section[datasets_match.end():])
+                                        if dataset_obj_match:
+                                            # Check if fill is already in the dataset object
+                                            dataset_obj = dataset_obj_match.group(0)
+                                            if 'fill' not in dataset_obj:
+                                                # Add fill: true before the closing brace
+                                                fill_insert_pos = absolute_pos + chart_start_in_block + type_match.end() + datasets_match.end() + dataset_obj_match.end() - 1
+                                                changes.append((fill_insert_pos, fill_insert_pos, ', fill: true'))
+                                                logger.info(f"Queued fill: true addition for area chart {chart_id}")
+                                elif fill_match and fill_match.group(1) == 'false':
+                                    # Update fill: false to fill: true
+                                    fill_absolute_pos = absolute_pos + chart_start_in_block + type_match.end() + fill_match.start()
+                                    changes.append((fill_absolute_pos, fill_absolute_pos + len(fill_match.group(0)), 'fill: true'))
+                                    logger.info(f"Queued fill update for area chart {chart_id}: false -> true")
+                        else:
+                            logger.debug(f"Chart type for {chart_id} already correct: {js_chart_type} (DB type: {chart_type})")
+                            
+                            # Even if type is correct, ensure fill: true for area charts
+                            if chart_type == 'area':
+                                dataset_section = chart_init_full[type_match.end():]
+                                fill_pattern = r'fill\s*:\s*(true|false)'
+                                fill_match = re.search(fill_pattern, dataset_section)
+                                
+                                if not fill_match:
+                                    datasets_pattern = r'datasets\s*:\s*\['
+                                    datasets_match = re.search(datasets_pattern, dataset_section)
+                                    if datasets_match:
+                                        dataset_obj_pattern = r'\{[^}]*\}'
+                                        dataset_obj_match = re.search(dataset_obj_pattern, dataset_section[datasets_match.end():])
+                                        if dataset_obj_match:
+                                            dataset_obj = dataset_obj_match.group(0)
+                                            if 'fill' not in dataset_obj:
+                                                fill_insert_pos = absolute_pos + chart_start_in_block + type_match.end() + datasets_match.end() + dataset_obj_match.end() - 1
+                                                changes.append((fill_insert_pos, fill_insert_pos, ', fill: true'))
+                                                logger.info(f"Queued fill: true addition for area chart {chart_id} (type already correct)")
+                                elif fill_match and fill_match.group(1) == 'false':
+                                    fill_absolute_pos = absolute_pos + chart_start_in_block + type_match.end() + fill_match.start()
+                                    changes.append((fill_absolute_pos, fill_absolute_pos + len(fill_match.group(0)), 'fill: true'))
+                                    logger.info(f"Queued fill update for area chart {chart_id}: false -> true (type already correct)")
+                else:
+                    logger.warning(f"Could not find Chart initialization for {chart_id}")
+            else:
+                if not ctx_match:
+                    logger.warning(f"Could not find getElementById for chart {chart_id}")
+                if not chart_type:
+                    logger.warning(f"No chart_type provided for {chart_id}")
             
             # 2. Update chart title in h4/h5 tags before canvas
             if title:
                 # Find h4/h5 tag that appears before the canvas with this chart_id
                 # Pattern: <h4/h5>...</h4/h5> followed by canvas with id="chart_id"
-                title_section_pattern = rf'(<h[45][^>]*class=["\'][^"\']*mb-3[^"\']*["\'][^>]*>)([^<]+)(</h[45]>)(\s*<canvas[^>]*id=["\']{re.escape(chart_id)}["\'])'
+                # Use exact match to ensure chart_id is not part of another id
+                escaped_chart_id = re.escape(chart_id)
+                title_section_pattern = rf'(<h[45][^>]*class=["\'][^"\']*mb-3[^"\']*["\'][^>]*>)([^<]+)(</h[45]>)(\s*<canvas[^>]*id=["\']{escaped_chart_id}(?![a-zA-Z0-9_])["\'])'
                 title_match = re.search(title_section_pattern, content, re.DOTALL | re.IGNORECASE)
                 
                 if title_match:
@@ -96,47 +856,740 @@ def apply_chart_configs_to_html(template_path: Path, chart_configs: list) -> boo
                         # Replace the title text
                         title_start = title_match.start(2)
                         title_end = title_match.end(2)
-                        content = content[:title_start] + title + content[title_end:]
-                        logger.debug(f"Updated title for {chart_id} from '{current_title}' to '{title}'")
+                        changes.append((title_start, title_end, title))
+                        logger.info(f"Queued title update for {chart_id}: '{current_title}' -> '{title}'")
+                else:
+                    logger.warning(f"Could not find title section for chart {chart_id}")
             
             # 3. Update legend display in plugins section
             if show_legend is not None:
                 # Find the Chart initialization for this chart and update legend.display
-                # This is more complex - find the options.plugins.legend.display
-                # We'll search for legend configuration near the chart_id context
                 if ctx_match:
                     start_pos = ctx_match.end()
-                    chart_block = content[start_pos:start_pos + 3000]
+                    # Search in a larger block to find the entire Chart initialization
+                    chart_block = content[start_pos:start_pos + 10000]  # Increased from 3000 to 10000
                     
-                    # Find legend display setting
-                    legend_display_pattern = r'legend\s*:\s*\{[^}]*display\s*:\s*(true|false)'
-                    legend_match = re.search(legend_display_pattern, chart_block, re.DOTALL)
+                    # Search for ALL legend blocks in the entire chart_block (not just plugins section)
+                    # This ensures we find all duplicates regardless of structure
+                    legend_starts = list(re.finditer(r'legend\s*:\s*\{', chart_block, re.IGNORECASE))
+                    logger.info(f"Found {len(legend_starts)} legend blocks in chart block for {chart_id}")
+                        
+                    all_legend_matches = []
+                    for idx, legend_start in enumerate(legend_starts):
+                        # Find the matching closing brace for this legend block
+                        block_start_rel = legend_start.end()  # Relative to chart_block
+                        block_content = chart_block[block_start_rel:]
+                        brace_count = 1
+                        block_end_rel = block_start_rel
+                        found_end = False
+                        for i, char in enumerate(block_content):
+                            if char == '{':
+                                brace_count += 1
+                            elif char == '}':
+                                brace_count -= 1
+                                if brace_count == 0:
+                                    block_end_rel = block_start_rel + i
+                                    found_end = True
+                                    break
+                        
+                        if not found_end:
+                            logger.warning(f"Could not find closing brace for legend block {idx + 1} in {chart_id}")
+                            continue
+                        
+                        # Search for display: true/false within this block
+                        block_text = chart_block[block_start_rel:block_end_rel]
+                        display_match = re.search(r'display\s*:\s*(true|false)\b', block_text, re.IGNORECASE)
+                        if display_match:
+                            # Calculate absolute position: start_pos + block_start_rel + display position
+                            display_pos_abs = start_pos + block_start_rel + display_match.start(1)
+                            display_value = display_match.group(1).lower()  # Normalize to lowercase
+                            class MockMatch:
+                                def __init__(self, pos, value, idx):
+                                    self.start = lambda: pos
+                                    self.group = lambda n: value if n == 1 else None
+                                    self.index = idx
+                            all_legend_matches.append(MockMatch(display_pos_abs, display_value, idx))
+                            logger.debug(f"Found display in legend block {idx + 1}: {display_value} at absolute position {display_pos_abs}")
+                        else:
+                            logger.debug(f"Legend block {idx + 1} has no display property")
                     
-                    if legend_match:
-                        old_value = legend_match.group(1)
+                    # After processing all legend blocks, update them
+                    if all_legend_matches:
+                        # Update all occurrences - use a more aggressive approach to find ALL display values
+                        logger.info(f"Found {len(all_legend_matches)} legend display settings to update for {chart_id}")
+                        
+                        # Set the target value - we want ALL legend display values to be this
                         new_value = 'true' if show_legend else 'false'
-                        if old_value != new_value:
-                            absolute_pos = start_pos + legend_match.start(1)
-                            content = content[:absolute_pos] + new_value + content[absolute_pos + len(old_value):]
-                            logger.debug(f"Updated legend display for {chart_id} to {new_value}")
+                        
+                        # Find all legend blocks and update ALL display values within them
+                        # Force update all found legend blocks to the new value, regardless of current value
+                        queued_positions = set()
+                        for legend_match in all_legend_matches:
+                            old_value = legend_match.group(1)
+                            logger.debug(f"Legend block {legend_match.index + 1} for {chart_id}: old_value='{old_value}', new_value='{new_value}'")
+                            
+                            # Always update to new_value, regardless of current value
+                            absolute_pos = legend_match.start()
+                            
+                            # Skip if we already queued this position
+                            if absolute_pos in queued_positions:
+                                logger.debug(f"Skipping duplicate position {absolute_pos} for legend block {legend_match.index + 1}")
+                                continue
+                            
+                            # Get the actual old value length from the content to handle case variations
+                            old_value_from_content = content[absolute_pos:absolute_pos + 10].lower()
+                            if 'true' in old_value_from_content:
+                                actual_old_len = 4  # 'true'
+                            elif 'false' in old_value_from_content:
+                                actual_old_len = 5  # 'false'
+                            else:
+                                actual_old_len = len(old_value)
+                            
+                            changes.append((absolute_pos, absolute_pos + actual_old_len, new_value))
+                            queued_positions.add(absolute_pos)
+                            logger.info(f"Queued legend display update for {chart_id}: '{old_value}' -> '{new_value}' (legend block {legend_match.index + 1}) at position {absolute_pos}")
+                        
+                        # Additional pass: find ALL display: true/false patterns in legend blocks
+                        # This ensures we catch ALL display values, regardless of current value
+                        # Track positions we've already queued
+                        queued_positions = {c[0] for c in changes}
+                        
+                        # Find all "legend: {" blocks and update ALL display values within them
+                        all_legend_blocks = list(re.finditer(r'legend\s*:\s*\{', chart_block, re.IGNORECASE))
+                        additional_count = 0
+                        for legend_block_match in all_legend_blocks:
+                            # Find the closing brace for this legend block
+                            block_start = legend_block_match.end()
+                            block_content = chart_block[block_start:]
+                            brace_count = 1
+                            block_end = block_start
+                            found_end = False
+                            for i, char in enumerate(block_content):
+                                if char == '{':
+                                    brace_count += 1
+                                elif char == '}':
+                                    brace_count -= 1
+                                    if brace_count == 0:
+                                        block_end = block_start + i
+                                        found_end = True
+                                        break
+                            
+                            if not found_end:
+                                continue
+                            
+                            # Search for ANY display: true/false within this block
+                            block_text = chart_block[block_start:block_end]
+                            display_match = re.search(r'display\s*:\s*(true|false)\b', block_text, re.IGNORECASE)
+                            if display_match:
+                                # Calculate absolute position: start_pos + block_start + position of value
+                                display_value_pos_in_block = display_match.start(1)
+                                display_pos_abs = start_pos + block_start + display_value_pos_in_block
+                                
+                                # Skip if we already have this position in changes
+                                if display_pos_abs not in queued_positions:
+                                    old_display_value = display_match.group(1).lower()
+                                    # Get actual length from content
+                                    old_value_from_content = content[display_pos_abs:display_pos_abs + 10].lower()
+                                    if 'true' in old_value_from_content:
+                                        actual_old_len = 4  # 'true'
+                                    elif 'false' in old_value_from_content:
+                                        actual_old_len = 5  # 'false'
+                                    else:
+                                        actual_old_len = len(old_display_value)
+                                    
+                                    changes.append((display_pos_abs, display_pos_abs + actual_old_len, new_value))
+                                    queued_positions.add(display_pos_abs)
+                                    additional_count += 1
+                                    logger.info(f"Queued additional legend display update for {chart_id}: '{old_display_value}' -> '{new_value}' at position {display_pos_abs}")
+                        
+                        if additional_count > 0:
+                            logger.info(f"Found {additional_count} additional legend blocks to update for {chart_id}")
+                    elif legend_starts:
+                        # Legend exists but without display property, add it to first legend block
+                        first_legend = legend_starts[0]
+                        legend_block_start_rel = first_legend.end()
+                        # Find closing brace of first legend block
+                        legend_block_content = chart_block[legend_block_start_rel:]
+                        brace_count = 1
+                        legend_block_end_rel = legend_block_start_rel
+                        for i, char in enumerate(legend_block_content):
+                            if char == '{':
+                                brace_count += 1
+                            elif char == '}':
+                                brace_count -= 1
+                                if brace_count == 0:
+                                    legend_block_end_rel = legend_block_start_rel + i
+                                    break
+                        
+                        # Insert display property at the beginning of legend block
+                        display_property = f"display: {'true' if show_legend else 'false'},\n                "
+                        insert_pos = start_pos + legend_block_start_rel
+                        changes.append((insert_pos, insert_pos, display_property))
+                        logger.info(f"Queued legend display addition for {chart_id}: {show_legend} (added to existing block)")
+                    else:
+                        # Legend setting doesn't exist, try to find plugins section to add it
+                        plugins_pattern = r'plugins\s*:\s*\{'
+                        plugins_match = re.search(plugins_pattern, chart_block, re.DOTALL)
+                        if plugins_match:
+                            plugins_start = start_pos + plugins_match.end()
+                            # Find closing brace of plugins section
+                            plugins_block = content[plugins_start:plugins_start + 5000]
+                            brace_count = 1
+                            plugins_end = plugins_start
+                            for i, char in enumerate(plugins_block):
+                                if char == '{':
+                                    brace_count += 1
+                                elif char == '}':
+                                    brace_count -= 1
+                                    if brace_count == 0:
+                                        plugins_end = plugins_start + i
+                                        break
+                            
+                            plugins_section = content[plugins_start:plugins_end]
+                            # Find a good place to insert (after title if exists)
+                            title_match = re.search(r'title\s*:\s*\{[^}]*\}', plugins_section, re.DOTALL)
+                            if title_match:
+                                insert_pos = plugins_start + title_match.end()
+                                legend_setting = f",\n            legend: {{\n                display: {'true' if show_legend else 'false'}\n            }}"
+                                changes.append((insert_pos, insert_pos, legend_setting))
+                                logger.info(f"Queued legend display addition for {chart_id}: {show_legend}")
+                            else:
+                                # Insert at the beginning of plugins section
+                                legend_setting = f"\n            legend: {{\n                display: {'true' if show_legend else 'false'}\n            }},"
+                                changes.append((plugins_start, plugins_start, legend_setting))
+                                logger.info(f"Queued legend display addition for {chart_id}: {show_legend}")
+                        else:
+                            logger.warning(f"Could not find plugins section to add legend for {chart_id}")
+                else:
+                    logger.warning(f"Could not find context for legend update for {chart_id}")
             
             # 4. Update show_labels (datalabels display)
             if show_labels is not None:
                 if ctx_match:
                     start_pos = ctx_match.end()
-                    chart_block = content[start_pos:start_pos + 3000]
+                    # Look for Chart initialization and find all datalabels occurrences
+                    chart_block = content[start_pos:start_pos + 10000]  # Increased search range to 10000
                     
-                    # Find datalabels display setting
-                    datalabels_pattern = r'datalabels\s*:\s*\{[^}]*display\s*:\s*(true|false)'
-                    datalabels_match = re.search(datalabels_pattern, chart_block, re.DOTALL)
+                    # Find all datalabels blocks - they can be in plugins section or as separate config
+                    # Pattern 1: datalabels: { display: true/false, ... }
+                    # Pattern 2: datalabels: { anchor: ..., display: true/false, ... }
+                    # We need to find all occurrences and update them
                     
-                    if datalabels_match:
-                        old_value = datalabels_match.group(1)
+                    # Find all datalabels blocks with display property
+                    # We need to find all occurrences of "display: true/false" that are inside datalabels blocks
+                    # Strategy: Find all datalabels blocks, then find display within each
+                    
+                    # First, find all datalabels block starts
+                    datalabels_starts = list(re.finditer(r'datalabels\s*:\s*\{', chart_block, re.IGNORECASE))
+                    logger.debug(f"Found {len(datalabels_starts)} datalabels blocks in chart block for {chart_id}")
+                    
+                    all_datalabels_matches = []
+                    for idx, datalabels_start in enumerate(datalabels_starts):
+                        # Find the matching closing brace for this datalabels block
+                        block_start_rel = datalabels_start.end()  # Relative to chart_block
+                        block_content = chart_block[block_start_rel:]
+                        brace_count = 1
+                        block_end_rel = block_start_rel
+                        found_end = False
+                        for i, char in enumerate(block_content):
+                            if char == '{':
+                                brace_count += 1
+                            elif char == '}':
+                                brace_count -= 1
+                                if brace_count == 0:
+                                    block_end_rel = block_start_rel + i
+                                    found_end = True
+                                    break
+                        
+                        if not found_end:
+                            logger.warning(f"Could not find closing brace for datalabels block {idx + 1} in {chart_id}")
+                            continue
+                        
+                        # Now search for display: true/false within this block
+                        block_text = chart_block[block_start_rel:block_end_rel]
+                        display_match = re.search(r'display\s*:\s*(true|false)\b', block_text, re.IGNORECASE)
+                        if display_match:
+                            # Calculate absolute position: start_pos (chart block start) + block_start_rel + display position
+                            display_pos_abs = start_pos + block_start_rel + display_match.start(1)
+                            display_value = display_match.group(1).lower()  # Normalize to lowercase
+                            # Create a mock match object
+                            class MockMatch:
+                                def __init__(self, pos, value, idx):
+                                    self.start = lambda: pos
+                                    self.group = lambda n: value if n == 1 else None
+                                    self.index = idx
+                            all_datalabels_matches.append(MockMatch(display_pos_abs, display_value, idx))
+                            logger.debug(f"Found display in datalabels block {idx + 1}: {display_value} at absolute position {display_pos_abs}")
+                        else:
+                            logger.debug(f"Datalabels block {idx + 1} has no display property")
+                    
+                    if all_datalabels_matches:
+                        # Update all occurrences - use a more aggressive approach to find ALL display values
+                        logger.info(f"Found {len(all_datalabels_matches)} datalabels display settings to update for {chart_id}")
+                        
+                        # Set the target value - we want ALL datalabels display values to be this
                         new_value = 'true' if show_labels else 'false'
-                        if old_value != new_value:
-                            absolute_pos = start_pos + datalabels_match.start(1)
-                            content = content[:absolute_pos] + new_value + content[absolute_pos + len(old_value):]
-                            logger.debug(f"Updated datalabels display for {chart_id} to {new_value}")
+                        
+                        # Find all datalabels blocks and update ALL display values within them
+                        # Force update all found datalabels blocks to the new value, regardless of current value
+                        queued_positions = set()
+                        for datalabels_match in all_datalabels_matches:
+                            old_value = datalabels_match.group(1)
+                            logger.debug(f"Datalabels block {datalabels_match.index + 1} for {chart_id}: old_value='{old_value}', new_value='{new_value}'")
+                            
+                            # Always update to new_value, regardless of current value
+                            absolute_pos = datalabels_match.start()  # Already includes start_pos
+                            
+                            # Skip if we already queued this position
+                            if absolute_pos in queued_positions:
+                                logger.debug(f"Skipping duplicate position {absolute_pos} for datalabels block {datalabels_match.index + 1}")
+                                continue
+                            
+                            # Get the actual old value length from the content to handle case variations
+                            old_value_from_content = content[absolute_pos:absolute_pos + 10].lower()
+                            if 'true' in old_value_from_content:
+                                actual_old_len = 4  # 'true'
+                            elif 'false' in old_value_from_content:
+                                actual_old_len = 5  # 'false'
+                            else:
+                                actual_old_len = len(old_value)
+                            
+                            changes.append((absolute_pos, absolute_pos + actual_old_len, new_value))
+                            queued_positions.add(absolute_pos)
+                            logger.info(f"Queued datalabels display update for {chart_id}: '{old_value}' -> '{new_value}' (datalabels block {datalabels_match.index + 1}) at position {absolute_pos}")
+                        
+                        # Additional pass: find ALL display: true/false patterns in datalabels blocks
+                        # This ensures we catch ALL display values, regardless of current value
+                        # Track positions we've already queued
+                        queued_positions = {c[0] for c in changes}
+                        
+                        # Find all "datalabels: {" blocks and update ALL display values within them
+                        all_datalabels_blocks = list(re.finditer(r'datalabels\s*:\s*\{', chart_block, re.IGNORECASE))
+                        additional_count = 0
+                        for datalabels_block_match in all_datalabels_blocks:
+                            # Find the closing brace for this datalabels block
+                            block_start = datalabels_block_match.end()
+                            block_content = chart_block[block_start:]
+                            brace_count = 1
+                            block_end = block_start
+                            found_end = False
+                            for i, char in enumerate(block_content):
+                                if char == '{':
+                                    brace_count += 1
+                                elif char == '}':
+                                    brace_count -= 1
+                                    if brace_count == 0:
+                                        block_end = block_start + i
+                                        found_end = True
+                                        break
+                            
+                            if not found_end:
+                                continue
+                            
+                            # Search for ANY display: true/false within this block
+                            block_text = chart_block[block_start:block_end]
+                            display_match = re.search(r'display\s*:\s*(true|false)\b', block_text, re.IGNORECASE)
+                            if display_match:
+                                # Calculate absolute position: start_pos + block_start + position of value
+                                display_value_pos_in_block = display_match.start(1)
+                                display_pos_abs = start_pos + block_start + display_value_pos_in_block
+                                
+                                # Skip if we already have this position in changes
+                                if display_pos_abs not in queued_positions:
+                                    old_display_value = display_match.group(1).lower()
+                                    # Get actual length from content
+                                    old_value_from_content = content[display_pos_abs:display_pos_abs + 10].lower()
+                                    if 'true' in old_value_from_content:
+                                        actual_old_len = 4  # 'true'
+                                    elif 'false' in old_value_from_content:
+                                        actual_old_len = 5  # 'false'
+                                    else:
+                                        actual_old_len = len(old_display_value)
+                                    
+                                    changes.append((display_pos_abs, display_pos_abs + actual_old_len, new_value))
+                                    queued_positions.add(display_pos_abs)
+                                    additional_count += 1
+                                    logger.info(f"Queued additional datalabels display update for {chart_id}: '{old_display_value}' -> '{new_value}' at position {display_pos_abs}")
+                        
+                        if additional_count > 0:
+                            logger.info(f"Found {additional_count} additional datalabels blocks to update for {chart_id}")
+                    else:
+                        # No datalabels found, try to find plugins section and add it
+                        plugins_pattern = r'plugins\s*:\s*\{'
+                        plugins_match = re.search(plugins_pattern, chart_block, re.DOTALL)
+                        
+                        if plugins_match:
+                            plugins_start = start_pos + plugins_match.end()
+                            # Find the closing brace of plugins section - increase search range for large sections
+                            plugins_block = content[plugins_start:plugins_start + 5000]  # Increased from 1000 to 5000
+                            brace_count = 1
+                            plugins_end = plugins_start
+                            for i, char in enumerate(plugins_block):
+                                if char == '{':
+                                    brace_count += 1
+                                elif char == '}':
+                                    brace_count -= 1
+                                    if brace_count == 0:
+                                        plugins_end = plugins_start + i
+                                        break
+                            
+                            if plugins_end == plugins_start:
+                                logger.warning(f"Could not find closing brace for plugins section in {chart_id} (datalabels), using extended search")
+                                # Try to find the next closing brace after a reasonable distance
+                                extended_search = content[plugins_start:plugins_start + 10000]
+                                next_brace = extended_search.find('}')
+                                if next_brace > 0:
+                                    plugins_end = plugins_start + next_brace
+                                else:
+                                    logger.error(f"Could not find plugins section end for {chart_id} (datalabels)")
+                                    continue
+                            
+                            plugins_section = content[plugins_start:plugins_end]
+                            logger.debug(f"Found plugins section for {chart_id} (datalabels): {len(plugins_section)} characters")
+                            
+                            # Check if datalabels exists without display property
+                            datalabels_simple_pattern = r'datalabels\s*:\s*\{'
+                            simple_datalabels_match = re.search(datalabels_simple_pattern, plugins_section, re.DOTALL)
+                            
+                            if simple_datalabels_match:
+                                # Datalabels exists but without display, add display property
+                                datalabels_start = plugins_start + simple_datalabels_match.end()
+                                # Find the closing brace of this datalabels block
+                                datalabels_block = content[datalabels_start:plugins_end]
+                                brace_count = 1
+                                datalabels_end = datalabels_start
+                                for i, char in enumerate(datalabels_block):
+                                    if char == '{':
+                                        brace_count += 1
+                                    elif char == '}':
+                                        brace_count -= 1
+                                        if brace_count == 0:
+                                            datalabels_end = datalabels_start + i
+                                            break
+                                
+                                # Insert display property at the beginning of datalabels block
+                                display_property = f"display: {'true' if show_labels else 'false'},\n                "
+                                changes.append((datalabels_start, datalabels_start, display_property))
+                                logger.info(f"Queued datalabels display addition for {chart_id}: {show_labels} (added to existing block)")
+                            else:
+                                # Datalabels doesn't exist, add it
+                                # Find a good place to insert (after legend if exists, or after title)
+                                legend_match = re.search(r'legend\s*:\s*\{[^}]*\}', plugins_section, re.DOTALL)
+                                if legend_match:
+                                    insert_pos = plugins_start + legend_match.end()
+                                    # Add comma and datalabels setting
+                                    datalabels_setting = f",\n            datalabels: {{\n                display: {'true' if show_labels else 'false'}\n            }}"
+                                    changes.append((insert_pos, insert_pos, datalabels_setting))
+                                    logger.info(f"Queued datalabels display addition for {chart_id}: {show_labels}")
+                                else:
+                                    # Insert after title or at the end
+                                    title_match = re.search(r'title\s*:\s*\{[^}]*\}', plugins_section, re.DOTALL)
+                                    if title_match:
+                                        insert_pos = plugins_start + title_match.end()
+                                        datalabels_setting = f",\n            datalabels: {{\n                display: {'true' if show_labels else 'false'}\n            }}"
+                                        changes.append((insert_pos, insert_pos, datalabels_setting))
+                                        logger.info(f"Queued datalabels display addition for {chart_id}: {show_labels}")
+                                    else:
+                                        # Insert at the beginning of plugins section
+                                        datalabels_setting = f"\n            datalabels: {{\n                display: {'true' if show_labels else 'false'}\n            }},"
+                                        changes.append((plugins_start, plugins_start, datalabels_setting))
+                                        logger.info(f"Queued datalabels display addition for {chart_id}: {show_labels}")
+                        else:
+                            # Fallback: Search for all datalabels blocks in the entire chart_block
+                            logger.warning(f"Could not find plugins section for {chart_id} datalabels, searching entire chart block")
+                            # The datalabels_starts search already covers the entire chart_block, so we should have found them
+                            if not all_datalabels_matches and datalabels_starts:
+                                logger.warning(f"Found {len(datalabels_starts)} datalabels blocks but no display properties in {chart_id}")
+                            elif not all_datalabels_matches:
+                                logger.warning(f"No datalabels blocks found at all for {chart_id}")
+                else:
+                    logger.warning(f"Could not find context for datalabels update for {chart_id}")
+            
+            # 5. Update is_visible - hide/show chart container
+            if is_visible is not None:
+                # Find the container div that contains the canvas with this chart_id
+                # Pattern: <div...>...<canvas id="chart_id"...> or <div...>...<canvas id='chart_id'...>
+                # We need to find the parent div that contains this canvas
+                # Use exact match to ensure chart_id is not part of another id
+                escaped_chart_id = re.escape(chart_id)
+                canvas_pattern = rf'<canvas[^>]*id\s*=\s*["\']{escaped_chart_id}(?![a-zA-Z0-9_])["\'][^>]*>'
+                canvas_match = re.search(canvas_pattern, content, re.IGNORECASE)
+                
+                if canvas_match:
+                    # Find the opening div tag before this canvas
+                    # Look backwards from canvas position to find the containing div
+                    canvas_start = canvas_match.start()
+                    # Search backwards up to 500 characters to find the div
+                    search_start = max(0, canvas_start - 500)
+                    before_canvas = content[search_start:canvas_start]
+                    
+                    # Find the most recent opening div tag (could be <div>, <div class="...">, etc.)
+                    # Match div with optional attributes
+                    div_pattern = r'<div[^>]*>'
+                    div_matches = list(re.finditer(div_pattern, before_canvas, re.IGNORECASE))
+                    
+                    if div_matches:
+                        # Get the last (most recent) div before canvas
+                        last_div = div_matches[-1]
+                        div_start_relative = last_div.start()
+                        div_start_absolute = search_start + div_start_relative
+                        
+                        # Check if div has style attribute
+                        div_tag = last_div.group(0)
+                        style_match = re.search(r'style\s*=\s*["\']([^"\']*)["\']', div_tag, re.IGNORECASE)
+                        
+                        if is_visible:
+                            # Show the chart - remove display:none if present
+                            if style_match:
+                                style_content = style_match.group(1)
+                                # Remove display:none or display: none
+                                new_style = re.sub(r'display\s*:\s*none\s*;?\s*', '', style_content, flags=re.IGNORECASE)
+                                new_style = re.sub(r';\s*;+', ';', new_style)  # Clean up double semicolons
+                                new_style = new_style.strip('; ')
+                                
+                                if new_style != style_content:
+                                    # Replace the style attribute
+                                    old_style_attr = style_match.group(0)
+                                    if new_style:
+                                        new_style_attr = f'style="{new_style}"'
+                                    else:
+                                        # Remove style attribute if empty
+                                        new_style_attr = ''
+                                    
+                                    # Replace in the div tag
+                                    new_div_tag = div_tag.replace(old_style_attr, new_style_attr)
+                                    if not new_style:
+                                        # Remove empty style attribute
+                                        new_div_tag = re.sub(r'\s+style\s*=\s*["\']["\']', '', new_div_tag)
+                                    
+                                    changes.append((div_start_absolute, div_start_absolute + len(div_tag), new_div_tag))
+                                    logger.info(f"Queued visibility update for {chart_id}: showing chart")
+                            else:
+                                # No style attribute, chart is already visible
+                                logger.debug(f"Chart {chart_id} container has no style attribute, already visible")
+                        else:
+                            # Hide the chart - add display:none
+                            if style_match:
+                                style_content = style_match.group(1)
+                                # Check if display:none already exists
+                                if not re.search(r'display\s*:\s*none', style_content, re.IGNORECASE):
+                                    # Add display:none
+                                    new_style = style_content.rstrip('; ').strip()
+                                    if new_style:
+                                        new_style += '; display:none'
+                                    else:
+                                        new_style = 'display:none'
+                                    
+                                    old_style_attr = style_match.group(0)
+                                    new_style_attr = f'style="{new_style}"'
+                                    new_div_tag = div_tag.replace(old_style_attr, new_style_attr)
+                                    
+                                    changes.append((div_start_absolute, div_start_absolute + len(div_tag), new_div_tag))
+                                    logger.info(f"Queued visibility update for {chart_id}: hiding chart")
+                            else:
+                                # Add style attribute with display:none
+                                # Find the closing > of the div tag
+                                div_end_in_tag = div_tag.rfind('>')
+                                if div_end_in_tag > 0:
+                                    new_div_tag = div_tag[:div_end_in_tag] + ' style="display:none"' + div_tag[div_end_in_tag:]
+                                    changes.append((div_start_absolute, div_start_absolute + len(div_tag), new_div_tag))
+                                    logger.info(f"Queued visibility update for {chart_id}: hiding chart (added style)")
+                else:
+                    logger.warning(f"Could not find canvas element for chart {chart_id} to update visibility")
+            
+            # 6. Update color_palette - replace backgroundColor array
+            if color_palette:
+                palette = get_color_palette(color_palette)
+                palette_colors = palette['colors']
+                
+                if ctx_match:
+                    start_pos = ctx_match.end()
+                    chart_block = content[start_pos:start_pos + 10000]
+                    
+                    # Find backgroundColor array - handle both single-line and multi-line
+                    # Look for backgroundColor: [ ... ] pattern
+                    bg_color_pattern = r'backgroundColor\s*:\s*\['
+                    bg_matches = list(re.finditer(bg_color_pattern, chart_block, re.IGNORECASE))
+                    
+                    for bg_match in bg_matches:
+                        # Find the matching closing bracket
+                        bg_start_rel = bg_match.end()  # Position after "backgroundColor: ["
+                        bg_content = chart_block[bg_start_rel:]
+                        bracket_count = 1
+                        bg_end_rel = bg_start_rel
+                        found_end = False
+                        
+                        for i, char in enumerate(bg_content):
+                            if char == '[':
+                                bracket_count += 1
+                            elif char == ']':
+                                bracket_count -= 1
+                                if bracket_count == 0:
+                                    bg_end_rel = bg_start_rel + i + 1  # Include closing bracket
+                                    found_end = True
+                                    break
+                        
+                        if found_end:
+                            # Calculate absolute positions
+                            bg_start_abs = start_pos + bg_match.start()
+                            bg_end_abs = start_pos + bg_end_rel
+                            
+                            # Get the original content to preserve indentation
+                            original_bg = chart_block[bg_match.start():bg_end_rel]
+                            
+                            # Determine indentation from original (look for newline after ":")
+                            indent_match = re.search(r':\s*(\n\s*)', original_bg)
+                            if indent_match:
+                                indent = indent_match.group(1)  # e.g., "\n                    "
+                                # Use same indentation for colors
+                                colors_str = (',' + indent).join([f"'{color}'" for color in palette_colors])
+                                new_bg_array = f"backgroundColor: [{indent}{colors_str}{indent}]"
+                            else:
+                                # Single line format
+                                colors_str = ', '.join([f"'{color}'" for color in palette_colors])
+                                new_bg_array = f"backgroundColor: [{colors_str}]"
+                            
+                            # Check if this position is already in changes
+                            if not any(c[0] == bg_start_abs for c in changes):
+                                changes.append((bg_start_abs, bg_end_abs, new_bg_array))
+                                logger.info(f"Queued color_palette update for {chart_id}: palette={color_palette} ({len(palette_colors)} colors) at position {bg_start_abs}")
+                            break  # Only update first occurrence per chart
+            
+            # 7. Update allow_export - conditionally show/hide export buttons
+            if allow_export is not None:
+                # Find the export button code (addChartExportButtons call) for this chart
+                # Pattern: addChartExportButtons('chart_id', ...) or addChartExportButtons("chart_id", ...)
+                export_pattern = rf'addChartExportButtons\s*\(\s*["\']{re.escape(chart_id)}["\']'
+                export_match = re.search(export_pattern, content, re.IGNORECASE)
+                
+                if export_match:
+                    # Find the entire setTimeout block that contains this export button call
+                    # Look backwards to find setTimeout( and forwards to find });
+                    export_start = export_match.start()
+                    
+                    # Find the start of setTimeout block (look backwards up to 200 chars)
+                    search_start = max(0, export_start - 200)
+                    before_export = content[search_start:export_start]
+                    setTimeout_match = re.search(r'setTimeout\s*\(', before_export, re.IGNORECASE)
+                    
+                    if setTimeout_match:
+                        setTimeout_start = search_start + setTimeout_match.start()
+                        
+                        # Find the end of setTimeout block (look forwards from export_start)
+                        search_end = min(len(content), export_start + 500)
+                        after_export = content[export_start:search_end]
+                        closing_match = re.search(r'}\s*\)\s*;', after_export)
+                        
+                        if closing_match:
+                            setTimeout_end = export_start + closing_match.end()
+                            setTimeout_block = content[setTimeout_start:setTimeout_end]
+                            
+                            if allow_export:
+                                # Show export buttons - ensure the setTimeout block exists
+                                # Check if it's already commented out
+                                if '//' in setTimeout_block.split('\n')[0].strip()[:2]:
+                                    # Uncomment the block
+                                    uncommented = re.sub(r'^\s*//\s*', '', setTimeout_block, flags=re.MULTILINE)
+                                    changes.append((setTimeout_start, setTimeout_end, uncommented))
+                                    logger.info(f"Queued export button update for {chart_id}: showing export")
+                                else:
+                                    # Already uncommented
+                                    logger.debug(f"Export buttons for {chart_id} already enabled")
+                            else:
+                                # Hide export buttons - comment out the setTimeout block
+                                if not '//' in setTimeout_block.split('\n')[0].strip()[:2]:
+                                    # Comment each line
+                                    commented_lines = []
+                                    for line in setTimeout_block.split('\n'):
+                                        if line.strip() and not line.strip().startswith('//'):
+                                            commented_lines.append('    // ' + line.lstrip())
+                                        else:
+                                            commented_lines.append(line)
+                                    commented_block = '\n'.join(commented_lines)
+                                    changes.append((setTimeout_start, setTimeout_end, commented_block))
+                                    logger.info(f"Queued export button update for {chart_id}: hiding export")
+                                else:
+                                    # Already commented
+                                    logger.debug(f"Export buttons for {chart_id} already disabled")
+                        else:
+                            logger.warning(f"Could not find closing of setTimeout block for {chart_id}")
+                    else:
+                        # Export button might be called directly, try to comment it out
+                        # Find the line with addChartExportButtons
+                        line_start = content.rfind('\n', 0, export_start) + 1
+                        line_end = content.find('\n', export_start)
+                        if line_end == -1:
+                            line_end = len(content)
+                        
+                        export_line = content[line_start:line_end]
+                        if allow_export:
+                            # Uncomment if commented
+                            if export_line.strip().startswith('//'):
+                                uncommented = export_line.replace('//', '', 1).lstrip()
+                                changes.append((line_start, line_end, uncommented))
+                                logger.info(f"Queued export button update for {chart_id}: showing export (direct call)")
+                        else:
+                            # Comment if not commented
+                            if not export_line.strip().startswith('//'):
+                                commented = '    // ' + export_line.lstrip()
+                                changes.append((line_start, line_end, commented))
+                                logger.info(f"Queued export button update for {chart_id}: hiding export (direct call)")
+                else:
+                    logger.warning(f"Could not find export button code for chart {chart_id}")
+        
+        # Apply all changes from end to start to preserve positions
+        if changes:
+            # Remove duplicate changes at the same position (keep the last one since we sort descending)
+            # Group by position and keep only one change per position
+            unique_changes = {}
+            for start_pos, end_pos, new_text in changes:
+                # Use position as key - if same position, keep the last one (will be applied first due to reverse sort)
+                key = (start_pos, end_pos)
+                if key not in unique_changes:
+                    unique_changes[key] = (start_pos, end_pos, new_text)
+                else:
+                    # If same position but different text, log warning and keep the new one
+                    old_text = unique_changes[key][2]
+                    if old_text != new_text:
+                        logger.warning(f"Duplicate change at position {start_pos}-{end_pos}: keeping '{new_text}' over '{old_text}'")
+                    unique_changes[key] = (start_pos, end_pos, new_text)
+            
+            # Convert back to list and sort by position (descending) so we apply from end to start
+            changes = list(unique_changes.values())
+            changes.sort(key=lambda x: x[0], reverse=True)
+            
+            logger.info(f"Applying {len(changes)} unique changes to HTML file (from end to start to preserve positions)")
+            applied_count = 0
+            skipped_count = 0
+            for start_pos, end_pos, new_text in changes:
+                try:
+                    # Validate positions
+                    if start_pos < 0 or end_pos > len(content) or start_pos > end_pos:
+                        logger.error(f"✗ Invalid position range: {start_pos}-{end_pos} (content length: {len(content)})")
+                        continue
+                    
+                    # Get the current content at this position
+                    old_content = content[start_pos:end_pos]
+                    
+                    # Normalize for comparison (handle whitespace differences)
+                    old_normalized = old_content.strip().lower()
+                    new_normalized = new_text.strip().lower()
+                    
+                    # Only apply if content is different
+                    if old_normalized != new_normalized:
+                        # Apply the change
+                        content = content[:start_pos] + new_text + content[end_pos:]
+                        applied_count += 1
+                        logger.info(f"✓ Applied change {applied_count}/{len(changes)} at position {start_pos}-{end_pos}: '{old_content[:30].replace(chr(10), ' ').replace(chr(13), ' ')}...' -> '{new_text[:30].replace(chr(10), ' ').replace(chr(13), ' ')}...'")
+                    else:
+                        skipped_count += 1
+                        logger.debug(f"⊘ Skipped change {skipped_count} at position {start_pos}-{end_pos}: content already matches '{new_text[:30].replace(chr(10), ' ').replace(chr(13), ' ')}...'")
+                except Exception as change_error:
+                    logger.error(f"✗ Error applying change at position {start_pos}-{end_pos}: {change_error}", exc_info=True)
+            
+            logger.info(f"Successfully applied {applied_count}/{len(changes)} changes to HTML ({skipped_count} skipped - already correct)")
+        else:
+            logger.info("No changes to apply to HTML file")
         
         # 5. Update display_order by reordering chart divs in HTML
         # NOTE: HTML reordering is DISABLED to prevent duplication issues
@@ -160,13 +1613,27 @@ def apply_chart_configs_to_html(template_path: Path, chart_configs: list) -> boo
         
         # Only write if content changed
         if content != original_content:
-            # Write updated content back to file
-            with open(template_path, 'w', encoding='utf-8') as f:
-                f.write(content)
-            logger.info(f"Successfully applied chart configurations to {template_path.name}")
-            return True
+            try:
+                # Write updated content back to file
+                with open(template_path, 'w', encoding='utf-8') as f:
+                    f.write(content)
+                
+                # Verify file was written correctly
+                with open(template_path, 'r', encoding='utf-8') as f:
+                    verify_content = f.read()
+                if verify_content == content:
+                    logger.info(f"✓ Successfully wrote {len(content)} characters to {template_path.name}")
+                    logger.info(f"✓ File verification passed")
+                else:
+                    logger.error(f"✗ File verification failed - content mismatch!")
+                
+                logger.info(f"✓ Successfully applied {len(changes)} chart configurations to {template_path.name}")
+                return True
+            except Exception as write_error:
+                logger.error(f"✗ Error writing to HTML file: {write_error}", exc_info=True)
+                return False
         else:
-            logger.info(f"No changes needed for {template_path.name}")
+            logger.info(f"✓ No changes needed for {template_path.name} (content unchanged)")
             return True
         
     except Exception as e:
@@ -1652,6 +3119,9 @@ def dashboard_template_view(template_name):
                 logger.warning(f"Error getting file modification time: {e}")
                 modified_time = datetime.now()
             
+            # Extract chart information from template content
+            charts_list = extract_charts_from_template(content)
+            
             # Render template with error handling
             try:
                 # Ensure file_size is a number
@@ -1664,7 +3134,8 @@ def dashboard_template_view(template_name):
                                      content=content,
                                      dashboard=dashboard,
                                      file_size=file_size,
-                                     modified_time=modified_time)
+                                     modified_time=modified_time,
+                                     charts_list=charts_list)
             except Exception as render_err:
                 logger.error(f"Error rendering template_edit.html for {template_name}: {render_err}", exc_info=True)
                 import traceback
@@ -1766,6 +3237,53 @@ def dashboard_template_view(template_name):
 </body>
 </html>"""
         return Response(error_html, status=500, mimetype='text/html; charset=utf-8')
+
+
+@admin_bp.route('/dashboards/templates/<template_name>/validate', methods=['POST'])
+@login_required
+@admin_required
+def dashboard_template_validate(template_name):
+    """Validate HTML, CSS and JavaScript code in template"""
+    try:
+        log_action('validate_dashboard_template', 'template', template_name)
+        
+        # Security: Only allow HTML files
+        if not template_name.endswith('.html') or '..' in template_name or '/' in template_name:
+            return jsonify({
+                'success': False,
+                'message': 'نام فایل نامعتبر است'
+            }), 400
+        
+        # Get content from request
+        if request.is_json:
+            data = request.get_json()
+            content = data.get('content', '')
+        else:
+            content = request.form.get('content', '')
+        
+        if not content:
+            return jsonify({
+                'success': False,
+                'message': 'محتوای تمپلیت خالی است'
+            }), 400
+        
+        # Validate code
+        html_errors = validate_html(content)
+        css_errors = validate_css(content)
+        js_errors = validate_javascript(content)
+        
+        return jsonify({
+            'success': True,
+            'html_errors': html_errors,
+            'css_errors': css_errors,
+            'js_errors': js_errors
+        })
+    except Exception as e:
+        logger.error(f"Error validating template {template_name}: {e}", exc_info=True)
+        return jsonify({
+            'success': False,
+            'message': f'خطا در بررسی کدها: {str(e)}'
+        }), 500
 
 
 @admin_bp.route('/dashboards/templates/<template_name>/edit', methods=['POST'])
@@ -1937,7 +3455,9 @@ def dashboard_template_charts(template_name):
         canvas_matches = []
         for chart_id in all_canvas_matches:
             # Find the canvas element with this id
-            canvas_pattern_full = rf'<canvas[^>]*id=["\']{re.escape(chart_id)}["\'][^>]*>'
+            # Use exact match to ensure chart_id is not part of another id
+            escaped_chart_id = re.escape(chart_id)
+            canvas_pattern_full = rf'<canvas[^>]*id=["\']{escaped_chart_id}(?![a-zA-Z0-9_])["\'][^>]*>'
             canvas_match = re.search(canvas_pattern_full, content, re.IGNORECASE)
             
             if canvas_match:
@@ -2026,96 +3546,265 @@ def dashboard_template_charts(template_name):
                 title = chart_id
             
             # Extract chart type and sample data from JavaScript
-            chart_type = 'line'  # default
+            chart_type = None  # Will be extracted, no default yet
             sample_labels = []
             sample_datasets = []
             chart_config = None  # Will be used to store Chart.js config for reuse
             
-            # FIRST: Extract chart type from JavaScript BEFORE extracting data
-            # This is important because chart type affects how data is formatted
+            logger.info(f"Starting chart extraction for {chart_id}, canvas_pos: {canvas_pos}")
+            
+            # NEW APPROACH: Find parent div, then find related JavaScript code
+            # Step 1: Find the canvas element and its parent div
             if canvas_pos > 0:
-                # Look for Chart.js configuration - search in a wider range
-                # Search from before canvas to after canvas to find the Chart initialization
-                search_start = max(0, canvas_pos - 500)  # Look 500 chars before canvas
-                search_end = min(len(content), canvas_pos + 10000)  # Look 10000 chars after canvas
-                search_content = content[search_start:search_end]
+                # Find the opening tag of canvas
+                canvas_tag_start = content.rfind('<canvas', 0, canvas_pos)
+                if canvas_tag_start == -1:
+                    canvas_tag_start = content.rfind('<canvas ', 0, canvas_pos)
                 
-                # Find the Chart.js initialization for this canvas
-                # Pattern 1: Look for getElementById with chart_id
-                get_element_pattern = rf'getElementById\s*\(["\']?{re.escape(chart_id)}["\']?\)'
-                get_element_match = re.search(get_element_pattern, search_content, re.IGNORECASE)
-                
-                # Pattern 2: Also try to find ctx variable assignment (e.g., const ctxsex = ...)
-                ctx_pattern = rf'(?:const|let|var)\s+\w*ctx\w*\s*=\s*document\.getElementById\s*\(["\']?{re.escape(chart_id)}["\']?\)'
-                ctx_match = re.search(ctx_pattern, search_content, re.IGNORECASE)
-                
-                # Use whichever pattern matches
-                if ctx_match:
-                    get_element_match = ctx_match
-                    logger.debug(f"Found ctx variable for {chart_id}")
-                elif get_element_match:
-                    logger.debug(f"Found getElementById for {chart_id}")
-                
-                if get_element_match:
-                    # Get content after getElementById/ctx call (should contain Chart initialization)
-                    # Adjust position relative to original content
-                    match_pos_in_search = get_element_match.end()
-                    chart_section_start = search_start + match_pos_in_search
-                    chart_section_end = min(len(content), chart_section_start + 5000)  # Look 5000 chars ahead
-                    chart_section = content[chart_section_start:chart_section_end]
+                if canvas_tag_start > 0:
+                    # Find the parent div by looking backwards for the nearest opening <div> tag
+                    # Look for div tags before the canvas
+                    div_pattern = r'<div[^>]*>'
+                    div_matches = list(re.finditer(div_pattern, content[:canvas_tag_start], re.IGNORECASE))
                     
-                    # Find Chart initialization after getElementById
-                    # Look for: new Chart(ctxsex, { or new Chart(ctx, { or similar patterns
-                    chart_init_patterns = [
-                        r'new\s+Chart\s*\(\s*\w*ctx\w*\s*,\s*\{',  # new Chart(ctx, { or new Chart(ctxsex, {
-                        r'new\s+Chart\s*\([^,]+,\s*\{',  # new Chart(anything, {
-                        r'const\s+\w+Chart\s*=\s*new\s+Chart\s*\([^,]+,\s*\{',  # const sexChart = new Chart(...)
-                    ]
-                    chart_init_match = None
-                    for pattern in chart_init_patterns:
-                        chart_init_match = re.search(pattern, chart_section, re.IGNORECASE | re.DOTALL)
-                        if chart_init_match:
-                            logger.debug(f"Found Chart initialization for {chart_id} using pattern: {pattern}")
-                            break
-                    
-                    if chart_init_match:
-                        # Get the full Chart configuration (from new Chart to closing brace)
-                        chart_start = chart_init_match.start()
-                        # Find the matching closing brace for the Chart config object
-                        brace_count = 0
-                        chart_end = chart_start
-                        in_string = False
-                        string_char = None
-                        for i, char in enumerate(chart_section[chart_start:], start=chart_start):
-                            if char in ['"', "'"] and (i == chart_start or chart_section[i-1] != '\\'):
-                                if not in_string:
-                                    in_string = True
-                                    string_char = char
-                                elif char == string_char:
-                                    in_string = False
-                                    string_char = None
-                            elif not in_string:
-                                if char == '{':
-                                    brace_count += 1
-                                elif char == '}':
-                                    brace_count -= 1
-                                    if brace_count == 0:
-                                        chart_end = i + 1
+                    if div_matches:
+                        # Get the last div before canvas (most likely parent)
+                        parent_div_match = div_matches[-1]
+                        parent_div_start = parent_div_match.start()
+                        logger.debug(f"Found potential parent div for {chart_id} at position {parent_div_start}")
+                        
+                        # Find the closing tag of this div (to get the div's content range)
+                        # Count div tags to find matching closing tag
+                        div_count = 1
+                        search_pos = canvas_tag_start
+                        div_end = -1
+                        while search_pos < len(content) and div_count > 0:
+                            next_open = content.find('<div', search_pos)
+                            next_close = content.find('</div>', search_pos)
+                            
+                            if next_close == -1:
+                                break
+                            
+                            if next_open != -1 and next_open < next_close:
+                                div_count += 1
+                                search_pos = next_open + 4
+                            else:
+                                div_count -= 1
+                                if div_count == 0:
+                                    div_end = next_close
+                                    break
+                                search_pos = next_close + 6
+                        
+                        # Now search for JavaScript code that uses this chart_id within script tags
+                        # Look for script tags that contain getElementById with this chart_id
+                        script_pattern = r'<script[^>]*>(.*?)</script>'
+                        script_matches = list(re.finditer(script_pattern, content, re.IGNORECASE | re.DOTALL))
+                        
+                        for script_match in script_matches:
+                            script_content = script_match.group(1)
+                            
+                            # Check if this script contains getElementById with our chart_id
+                            # Use exact match to ensure chart_id is not part of another id
+                            escaped_chart_id = re.escape(chart_id)
+                            chart_id_pattern = rf'getElementById\s*\(["\']?{escaped_chart_id}(?![a-zA-Z0-9_])["\']?\)'
+                            if re.search(chart_id_pattern, script_content, re.IGNORECASE):
+                                logger.info(f"Found script block containing getElementById for {chart_id}")
+                                
+                                # Find the Chart initialization in this script
+                                # Look for: new Chart(...) after getElementById
+                                get_element_in_script = re.search(chart_id_pattern, script_content, re.IGNORECASE)
+                                if get_element_in_script:
+                                    # Get content after getElementById
+                                    after_getelement = script_content[get_element_in_script.end():]
+                                    
+                                    # Find Chart initialization
+                                    chart_init_patterns = [
+                                        r'new\s+Chart\s*\([^,]+,\s*\{',  # new Chart(anything, {
+                                        r'const\s+\w+Chart\s*=\s*new\s+Chart\s*\([^,]+,\s*\{',  # const sexChart = new Chart(...)
+                                    ]
+                                    
+                                    for pattern in chart_init_patterns:
+                                        chart_init_match = re.search(pattern, after_getelement, re.IGNORECASE | re.DOTALL)
+                                        if chart_init_match:
+                                            # Extract the Chart config object
+                                            chart_start_in_script = chart_init_match.start()
+                                            chart_section = after_getelement[chart_start_in_script:]
+                                            
+                                            # Find the matching closing brace
+                                            brace_count = 0
+                                            chart_end_in_script = 0
+                                            in_string = False
+                                            string_char = None
+                                            escaped = False
+                                            
+                                            for i, char in enumerate(chart_section):
+                                                if escaped:
+                                                    escaped = False
+                                                    continue
+                                                if char == '\\':
+                                                    escaped = True
+                                                    continue
+                                                if char in ['"', "'"]:
+                                                    if not in_string:
+                                                        in_string = True
+                                                        string_char = char
+                                                    elif char == string_char:
+                                                        in_string = False
+                                                        string_char = None
+                                                elif not in_string:
+                                                    if char == '{':
+                                                        brace_count += 1
+                                                    elif char == '}':
+                                                        brace_count -= 1
+                                                        if brace_count == 0:
+                                                            chart_end_in_script = i + 1
+                                                            break
+                                            
+                                            if chart_end_in_script > 0:
+                                                chart_config = chart_section[:chart_end_in_script]
+                                                logger.info(f"Extracted chart_config for {chart_id} from script block, length: {len(chart_config)}")
+                                                logger.debug(f"Chart config preview: {chart_config[:500]}")
+                                                break
+                                    
+                                    if chart_config:
                                         break
-                        if chart_end > chart_start:
-                            chart_config = chart_section[chart_start:chart_end]
+                
+                # Fallback: If we didn't find via parent div approach, use the old method
+                if not chart_config:
+                    logger.debug(f"Parent div approach didn't work for {chart_id}, trying fallback method")
+                    # Use the old method as fallback
+                    search_start = max(0, canvas_pos - 500)
+                    search_end = min(len(content), canvas_pos + 10000)
+                    search_content = content[search_start:search_end]
+                    
+                    # Use exact match to ensure chart_id is not part of another id
+                    escaped_chart_id = re.escape(chart_id)
+                    get_element_pattern = rf'getElementById\s*\(["\']?{escaped_chart_id}(?![a-zA-Z0-9_])["\']?\)'
+                    get_element_match = re.search(get_element_pattern, search_content, re.IGNORECASE)
+                    
+                    if get_element_match:
+                        match_pos_in_search = get_element_match.end()
+                        chart_section_start = search_start + match_pos_in_search
+                        chart_section_end = min(len(content), chart_section_start + 5000)
+                        chart_section = content[chart_section_start:chart_section_end]
+                        
+                        chart_init_patterns = [
+                            r'new\s+Chart\s*\([^,]+,\s*\{',
+                            r'const\s+\w+Chart\s*=\s*new\s+Chart\s*\([^,]+,\s*\{',
+                        ]
+                        chart_init_match = None
+                        for pattern in chart_init_patterns:
+                            chart_init_match = re.search(pattern, chart_section, re.IGNORECASE | re.DOTALL)
+                            if chart_init_match:
+                                break
+                        
+                        if chart_init_match:
+                            chart_start = chart_init_match.start()
+                            brace_count = 0
+                            chart_end = chart_start
+                            in_string = False
+                            string_char = None
+                            escaped = False
+                            for i, char in enumerate(chart_section[chart_start:], start=chart_start):
+                                if escaped:
+                                    escaped = False
+                                    continue
+                                if char == '\\':
+                                    escaped = True
+                                    continue
+                                if char in ['"', "'"]:
+                                    if not in_string:
+                                        in_string = True
+                                        string_char = char
+                                    elif char == string_char:
+                                        in_string = False
+                                        string_char = None
+                                elif not in_string:
+                                    if char == '{':
+                                        brace_count += 1
+                                    elif char == '}':
+                                        brace_count -= 1
+                                        if brace_count == 0:
+                                            chart_end = i + 1
+                                            break
+                            if chart_end > chart_start:
+                                chart_config = chart_section[chart_start:chart_end]
+                                logger.info(f"Extracted chart_config for {chart_id} using fallback method, length: {len(chart_config)}")
                 
                 # Extract type from chart_config
                 if chart_config:
-                    type_pattern = r"type:\s*['\"]([^'\"]+)['\"]"
-                    type_match = re.search(type_pattern, chart_config, re.IGNORECASE)
-                    if type_match:
-                        chart_type = type_match.group(1).lower()
-                        logger.info(f"Extracted chart type '{chart_type}' for {chart_id} from JavaScript")
-                    else:
-                        logger.warning(f"Could not find 'type' in chart_config for {chart_id}. Config preview: {chart_config[:200]}")
+                    # Try multiple patterns to find chart type - prioritize specific chart types
+                    type_patterns = [
+                        r"type\s*:\s*['\"](pie|line|bar|doughnut|radar|polarArea|area)['\"]",  # type: 'pie' - specific types first
+                        r"type\s*:\s*(pie|line|bar|doughnut|radar|polarArea|area)\s*[,}]",  # type: pie, or type: pie} - without quotes
+                        r"['\"]type['\"]\s*:\s*['\"](pie|line|bar|doughnut|radar|polarArea|area)['\"]",  # "type": "pie"
+                        r"type\s*:\s*['\"]([^'\"]+)['\"]",  # type: 'anything' - fallback
+                        r"type\s*:\s*([a-zA-Z]+)",  # type: anything (without quotes) - fallback
+                    ]
+                    type_match = None
+                    for pattern in type_patterns:
+                        type_match = re.search(pattern, chart_config, re.IGNORECASE)
+                        if type_match:
+                            chart_type = type_match.group(1).lower().strip()
+                            # Validate that it's a known chart type
+                            valid_types = ['pie', 'line', 'bar', 'doughnut', 'radar', 'polararea', 'area']
+                            if chart_type in valid_types:
+                                # Check if this is a line chart with fill: true (which means it's an area chart)
+                                if chart_type == 'line':
+                                    # Look for fill: true in the chart config
+                                    fill_pattern = r'fill\s*:\s*true'
+                                    if re.search(fill_pattern, chart_config, re.IGNORECASE):
+                                        chart_type = 'area'
+                                        logger.info(f"Detected area chart (line with fill: true) for {chart_id}")
+                                
+                                logger.info(f"Extracted chart type '{chart_type}' for {chart_id} from JavaScript using pattern: {pattern}")
+                                logger.debug(f"Chart config snippet: {chart_config[:300]}")
+                                break
+                            else:
+                                logger.warning(f"Found invalid chart type '{chart_type}' for {chart_id}, continuing search...")
+                                type_match = None
+                    
+                    if not type_match:
+                        logger.warning(f"Could not find valid 'type' in chart_config for {chart_id}. Config preview: {chart_config[:300]}")
+                        logger.warning(f"Full chart_config length: {len(chart_config)}")
                 else:
                     logger.warning(f"Could not find chart_config for {chart_id}. canvas_pos={canvas_pos}")
+                    # Try to find type directly in the content around canvas
+                    if canvas_pos > 0:
+                        # Look for type: 'pie' pattern in a wider range around canvas
+                        search_start = max(0, canvas_pos - 2000)
+                        search_end = min(len(content), canvas_pos + 8000)  # Increased range
+                        search_content = content[search_start:search_end]
+                        
+                        # Look for Chart initialization with this chart_id
+                        # Use exact match to ensure chart_id is not part of another id
+                        escaped_chart_id = re.escape(chart_id)
+                        chart_id_pattern = rf'getElementById\s*\(["\']?{escaped_chart_id}(?![a-zA-Z0-9_])["\']?\)'
+                        chart_id_match = re.search(chart_id_pattern, search_content, re.IGNORECASE)
+                        if chart_id_match:
+                            # Find new Chart after getElementById - look in a larger window
+                            after_getelement = search_content[chart_id_match.end():]
+                            # Look for new Chart within 3000 chars after getElementById
+                            chart_init_match = re.search(r'new\s+Chart\s*\([^,]+,\s*\{', after_getelement[:3000], re.IGNORECASE | re.DOTALL)
+                            if chart_init_match:
+                                # Extract type from the Chart config
+                                chart_config_section = after_getelement[chart_init_match.start():chart_init_match.start() + 2000]
+                                type_patterns = [
+                                    r"type\s*:\s*['\"]([^'\"]+)['\"]",  # type: 'pie'
+                                    r"type\s*:\s*([a-zA-Z]+)",  # type: pie (without quotes)
+                                ]
+                                for pattern in type_patterns:
+                                    type_match = re.search(pattern, chart_config_section, re.IGNORECASE)
+                                    if type_match:
+                                        chart_type = type_match.group(1).lower().strip()
+                                        # Check if this is a line chart with fill: true (which means it's an area chart)
+                                        if chart_type == 'line':
+                                            fill_pattern = r'fill\s*:\s*true'
+                                            if re.search(fill_pattern, chart_config_section, re.IGNORECASE):
+                                                chart_type = 'area'
+                                                logger.info(f"Detected area chart (line with fill: true) for {chart_id}")
+                                        logger.info(f"Extracted chart type '{chart_type}' for {chart_id} using direct search after getElementById")
+                                        break
             
             # SECOND: Try to get actual data directly from dashboard_data
             # This is a general approach that works for all dashboards
@@ -2305,7 +3994,9 @@ def dashboard_template_charts(template_name):
                     after_canvas = content[canvas_pos:canvas_pos + 5000]  # Look 5000 chars ahead
                     
                     # Find the Chart.js initialization for this canvas
-                    get_element_pattern = rf'getElementById\s*\(["\']?{re.escape(chart_id)}["\']?\)'
+                    # Use exact match to ensure chart_id is not part of another id
+                    escaped_chart_id = re.escape(chart_id)
+                    get_element_pattern = rf'getElementById\s*\(["\']?{escaped_chart_id}(?![a-zA-Z0-9_])["\']?\)'
                     get_element_match = re.search(get_element_pattern, after_canvas, re.IGNORECASE)
                     
                     chart_config = None
@@ -2502,6 +4193,44 @@ def dashboard_template_charts(template_name):
                                     pass
                                 break
             
+            # Set default chart_type if not extracted - but only as last resort
+            if not chart_type:
+                # Try one more aggressive search: look for 'type:' anywhere near the canvas
+                if canvas_pos > 0:
+                    aggressive_start = max(0, canvas_pos - 5000)
+                    aggressive_end = min(len(content), canvas_pos + 10000)
+                    aggressive_content = content[aggressive_start:aggressive_end]
+                    
+                    # Look for getElementById with chart_id
+                    # Use exact match to ensure chart_id is not part of another id
+                    escaped_chart_id = re.escape(chart_id)
+                    chart_id_in_content = rf'getElementById\s*\(["\']?{escaped_chart_id}(?![a-zA-Z0-9_])["\']?\)'
+                    if re.search(chart_id_in_content, aggressive_content, re.IGNORECASE):
+                        # Find the first occurrence of 'type:' after getElementById
+                        # This is a very permissive pattern
+                        type_patterns_aggressive = [
+                            r"type\s*:\s*['\"](pie|line|bar|doughnut|radar|polarArea|area)['\"]",  # type: 'pie'
+                            r"type\s*:\s*(pie|line|bar|doughnut|radar|polarArea|area)\s*[,}]",  # type: pie, or type: pie}
+                            r"['\"]type['\"]\s*:\s*['\"](pie|line|bar|doughnut|radar|polarArea|area)['\"]",  # "type": "pie"
+                        ]
+                        for pattern in type_patterns_aggressive:
+                            match = re.search(pattern, aggressive_content, re.IGNORECASE)
+                            if match:
+                                chart_type = match.group(1).lower().strip()
+                                # Check if this is a line chart with fill: true (which means it's an area chart)
+                                if chart_type == 'line':
+                                    fill_pattern = r'fill\s*:\s*true'
+                                    if re.search(fill_pattern, aggressive_content, re.IGNORECASE):
+                                        chart_type = 'area'
+                                        logger.info(f"Detected area chart (line with fill: true) for {chart_id}")
+                                logger.info(f"Extracted chart type '{chart_type}' for {chart_id} using aggressive search with pattern: {pattern}")
+                                break
+                
+                if not chart_type:
+                    logger.error(f"CRITICAL: Chart type not extracted for {chart_id} after all attempts! Using default 'line'. Canvas pos: {canvas_pos}")
+                    logger.error(f"Content around canvas (first 500 chars): {content[max(0, canvas_pos-250):canvas_pos+250]}")
+                    chart_type = 'line'
+            
             # If no sample data extracted, use defaults based on chart type
             if not sample_labels:
                 if chart_type in ['pie', 'doughnut']:
@@ -2547,7 +4276,11 @@ def dashboard_template_charts(template_name):
             # We already filtered out commented charts, so all found charts are visible
             is_visible = True
             
+            # Log extracted chart info for debugging
+            logger.info(f"Chart {chart_id}: type={chart_type}, labels={len(sample_labels) if sample_labels else 0}, datasets={len(sample_datasets) if sample_datasets else 0}, has_actual_data={bool(dashboard_data)}")
+            
             # Create config dict from HTML (not from database)
+            # color_palette will be loaded from database after all charts are created
             charts.append({
                 'id': None,
                 'template_name': template_name,
@@ -2559,6 +4292,7 @@ def dashboard_template_charts(template_name):
                 'show_legend': show_legend,  # Extracted from HTML/JS
                 'allow_export': allow_export,  # Default
                 'is_visible': is_visible,  # True (already filtered commented charts)
+                'color_palette': 'default',  # Will be updated from database
                 'chart_options': {
                     'sample_labels': sample_labels,
                     'sample_datasets': sample_datasets
@@ -2568,16 +4302,505 @@ def dashboard_template_charts(template_name):
         # Sort by display_order
         charts.sort(key=lambda x: x.get('display_order', 0))
         
+        # Load color_palette from database for each chart
+        try:
+            db_configs = ChartConfig.query.filter_by(template_name=template_name).all()
+            db_configs_dict = {config.chart_id: config for config in db_configs}
+            logger.info(f"Loading color_palette for {len(charts)} charts from {len(db_configs)} configs")
+            for chart in charts:
+                chart_id = chart.get('chart_id')
+                if chart_id in db_configs_dict:
+                    db_config = db_configs_dict[chart_id]
+                    chart['color_palette'] = db_config.color_palette or 'default'
+                    logger.info(f"Chart {chart_id}: color_palette={chart['color_palette']} (from DB)")
+                else:
+                    chart['color_palette'] = 'default'
+                    logger.info(f"Chart {chart_id}: color_palette=default (not in DB)")
+        except Exception as e:
+            logger.warning(f"Error loading color_palette from database: {e}")
+            # Set default for all charts if error
+            for chart in charts:
+                chart['color_palette'] = 'default'
+                logger.warning(f"Chart {chart.get('chart_id')}: color_palette=default (error fallback)")
+        
+        # Extract tables from HTML
+        tables = []
+        import re
+        
+        try:
+            try:
+                from bs4 import BeautifulSoup
+            except ImportError:
+                logger.warning("BeautifulSoup4 not installed. Skipping table extraction.")
+                BeautifulSoup = None
+            
+            if BeautifulSoup:
+                soup = BeautifulSoup(content, 'html.parser')
+                # Find all table elements (excluding those in HTML comments)
+                all_tables = soup.find_all('table')
+            else:
+                all_tables = []
+            
+            for idx, table in enumerate(all_tables):
+                # Check if table is in a comment
+                if table.find_parent('comment'):
+                    continue
+                
+                table_id = table.get('id', f'table_{idx}')
+                table_class = ' '.join(table.get('class', []))
+                
+                # Find table title (look for h3, h4, h5, or caption before table)
+                title = None
+                # Look for caption
+                caption = table.find('caption')
+                if caption:
+                    title = caption.get_text(strip=True)
+                else:
+                    # Look for heading before table
+                    prev_sibling = table.find_previous_sibling(['h3', 'h4', 'h5', 'h6'])
+                    if prev_sibling:
+                        title = prev_sibling.get_text(strip=True)
+                    else:
+                        # Look in parent div/card
+                        parent = table.find_parent(['div', 'section', 'article'])
+                        if parent:
+                            heading = parent.find(['h3', 'h4', 'h5', 'h6'])
+                            if heading:
+                                title = heading.get_text(strip=True)
+                
+                if not title:
+                    title = f'جدول {idx + 1}'
+                
+                # Extract table structure
+                headers = []
+                rows_data = []
+                
+                thead = table.find('thead')
+                if thead:
+                    header_row = thead.find('tr')
+                    if header_row:
+                        headers = [th.get_text(strip=True) for th in header_row.find_all(['th', 'td'])]
+                
+                tbody = table.find('tbody')
+                if tbody:
+                    for tr in tbody.find_all('tr'):
+                        row_data = [td.get_text(strip=True) for td in tr.find_all(['td', 'th'])]
+                        if row_data:
+                            rows_data.append(row_data)
+                
+                # If no tbody, check all rows
+                if not rows_data:
+                    for tr in table.find_all('tr'):
+                        row_data = [td.get_text(strip=True) for td in tr.find_all(['td', 'th'])]
+                        if row_data:
+                            rows_data.append(row_data)
+                
+                # Try to get actual table data from dashboard_data
+                table_data = None
+                if dashboard_data:
+                    # Look for Jinja variables in table rows
+                    table_html = str(table)
+                    jinja_vars = re.findall(r'\{\{\s*([^|}\s]+)', table_html)
+                    
+                    # Try to match with dashboard_data
+                    for var_name in jinja_vars:
+                        var_name = var_name.strip()
+                        if var_name in dashboard_data:
+                            data_obj = dashboard_data[var_name]
+                            if isinstance(data_obj, (list, dict)):
+                                table_data = data_obj
+                                break
+                
+                tables.append({
+                    'table_id': table_id,
+                    'title': title,
+                    'headers': headers,
+                    'rows': rows_data[:10] if rows_data else [],  # Limit preview rows
+                    'total_rows': len(rows_data) if rows_data else 0,
+                    'table_data': table_data,  # Actual data from dashboard
+                    'display_order': len(charts) + idx,  # Place after charts
+                    'is_visible': True,
+                    'allow_excel_export': True
+                })
+        except Exception as e:
+            logger.error(f"Error extracting tables: {e}", exc_info=True)
+            tables = []  # Ensure tables is always a list
+        
+        # Check if there are any charts or tables
+        has_elements = len(charts) > 0 or len(tables) > 0
+        
+        logger.info(f"Template {template_name}: Found {len(charts)} charts and {len(tables)} tables")
+        
         return jsonify({
             'success': True,
-            'charts': charts
+            'charts': charts,
+            'tables': tables,
+            'has_elements': has_elements
         })
     except Exception as e:
-        logger.error(f"Error getting chart configs for {template_name}: {e}", exc_info=True)
+        logger.error(f"Error in dashboard_template_charts: {e}", exc_info=True)
+        return jsonify({'success': False, 'message': f'خطا: {str(e)}'}), 500
+
+
+@admin_bp.route('/dashboards/templates/<template_name>/save-settings', methods=['POST'])
+@login_required
+@admin_required
+def dashboard_template_save_settings(template_name):
+    """Save chart and table settings for a template"""
+    try:
+        log_action('save_all_settings', 'template', template_name)
+    except Exception as e:
+        logger.warning(f"Error logging action: {e}")
+    
+    try:
+        # Security check
+        if not template_name.endswith('.html') or '..' in template_name or '/' in template_name:
+            return jsonify({'success': False, 'message': 'نام فایل نامعتبر است'}), 400
+        
+        # Get template path
+        base_dir = Path(__file__).parent.parent
+        template_path = base_dir / 'templates' / 'dashboards' / template_name
+        
+        if not template_path.exists():
+            return jsonify({'success': False, 'message': 'تمپلیت یافت نشد'}), 404
+        
+        # Get data from request
+        if not request.is_json:
+            return jsonify({'success': False, 'message': 'درخواست باید JSON باشد'}), 400
+        
+        data = request.get_json()
+        charts = data.get('charts', [])
+        tables = data.get('tables', [])
+        
+        logger.info(f"Received save request for template {template_name}: {len(charts)} charts, {len(tables)} tables")
+        
+        # Create backup before making changes (same as charts endpoint)
+        next_version = None
+        try:
+            # Read current template content
+            with open(template_path, 'r', encoding='utf-8') as f:
+                current_content = f.read()
+            
+            # Get current chart configs
+            current_chart_configs = []
+            try:
+                configs = ChartConfig.query.filter_by(template_name=template_name).all()
+                current_chart_configs = [config.to_dict() for config in configs]
+            except Exception as e:
+                logger.warning(f"Error getting current chart configs: {e}")
+            
+            # Get next version number
+            try:
+                max_version = db.session.query(func.max(TemplateVersion.version_number)).filter_by(
+                    template_name=template_name
+                ).scalar() or 0
+                next_version = max_version + 1
+            except Exception as e:
+                logger.warning(f"Error getting max version number: {e}")
+                next_version = 1
+            
+            # Keep only last 50 versions
+            if next_version and next_version > 50:
+                try:
+                    versions_to_delete = TemplateVersion.query.filter_by(
+                        template_name=template_name
+                    ).order_by(TemplateVersion.version_number.asc()).limit(next_version - 50).all()
+                    for version in versions_to_delete:
+                        db.session.delete(version)
+                except Exception as e:
+                    logger.warning(f"Error deleting old versions: {e}")
+            
+            # Create version backup
+            if next_version:
+                try:
+                    version = TemplateVersion(
+                        template_name=template_name,
+                        version_number=next_version,
+                        template_content=current_content,
+                        chart_configs=current_chart_configs,
+                        created_by=current_user.id,
+                        description=f'ذخیره خودکار قبل از اعمال تغییرات - نسخه {next_version}'
+                    )
+                    db.session.add(version)
+                    db.session.flush()
+                    logger.info(f"Created template version {next_version} for {template_name}")
+                except Exception as e:
+                    logger.error(f"Error creating version record: {e}", exc_info=True)
+                    next_version = None
+        except Exception as backup_error:
+            logger.error(f"Error creating template backup: {backup_error}", exc_info=True)
+            next_version = None
+        
+        # Save charts (same logic as dashboard_template_charts_save)
+        saved_charts = []
+        if charts:
+            logger.info(f"Saving {len(charts)} chart configurations")
+            for chart_data in charts:
+                chart_id = chart_data.get('chart_id')
+                if not chart_id:
+                    continue
+                
+                # Find or create config
+                try:
+                    config = ChartConfig.query.filter_by(
+                        template_name=template_name,
+                        chart_id=chart_id
+                    ).first()
+                except Exception as db_error:
+                    logger.warning(f"Error querying ChartConfig: {db_error}")
+                    config = None
+                
+                if not config:
+                    config = ChartConfig(
+                        template_name=template_name,
+                        chart_id=chart_id,
+                        created_by=current_user.id
+                    )
+                    db.session.add(config)
+                
+                # Update all fields
+                new_title = chart_data.get('title')
+                if new_title is not None and new_title != '':
+                    config.title = new_title
+                elif not config.title:
+                    config.title = chart_id
+                
+                new_display_order = chart_data.get('display_order')
+                if new_display_order is not None:
+                    config.display_order = int(new_display_order)
+                elif config.display_order is None:
+                    config.display_order = 0
+                
+                new_chart_type = chart_data.get('chart_type')
+                if new_chart_type:
+                    config.chart_type = new_chart_type
+                elif not config.chart_type:
+                    config.chart_type = 'line'
+                
+                new_show_labels = chart_data.get('show_labels')
+                if new_show_labels is not None:
+                    config.show_labels = bool(new_show_labels)
+                elif config.show_labels is None:
+                    config.show_labels = True
+                
+                new_show_legend = chart_data.get('show_legend')
+                if new_show_legend is not None:
+                    config.show_legend = bool(new_show_legend)
+                elif config.show_legend is None:
+                    config.show_legend = True
+                
+                new_is_visible = chart_data.get('is_visible')
+                if new_is_visible is not None:
+                    config.is_visible = bool(new_is_visible)
+                elif config.is_visible is None:
+                    config.is_visible = True
+                
+                new_allow_export = chart_data.get('allow_export')
+                if new_allow_export is not None:
+                    config.allow_export = bool(new_allow_export)
+                elif config.allow_export is None:
+                    config.allow_export = True
+                
+                new_color_palette = chart_data.get('color_palette')
+                if new_color_palette is not None:
+                    # Validate palette name
+                    if new_color_palette in COLOR_PALETTES:
+                        config.color_palette = new_color_palette
+                    else:
+                        config.color_palette = 'default'
+                        logger.warning(f"Invalid color_palette '{new_color_palette}' for {chart_id}, using default")
+                elif config.color_palette is None:
+                    config.color_palette = 'default'
+                
+                new_chart_options = chart_data.get('chart_options')
+                if new_chart_options is not None:
+                    config.chart_options = new_chart_options
+                elif config.chart_options is None:
+                    config.chart_options = {}
+                
+                config.updated_at = datetime.utcnow()
+                
+                # Log all saved fields for verification
+                logger.info(f"Saving chart config for {chart_id}:")
+                logger.info(f"  - title: '{config.title}'")
+                logger.info(f"  - display_order: {config.display_order}")
+                logger.info(f"  - chart_type: {config.chart_type}")
+                logger.info(f"  - show_labels: {config.show_labels}")
+                logger.info(f"  - show_legend: {config.show_legend}")
+                logger.info(f"  - allow_export: {config.allow_export}")
+                logger.info(f"  - chart_options: {bool(config.chart_options)}")
+                
+                saved_charts.append(config.to_dict())
+        
+        # Save tables (for now, just log - tables don't have database model yet)
+        if tables:
+            logger.info(f"Received {len(tables)} table configurations (table saving not yet implemented)")
+            for table_data in tables:
+                logger.debug(f"Table: {table_data.get('table_id')}, title: {table_data.get('title')}, order: {table_data.get('display_order')}")
+        
+        # Commit all changes to database
+        try:
+            db.session.commit()
+            logger.info(f"✓ Successfully committed {len(saved_charts)} chart configurations to database")
+            
+            # Verify saved data by querying back
+            for saved_chart in saved_charts:
+                chart_id = saved_chart.get('chart_id')
+                verify_config = ChartConfig.query.filter_by(
+                    template_name=template_name,
+                    chart_id=chart_id
+                ).first()
+                if verify_config:
+                    logger.info(f"✓ Verified chart {chart_id} in database: type={verify_config.chart_type}, order={verify_config.display_order}")
+                else:
+                    logger.error(f"✗ Chart {chart_id} not found in database after commit!")
+        except Exception as commit_error:
+            db.session.rollback()
+            logger.error(f"✗ Error committing settings to database: {commit_error}", exc_info=True)
+            raise
+        
+        # Apply chart configurations to HTML file
+        html_updated = False
+        updated_html_content = None
+        if saved_charts:
+            try:
+                logger.info(f"Applying {len(saved_charts)} chart configurations to HTML file: {template_path}")
+                html_updated = apply_chart_configs_to_html(template_path, saved_charts)
+                if html_updated:
+                    logger.info(f"✓ HTML template {template_name} updated successfully")
+                    # Read back to verify
+                    with open(template_path, 'r', encoding='utf-8') as f:
+                        updated_html_content = f.read()
+                    
+                    # Verify changes were applied by checking a few charts
+                    import re
+                    verification_count = 0
+                    for saved_chart in saved_charts[:3]:  # Check first 3 charts
+                        chart_id = saved_chart.get('chart_id')
+                        chart_type = saved_chart.get('chart_type')
+                        if chart_id and chart_type:
+                            # Check if chart type exists in HTML
+                            # Use exact match to ensure chart_id is not part of another id
+                            escaped_chart_id = re.escape(chart_id)
+                            ctx_pattern = rf'getElementById\s*\([\'"]{escaped_chart_id}(?![a-zA-Z0-9_])[\'"]\)'
+                            if re.search(ctx_pattern, updated_html_content):
+                                # Check if type is correct
+                                type_pattern = rf"type\s*:\s*['\"]({re.escape(chart_type)})['\"]"
+                                if re.search(type_pattern, updated_html_content):
+                                    verification_count += 1
+                                    logger.info(f"✓ Verified chart {chart_id} type '{chart_type}' in HTML")
+                                else:
+                                    logger.warning(f"⚠ Chart {chart_id} type '{chart_type}' not found in HTML after update")
+                    if verification_count > 0:
+                        logger.info(f"✓ Verified {verification_count} chart(s) in HTML file")
+                    
+                    # CRITICAL: Clear all caches to force immediate reload
+                    try:
+                        # 1. Touch the template file to update its modification time
+                        # This ensures Flask/Jinja2 detects the file change
+                        import os
+                        os.utime(template_path, None)
+                        logger.info(f"✓ Updated template file modification time: {template_path}")
+                        
+                        # 2. Clear Jinja2 template cache
+                        from flask import current_app
+                        try:
+                            # Get the app instance (might be from request context or app context)
+                            app_instance = current_app._get_current_object() if hasattr(current_app, '_get_current_object') else current_app
+                            if hasattr(app_instance, 'jinja_env'):
+                                if hasattr(app_instance.jinja_env, 'cache'):
+                                    app_instance.jinja_env.cache.clear()
+                                    logger.info("✓ Cleared Jinja2 template cache")
+                                # Also try to reload the template loader
+                                if hasattr(app_instance.jinja_env, 'loader'):
+                                    # Force reload by clearing loader cache if it exists
+                                    if hasattr(app_instance.jinja_env.loader, 'cache'):
+                                        app_instance.jinja_env.loader.cache.clear()
+                                        logger.info("✓ Cleared Jinja2 template loader cache")
+                        except Exception as jinja_error:
+                            logger.warning(f"Could not clear Jinja2 cache: {jinja_error}")
+                        
+                        # 3. Clear dashboard data cache for this specific dashboard
+                        template_name_clean = template_name.replace('.html', '')
+                        dashboard_id = template_name_clean  # e.g., 'd1', 'd2', etc.
+                        try:
+                            from dashboards.cache import DashboardCache
+                            # Clear all cache entries for this dashboard
+                            DashboardCache.clear(pattern=dashboard_id)
+                            logger.info(f"✓ Cleared dashboard data cache for {dashboard_id}")
+                        except Exception as cache_error:
+                            logger.warning(f"Could not clear dashboard cache: {cache_error}")
+                        
+                        # 4. Also clear all dashboard caches to be safe (template changes affect all users)
+                        try:
+                            from dashboards.cache import DashboardCache
+                            DashboardCache.clear()  # Clear all dashboard caches
+                            logger.info("✓ Cleared all dashboard caches (template changes affect all users)")
+                        except Exception as full_cache_error:
+                            logger.warning(f"Could not clear all dashboard caches: {full_cache_error}")
+                    except Exception as cache_clear_error:
+                        logger.error(f"✗ Error clearing caches: {cache_clear_error}", exc_info=True)
+                else:
+                    logger.warning(f"⚠ Could not update HTML template {template_name} (no changes detected)")
+            except Exception as html_error:
+                logger.error(f"✗ Error updating HTML template: {html_error}", exc_info=True)
+                # Don't fail the whole operation if HTML update fails - database save was successful
+        
+        # Update TemplateVersion with final HTML content
+        if html_updated and updated_html_content and next_version:
+            try:
+                version = TemplateVersion.query.filter_by(
+                    template_name=template_name,
+                    version_number=next_version
+                ).first()
+                if version:
+                    version.template_content = updated_html_content
+                    version.chart_configs = saved_charts
+                    db.session.commit()
+                    logger.info(f"Updated template version {next_version} with final HTML content")
+            except Exception as version_update_error:
+                logger.warning(f"Error updating template version: {version_update_error}")
+        
+        # Prepare detailed success message
+        charts_summary = []
+        for saved_chart in saved_charts:
+            charts_summary.append(f"{saved_chart.get('chart_id')} (type: {saved_chart.get('chart_type')}, order: {saved_chart.get('display_order')})")
+        
+        logger.info("=" * 60)
+        logger.info(f"SAVE OPERATION SUMMARY for {template_name}:")
+        logger.info(f"  - Charts saved to database: {len(saved_charts)}")
+        for chart in saved_charts:
+            logger.info(f"    • {chart.get('chart_id')}: type={chart.get('chart_type')}, order={chart.get('display_order')}, title='{chart.get('title')}'")
+        logger.info(f"  - HTML file updated: {html_updated}")
+        logger.info(f"  - Backup version created: {next_version}")
+        logger.info("=" * 60)
+        
+        if next_version:
+            if html_updated:
+                message = f'✓ {len(saved_charts)} تنظیمات نمودار و {len(tables)} تنظیمات جدول با موفقیت ذخیره شد.\n✓ فایل HTML به‌روزرسانی شد.\n✓ نسخه پشتیبان {next_version} ایجاد شد.'
+            else:
+                message = f'✓ {len(saved_charts)} تنظیمات نمودار و {len(tables)} تنظیمات جدول در دیتابیس ذخیره شد.\n⚠ فایل HTML به‌روزرسانی نشد (تغییری یافت نشد یا خطا رخ داد).\n✓ نسخه پشتیبان {next_version} ایجاد شد.'
+        else:
+            if html_updated:
+                message = f'✓ {len(saved_charts)} تنظیمات نمودار و {len(tables)} تنظیمات جدول ذخیره شد.\n✓ فایل HTML به‌روزرسانی شد.'
+            else:
+                message = f'✓ {len(saved_charts)} تنظیمات نمودار و {len(tables)} تنظیمات جدول در دیتابیس ذخیره شد.\n⚠ فایل HTML به‌روزرسانی نشد (تغییری یافت نشد یا خطا رخ داد).'
+        
         return jsonify({
-            'success': False,
-            'message': f'خطا در دریافت تنظیمات نمودارها: {str(e)}'
-        }), 500
+            'success': True,
+            'message': message,
+            'charts_saved': len(saved_charts),
+            'tables_saved': len(tables),
+            'version': next_version,
+            'html_updated': html_updated,
+            'details': {
+                'charts': [{'id': c.get('chart_id'), 'type': c.get('chart_type'), 'order': c.get('display_order')} for c in saved_charts]
+            }
+        })
+        
+    except Exception as e:
+        logger.error(f"Error saving template settings: {e}", exc_info=True)
+        return jsonify({'success': False, 'message': f'خطا: {str(e)}'}), 500
 
 
 @admin_bp.route('/dashboards/templates/<template_name>/charts', methods=['POST'])
@@ -2733,6 +4956,12 @@ def dashboard_template_charts_save(template_name):
                 config.show_legend = bool(new_show_legend)
             elif config.show_legend is None:
                 config.show_legend = True
+            
+            new_is_visible = chart_data.get('is_visible')
+            if new_is_visible is not None:
+                config.is_visible = bool(new_is_visible)
+            elif config.is_visible is None:
+                config.is_visible = True
             
             new_allow_export = chart_data.get('allow_export')
             if new_allow_export is not None:
@@ -2974,3 +5203,819 @@ def dashboard_template_delete_version(template_name, version_number):
             'success': False,
             'message': f'خطا در حذف نسخه: {str(e)}'
         }), 500
+
+
+@admin_bp.route('/dashboards/templates/<template_name>/charts/<chart_id>/preview', methods=['POST'])
+@login_required
+@admin_required
+def dashboard_template_chart_preview(template_name, chart_id):
+    """Preview changes for a single chart before saving"""
+    try:
+        # Security check
+        if not template_name.endswith('.html') or '..' in template_name or '/' in template_name:
+            return jsonify({'success': False, 'message': 'نام فایل نامعتبر است'}), 400
+        
+        # Get template path
+        base_dir = Path(__file__).parent.parent
+        template_path = base_dir / 'templates' / 'dashboards' / template_name
+        
+        if not template_path.exists():
+            return jsonify({'success': False, 'message': 'تمپلیت یافت نشد'}), 404
+        
+        # Read current template content
+        with open(template_path, 'r', encoding='utf-8') as f:
+            current_content = f.read()
+        
+        # Get data from request
+        if not request.is_json:
+            return jsonify({'success': False, 'message': 'درخواست باید JSON باشد'}), 400
+        
+        data = request.get_json()
+        chart_data = data.get('chart', {})
+        
+        if not chart_data or chart_data.get('chart_id') != chart_id:
+            return jsonify({'success': False, 'message': 'اطلاعات نمودار نامعتبر است'}), 400
+        
+        # Log the chart_id being processed
+        logger.info(f"Preview: Extracting code for chart_id='{chart_id}' (from URL parameter)")
+        logger.info(f"Preview: chart_data.chart_id='{chart_data.get('chart_id')}' (from request body)")
+        
+        # Ensure chart_id matches
+        if chart_data.get('chart_id') != chart_id:
+            logger.error(f"Chart ID mismatch: URL has '{chart_id}' but request has '{chart_data.get('chart_id')}'")
+            return jsonify({'success': False, 'message': 'عدم تطابق ID نمودار'}), 400
+        
+        # Extract current chart code from template
+        logger.info(f"Preview: Extracting before_code for chart_id='{chart_id}'")
+        before_code = extract_chart_code(current_content, chart_id)
+        
+        # Verify that before_code contains the correct chart_id
+        if chart_id not in before_code and 'not found' not in before_code:
+            logger.warning(f"Preview: before_code might be for wrong chart. Looking for '{chart_id}' in code...")
+            # Check if wrong chart_id is in the code
+            if 'genderChart404' in before_code and chart_id == 'genderChart':
+                logger.error(f"Preview: ERROR! Extracted code for 'genderChart404' when looking for 'genderChart'")
+            elif 'genderChart' in before_code and chart_id == 'genderChart404':
+                logger.error(f"Preview: ERROR! Extracted code for 'genderChart' when looking for 'genderChart404'")
+        
+        # Apply changes to get after code
+        # Use apply_chart_configs_to_html logic but collect changes instead of applying
+        test_content = current_content
+        changes = []
+        
+        # Collect changes using the same logic as apply_chart_configs_to_html
+        # but only for this specific chart
+        chart_configs = [chart_data]
+        
+        # Apply the same logic as apply_chart_configs_to_html
+        # We'll create a temporary file and use the existing function
+        import tempfile
+        import shutil
+        
+        # Create a temporary copy of the template
+        with tempfile.NamedTemporaryFile(mode='w', encoding='utf-8', delete=False, suffix='.html') as tmp_file:
+            tmp_file.write(test_content)
+            tmp_path = Path(tmp_file.name)
+        
+        try:
+            # Apply chart configs (this will modify the file)
+            logger.info(f"Preview: Applying configs for chart_id='{chart_id}'")
+            apply_chart_configs_to_html(tmp_path, chart_configs)
+            
+            # Read the modified content
+            with open(tmp_path, 'r', encoding='utf-8') as f:
+                after_content = f.read()
+            
+            # Extract after code
+            logger.info(f"Preview: Extracting after_code for chart_id='{chart_id}'")
+            after_code = extract_chart_code(after_content, chart_id)
+            
+            # Verify after_code
+            if chart_id not in after_code and 'not found' not in after_code:
+                logger.warning(f"Preview: after_code might be for wrong chart. Looking for '{chart_id}' in code...")
+        finally:
+            # Clean up temporary file
+            try:
+                tmp_path.unlink()
+            except:
+                pass
+        
+        return jsonify({
+            'success': True,
+            'before_code': before_code,
+            'after_code': after_code,
+            'chart_id': chart_id
+        })
+        
+    except Exception as e:
+        logger.error(f"Error previewing chart {chart_id} for {template_name}: {e}", exc_info=True)
+        return jsonify({
+            'success': False,
+            'message': f'خطا در پیش‌نمایش: {str(e)}'
+        }), 500
+
+
+@admin_bp.route('/dashboards/templates/<template_name>/charts/<chart_id>/save', methods=['POST'])
+@login_required
+@admin_required
+def dashboard_template_chart_save(template_name, chart_id):
+    """Save a single chart configuration"""
+    try:
+        log_action('save_single_chart_config', 'template', template_name, {'chart_id': chart_id})
+    except Exception as e:
+        logger.warning(f"Error logging action: {e}")
+    
+    try:
+        # Security check
+        if not template_name.endswith('.html') or '..' in template_name or '/' in template_name:
+            return jsonify({'success': False, 'message': 'نام فایل نامعتبر است'}), 400
+        
+        # Get template path
+        base_dir = Path(__file__).parent.parent
+        template_path = base_dir / 'templates' / 'dashboards' / template_name
+        
+        if not template_path.exists():
+            return jsonify({'success': False, 'message': 'تمپلیت یافت نشد'}), 404
+        
+        # Create backup before making changes
+        next_version = None
+        try:
+            # Read current template content
+            with open(template_path, 'r', encoding='utf-8') as f:
+                current_content = f.read()
+            
+            # Get current chart configs
+            current_chart_configs = []
+            try:
+                configs = ChartConfig.query.filter_by(template_name=template_name).all()
+                current_chart_configs = [config.to_dict() for config in configs]
+            except Exception as e:
+                logger.warning(f"Error getting current chart configs: {e}")
+            
+            # Get next version number
+            try:
+                max_version = db.session.query(func.max(TemplateVersion.version_number)).filter_by(
+                    template_name=template_name
+                ).scalar() or 0
+                next_version = max_version + 1
+            except Exception as e:
+                logger.warning(f"Error getting max version number: {e}")
+                next_version = 1
+            
+            # Keep only last 50 versions
+            if next_version and next_version > 50:
+                try:
+                    versions_to_delete = TemplateVersion.query.filter_by(
+                        template_name=template_name
+                    ).order_by(TemplateVersion.version_number.asc()).limit(next_version - 50).all()
+                    for version in versions_to_delete:
+                        db.session.delete(version)
+                except Exception as e:
+                    logger.warning(f"Error deleting old versions: {e}")
+            
+            # Create version backup
+            if next_version:
+                try:
+                    version = TemplateVersion(
+                        template_name=template_name,
+                        version_number=next_version,
+                        template_content=current_content,
+                        chart_configs=current_chart_configs,
+                        created_by=current_user.id,
+                        description=f'ذخیره خودکار قبل از اعمال تغییرات نمودار {chart_id} - نسخه {next_version}'
+                    )
+                    db.session.add(version)
+                    db.session.flush()
+                    logger.info(f"Created template version {next_version} for {template_name}")
+                except Exception as e:
+                    logger.error(f"Error creating version record: {e}", exc_info=True)
+                    next_version = None
+        except Exception as backup_error:
+            logger.error(f"Error creating template backup: {backup_error}", exc_info=True)
+            next_version = None
+        
+        # Get data from request
+        if not request.is_json:
+            return jsonify({'success': False, 'message': 'درخواست باید JSON باشد'}), 400
+        
+        data = request.get_json()
+        chart_data = data.get('chart', {})
+        
+        if not chart_data or chart_data.get('chart_id') != chart_id:
+            return jsonify({'success': False, 'message': 'اطلاعات نمودار نامعتبر است'}), 400
+        
+        # Save chart config to database
+        try:
+            config = ChartConfig.query.filter_by(
+                template_name=template_name,
+                chart_id=chart_id
+            ).first()
+            
+            if not config:
+                config = ChartConfig(
+                    template_name=template_name,
+                    chart_id=chart_id,
+                    created_by=current_user.id
+                )
+                db.session.add(config)
+            
+            # Update config
+            new_title = chart_data.get('title')
+            if new_title is not None and new_title != '':
+                config.title = new_title
+            elif not config.title:
+                config.title = chart_id
+            
+            new_display_order = chart_data.get('display_order')
+            if new_display_order is not None:
+                config.display_order = int(new_display_order)
+            elif config.display_order is None:
+                config.display_order = 0
+            
+            new_chart_type = chart_data.get('chart_type')
+            if new_chart_type:
+                config.chart_type = new_chart_type
+            elif not config.chart_type:
+                config.chart_type = 'line'
+            
+            new_show_labels = chart_data.get('show_labels')
+            if new_show_labels is not None:
+                config.show_labels = bool(new_show_labels)
+            elif config.show_labels is None:
+                config.show_labels = True
+            
+            new_show_legend = chart_data.get('show_legend')
+            if new_show_legend is not None:
+                config.show_legend = bool(new_show_legend)
+            elif config.show_legend is None:
+                config.show_legend = True
+            
+            new_is_visible = chart_data.get('is_visible')
+            if new_is_visible is not None:
+                config.is_visible = bool(new_is_visible)
+            elif config.is_visible is None:
+                config.is_visible = True
+            
+            new_allow_export = chart_data.get('allow_export')
+            if new_allow_export is not None:
+                config.allow_export = bool(new_allow_export)
+            elif config.allow_export is None:
+                config.allow_export = True
+            
+            new_color_palette = chart_data.get('color_palette')
+            if new_color_palette:
+                config.color_palette = new_color_palette
+            elif not config.color_palette:
+                config.color_palette = 'default'
+            
+            new_chart_options = chart_data.get('chart_options')
+            if new_chart_options is not None:
+                config.chart_options = new_chart_options
+            elif config.chart_options is None:
+                config.chart_options = {}
+            
+            config.updated_at = datetime.utcnow()
+            
+            db.session.commit()
+            logger.info(f"Saved chart config: {chart_id}, title: '{config.title}', type: {config.chart_type}")
+        except Exception as db_error:
+            db.session.rollback()
+            logger.error(f"Error saving chart config: {db_error}", exc_info=True)
+            return jsonify({'success': False, 'message': f'خطا در ذخیره تنظیمات: {str(db_error)}'}), 500
+        
+        # Apply chart configuration to HTML file
+        try:
+            html_updated = apply_chart_configs_to_html(template_path, [chart_data])
+            if html_updated:
+                logger.info(f"HTML template {template_name} updated with chart {chart_id} configuration")
+            else:
+                logger.warning(f"HTML template {template_name} was not updated for chart {chart_id}")
+        except Exception as html_error:
+            logger.error(f"Error applying chart config to HTML: {html_error}", exc_info=True)
+            # Don't fail the request if HTML update fails, but log it
+        
+        return jsonify({
+            'success': True,
+            'message': f'نمودار "{chart_data.get("title", chart_id)}" با موفقیت ذخیره شد',
+            'chart_id': chart_id
+        })
+        
+    except Exception as e:
+        logger.error(f"Error saving chart {chart_id} for {template_name}: {e}", exc_info=True)
+        return jsonify({
+            'success': False,
+            'message': f'خطا در ذخیره: {str(e)}'
+        }), 500
+
+
+def extract_charts_from_template(content: str) -> list:
+    """
+    Extract all charts from template HTML content.
+    Returns a list of dictionaries with 'title' and 'chart_id' keys.
+    """
+    import re
+    charts = []
+    
+    # First, find all canvas elements with ids
+    canvas_pattern = r'<canvas[^>]*id\s*=\s*["\']([^"\']+)["\'][^>]*>'
+    canvas_matches = list(re.finditer(canvas_pattern, content, re.IGNORECASE))
+    
+    for canvas_match in canvas_matches:
+        chart_id = canvas_match.group(1).strip()
+        if not chart_id:
+            continue
+        
+        # Find title before this canvas (look back up to 1000 chars)
+        canvas_pos = canvas_match.start()
+        search_start = max(0, canvas_pos - 1000)
+        search_content = content[search_start:canvas_pos]
+        
+        # Look for h4/h5/h3 with card-title class (most common pattern)
+        title_patterns = [
+            r'<h[345][^>]*class=["\'][^"\']*card-title[^"\']*["\'][^>]*>([^<]+)</h[345]>',
+            r'<h[345][^>]*>([^<]+)</h[345]>',  # Fallback: any h3/h4/h5
+        ]
+        
+        title = None
+        for pattern in title_patterns:
+            title_matches = list(re.finditer(pattern, search_content, re.IGNORECASE))
+            if title_matches:
+                # Get the last match (closest to canvas)
+                title_match = title_matches[-1]
+                title = title_match.group(1).strip()
+                break
+        
+        # If no title found, use chart_id as title
+        if not title:
+            title = chart_id
+        
+        charts.append({
+            'title': title,
+            'chart_id': chart_id
+        })
+    
+    # Sort by position in document (maintain order)
+    charts_with_pos = []
+    for chart in charts:
+        # Find position of this chart_id in content
+        escaped_id = re.escape(chart['chart_id'])
+        id_pattern = rf'id\s*=\s*["\']{escaped_id}(?![a-zA-Z0-9_])["\']'
+        id_match = re.search(id_pattern, content, re.IGNORECASE)
+        pos = id_match.start() if id_match else 999999
+        charts_with_pos.append((pos, chart))
+    
+    # Sort by position and return
+    charts_with_pos.sort(key=lambda x: x[0])
+    return [chart for _, chart in charts_with_pos]
+
+
+def extract_chart_code(content: str, chart_id: str) -> str:
+    """Extract the JavaScript code for a specific chart"""
+    import re
+    
+    logger.info(f"extract_chart_code: Looking for chart_id='{chart_id}'")
+    
+    # Find getElementById for this chart_id
+    # Use exact match to ensure chart_id is not part of another id
+    escaped_chart_id = re.escape(chart_id)
+    # Pattern: getElementById('chart_id') where chart_id is exact (not part of longer id)
+    # CRITICAL: We need to ensure the quote immediately follows chart_id, not alphanumeric chars
+    # Pattern breakdown:
+    # - getElementById\s*\(  : matches "getElementById(" with optional spaces
+    # - [\'"]                 : matches opening quote (' or ")
+    # - {escaped_chart_id}    : matches the exact chart_id
+    # - (?![a-zA-Z0-9_])     : negative lookahead - ensures no alphanumeric/underscore follows
+    # - [\'"]                 : matches closing quote (must immediately follow chart_id)
+    # - \)                    : matches closing parenthesis
+    # This ensures 'genderChart' matches but 'genderChart404' does NOT
+    ctx_pattern = rf'getElementById\s*\([\'"]{escaped_chart_id}(?![a-zA-Z0-9_])[\'"]\)'
+    
+    # Find all potential matches
+    all_matches = list(re.finditer(ctx_pattern, content))
+    
+    logger.info(f"extract_chart_code: Found {len(all_matches)} potential matches for pattern")
+    
+    if not all_matches:
+        logger.warning(f"extract_chart_code: No matches found for chart_id='{chart_id}'")
+        return f"// Chart {chart_id} not found in template"
+    
+    # Verify each match to ensure the extracted ID is exactly chart_id
+    # This is critical because 'genderChart' could incorrectly match 'genderChart404'
+    ctx_match = None
+    for i, match in enumerate(all_matches):
+        # Get the full matched string
+        full_match = match.group(0)
+        logger.debug(f"extract_chart_code: Match {i+1}: {full_match[:100]}")
+        
+        # Extract the ID directly from the match using a simpler, more reliable method
+        # Find the quoted string that contains the chart_id
+        # Pattern: quote, then any characters, then quote - but we need the one with our chart_id
+        # Better approach: find the quoted string and verify it's exactly chart_id
+        quoted_id_pattern = rf'[\'"]([^\'"]+)[\'"]'
+        quoted_matches = list(re.finditer(quoted_id_pattern, full_match))
+        
+        found_exact_match = False
+        for quoted_match in quoted_matches:
+            extracted_id = quoted_match.group(1)  # Get the content inside quotes
+            logger.debug(f"extract_chart_code: Match {i+1} found quoted ID: '{extracted_id}'")
+            
+            # CRITICAL CHECK: extracted ID must be exactly chart_id
+            # This prevents 'genderChart' from matching 'genderChart404'
+            if extracted_id == chart_id:
+                ctx_match = match
+                found_exact_match = True
+                logger.info(f"extract_chart_code: ✓ Found exact match for chart_id '{chart_id}' at position {match.start()}")
+                break
+            elif chart_id in extracted_id and extracted_id != chart_id:
+                # This is a substring match (e.g., 'genderChart' in 'genderChart404')
+                logger.warning(f"extract_chart_code: ✗ Match {i+1} rejected: extracted_id '{extracted_id}' contains '{chart_id}' but is not exact match")
+        
+        if found_exact_match:
+            break
+    
+    if not ctx_match:
+        # If no exact match found, log all matches for debugging
+        logger.error(f"extract_chart_code: ✗ No exact match found for chart_id '{chart_id}'. Found {len(all_matches)} potential matches.")
+        for i, match in enumerate(all_matches[:5]):  # Log first 5 matches
+            logger.error(f"  Match {i+1}: {match.group(0)[:150]}")
+        return f"// Chart {chart_id} not found in template (found {len(all_matches)} matches but none were exact)"
+    
+    # Find the Chart initialization after this context
+    # CRITICAL: We need to find the Chart initialization that uses our exact chart_id
+    # Better approach: Search for Chart initialization that contains our chart_id directly
+    start_pos = ctx_match.end()
+    
+    # Look for Chart initialization that contains our chart_id
+    # We'll search for the pattern: new Chart(...getElementById('chart_id')...)
+    # This is more reliable than searching separately
+    escaped_chart_id = re.escape(chart_id)
+    
+    # Search in a reasonable distance after getElementById
+    search_distance = 500
+    chart_block = content[start_pos:start_pos + search_distance]
+    
+    logger.debug(f"extract_chart_code: Searching for Chart initialization with chart_id '{chart_id}' in {len(chart_block)} chars")
+    
+    # Method 1: Find Chart initialization that contains our exact chart_id
+    # Search for pattern: new Chart(...getElementById('chart_id')..., {
+    # Use a simpler, more reliable approach
+    
+    # Pattern that matches Chart initialization with our exact chart_id
+    # This pattern looks for: new Chart( ... getElementById('chart_id') ... , {
+    chart_init_pattern = rf'new\s+Chart\s*\([^)]*getElementById\s*\(\s*[\'"]{escaped_chart_id}(?![a-zA-Z0-9_])[\'"]\s*\)[^)]*,\s*{{'
+    
+    logger.debug(f"extract_chart_code: Searching for pattern: new Chart(...getElementById('{chart_id}')..., {{")
+    pattern_match = re.search(chart_init_pattern, chart_block, re.DOTALL)
+    
+    chart_init_match = None
+    if pattern_match:
+        # Verify the match by extracting the ID from it
+        match_text = pattern_match.group(0)
+        logger.debug(f"extract_chart_code: Pattern matched, verifying: {match_text[:150]}")
+        
+        # Extract all IDs from the match
+        id_pattern = rf'getElementById\s*\(\s*[\'"]([^\'"]+)[\'"]\s*\)'
+        id_matches = list(re.finditer(id_pattern, match_text))
+        
+        if id_matches:
+            # Use the last match (should be the one in Chart initialization)
+            last_id_match = id_matches[-1]
+            extracted_id = last_id_match.group(1)
+            
+            logger.debug(f"extract_chart_code: Extracted ID from match: '{extracted_id}' (looking for '{chart_id}')")
+            
+            # CRITICAL: Must be exact match
+            if extracted_id == chart_id:
+                chart_init_match = pattern_match
+                logger.info(f"extract_chart_code: ✓ Verified Chart initialization for '{chart_id}'")
+            else:
+                logger.warning(f"extract_chart_code: ✗ Pattern matched but extracted ID '{extracted_id}' != '{chart_id}', rejecting")
+        else:
+            logger.warning(f"extract_chart_code: Pattern matched but could not extract ID from: {match_text[:150]}")
+    
+    if chart_init_match:
+        logger.info(f"extract_chart_code: ✓ Direct pattern match found for '{chart_id}' at offset {chart_init_match.start()}")
+    else:
+        # Try larger search distance
+        logger.debug(f"extract_chart_code: No match in first {search_distance} chars, trying larger distance")
+        search_distance = 2000
+        chart_block = content[start_pos:start_pos + search_distance]
+        chart_init_match = re.search(chart_init_pattern, chart_block, re.DOTALL)
+        
+        if chart_init_match:
+            logger.info(f"extract_chart_code: ✓ Direct pattern match found for '{chart_id}' at offset {chart_init_match.start()} (in extended search)")
+    
+    if not chart_init_match:
+        # Fallback: Find any Chart initialization and verify it uses our chart_id
+        logger.warning(f"extract_chart_code: Direct pattern match failed, trying fallback method")
+        all_chart_inits = list(re.finditer(r'new\s+Chart\s*\([^,]+,\s*\{', chart_block))
+        
+        if not all_chart_inits:
+            logger.warning(f"extract_chart_code: No Chart initialization found within {search_distance} chars after getElementById for '{chart_id}'")
+            return f"// Chart initialization for {chart_id} not found"
+        
+        logger.debug(f"extract_chart_code: Fallback - Found {len(all_chart_inits)} Chart initializations, checking each one")
+        
+        # Check each Chart initialization
+        for chart_init in all_chart_inits:
+            chart_init_start = start_pos + chart_init.start()
+            chart_init_end = start_pos + chart_init.end()
+            lookback_start = max(0, chart_init_start - 200)
+            chart_init_context = content[lookback_start:chart_init_end + 100]
+            
+            # Find ALL getElementById calls in this context
+            context_id_pattern = rf'getElementById\s*\([\'"]([^\'"]+)[\'"]\)'
+            context_id_matches = list(re.finditer(context_id_pattern, chart_init_context))
+            
+            if context_id_matches:
+                # Use the LAST match (closest to Chart initialization)
+                context_id_match = context_id_matches[-1]
+                found_id = context_id_match.group(1)
+                
+                logger.debug(f"extract_chart_code: Fallback - Chart init at offset {chart_init.start()} uses ID '{found_id}' (looking for '{chart_id}')")
+                
+                # CRITICAL: Must be exact match
+                if found_id == chart_id:
+                    chart_init_match = chart_init
+                    logger.info(f"extract_chart_code: ✓ Found correct Chart initialization (fallback) for '{chart_id}' at offset {chart_init.start()}")
+                    break
+                else:
+                    logger.debug(f"extract_chart_code: Fallback - Rejected ID '{found_id}' (not equal to '{chart_id}')")
+    
+    if not chart_init_match:
+        # If no match found, log error with details
+        logger.error(f"extract_chart_code: ✗ No Chart initialization found with chart_id '{chart_id}'")
+        if 'all_chart_inits' in locals() and all_chart_inits:
+            logger.error(f"extract_chart_code: Found {len(all_chart_inits)} Chart initializations but none matched '{chart_id}'")
+            for i, chart_init in enumerate(all_chart_inits[:3]):
+                lookback_start = max(0, start_pos + chart_init.start() - 150)
+                snippet = content[lookback_start:start_pos + chart_init.end() + 50]
+                logger.error(f"  Chart init {i+1} snippet: {snippet[:200]}")
+            return f"// ERROR: No Chart initialization found for '{chart_id}' (found {len(all_chart_inits)} but none matched)"
+        else:
+            logger.error(f"extract_chart_code: No Chart initializations found at all for '{chart_id}'")
+            return f"// ERROR: No Chart initialization found for '{chart_id}'"
+    
+    # At this point, chart_init_match is verified to use the correct chart_id
+    logger.info(f"extract_chart_code: ✓ Using Chart initialization at offset {chart_init_match.start()} for '{chart_id}'")
+    
+    # Extract the full chart configuration
+    chart_start = start_pos + chart_init_match.start()
+    
+    # Find the opening brace of the Chart config object
+    # The pattern "new Chart(... , {" should have the opening brace right after the comma
+    match_text = chart_init_match.group(0)
+    chart_config_start = start_pos + chart_init_match.end() - 1
+    
+    # Find the first opening brace after the Chart initialization
+    # Look backwards from end() to find the opening brace
+    search_start = start_pos + chart_init_match.end()
+    brace_count = 0
+    found_opening_brace = False
+    
+    # First, try to find the opening brace in the matched text itself
+    if '{' in match_text:
+        # Find the last { in the match (should be the config opening brace)
+        last_brace_in_match = match_text.rfind('{')
+        if last_brace_in_match >= 0:
+            chart_config_start = start_pos + chart_init_match.start() + last_brace_in_match
+            brace_count = 1
+            found_opening_brace = True
+            logger.debug(f"extract_chart_code: Found opening brace in match text at position {chart_config_start}")
+    
+    # If not found in match, search forward (but skip whitespace and newlines)
+    if not found_opening_brace:
+        for i in range(search_start, min(len(content), search_start + 500)):
+            char = content[i]
+            # Skip whitespace, newlines, and comments
+            if char in [' ', '\t', '\n', '\r']:
+                continue
+            if char == '{':
+                chart_config_start = i
+                brace_count = 1
+                found_opening_brace = True
+                logger.debug(f"extract_chart_code: Found opening brace after match at position {chart_config_start}")
+                break
+    
+    if not found_opening_brace:
+        logger.error(f"extract_chart_code: Could not find opening brace for chart '{chart_id}'")
+        logger.error(f"extract_chart_code: Match text: {match_text[:200]}")
+        logger.error(f"extract_chart_code: Content after match: {content[search_start:search_start+200]}")
+        return f"// ERROR: Could not find opening brace for chart '{chart_id}'"
+    
+    # Now find the matching closing brace
+    in_string = False
+    string_char = None
+    escaped = False
+    chart_end = chart_config_start + 1
+    max_search = 50000  # Increased from 10000 to handle larger charts
+    
+    logger.debug(f"extract_chart_code: Starting brace matching from position {chart_config_start}, brace_count={brace_count}")
+    
+    # Track positions for debugging when brace_count doesn't reach 0
+    brace_history = []
+    
+    for i in range(chart_config_start + 1, min(len(content), chart_config_start + max_search)):
+        char = content[i]
+        
+        if escaped:
+            escaped = False
+            continue
+        
+        if char == '\\':
+            escaped = True
+            continue
+        
+        if not in_string and (char == '"' or char == "'"):
+            in_string = True
+            string_char = char
+        elif in_string and char == string_char:
+            in_string = False
+            string_char = None
+        elif not in_string:
+            if char == '{':
+                brace_count += 1
+                if len(brace_history) < 20:  # Keep last 20 brace operations for debugging
+                    brace_history.append(('open', i, brace_count))
+            elif char == '}':
+                brace_count -= 1
+                if len(brace_history) < 20:
+                    brace_history.append(('close', i, brace_count))
+                if brace_count == 0:
+                    chart_end = i + 1
+                    logger.info(f"extract_chart_code: ✓ Found matching closing brace for '{chart_id}' at position {chart_end}")
+                    break
+                elif brace_count < 0:
+                    # This shouldn't happen if we started correctly
+                    logger.warning(f"extract_chart_code: Brace count went negative at position {i} for '{chart_id}'")
+                    # Reset and use this position
+                    brace_count = 0
+                    chart_end = i + 1
+                    logger.warning(f"extract_chart_code: Recovered by using position {chart_end} as end")
+                    break
+    
+    if brace_count != 0:
+        logger.warning(f"extract_chart_code: Could not find matching closing brace for '{chart_id}' (brace_count={brace_count})")
+        logger.warning(f"extract_chart_code: Searched from {chart_config_start} to {chart_config_start + max_search}")
+        logger.warning(f"extract_chart_code: Content snippet around start: {content[chart_config_start:chart_config_start+500]}")
+        if brace_history:
+            logger.warning(f"extract_chart_code: Last brace operations: {brace_history[-10:]}")
+        
+        # Try alternative method: look for the pattern "});" which typically ends Chart initialization
+        # This is more reliable when brace counting fails
+        logger.info(f"extract_chart_code: Trying alternative method to find chart end for '{chart_id}'")
+        alternative_end = None
+        
+        # Reset chart_end to a reasonable starting point for alternative search
+        # Use the position where we stopped searching (end of max_search range)
+        chart_end = min(chart_config_start + max_search, len(content))
+        
+        # Look for "});" pattern after chart_config_start
+        # We need to find the one that belongs to "new Chart(...)" not other functions
+        for i in range(chart_config_start + 100, min(len(content), chart_config_start + max_search)):
+            if i + 1 < len(content):
+                if content[i] == '}' and content[i+1] == ')' and i + 2 < len(content) and content[i+2] == ';':
+                    # Verify this is likely the end of our Chart by checking if we're in the right context
+                    # Look backwards for "new Chart" pattern
+                    lookback_start = max(0, i - 8000)  # Increased lookback range
+                    context = content[lookback_start:i+3]
+                    
+                    # Check if this "});" is preceded by "new Chart" and our chart_id
+                    # Pattern: new Chart(...getElementById('chart_id')..., {...});
+                    has_new_chart = 'new Chart' in context or 'new Chart(' in context
+                    has_chart_id = f"getElementById('{chart_id}')" in context or f'getElementById("{chart_id}")' in context
+                    
+                    if has_new_chart and has_chart_id:
+                        # Additional verification: count braces between chart_start and this position
+                        # to ensure we're not picking up a nested function
+                        test_content = content[chart_start:i+3]
+                        test_brace_count = 0
+                        test_in_string = False
+                        test_string_char = None
+                        test_escaped = False
+                        
+                        for char in test_content:
+                            if test_escaped:
+                                test_escaped = False
+                                continue
+                            if char == '\\':
+                                test_escaped = True
+                                continue
+                            if not test_in_string and (char == '"' or char == "'"):
+                                test_in_string = True
+                                test_string_char = char
+                            elif test_in_string and char == test_string_char:
+                                test_in_string = False
+                                test_string_char = None
+                            elif not test_in_string:
+                                if char == '{':
+                                    test_brace_count += 1
+                                elif char == '}':
+                                    test_brace_count -= 1
+                        
+                        # If brace count is balanced (or close to it), this is likely our end
+                        # We expect brace_count to be 0 or 1 (0 if perfectly balanced, 1 if we're counting the closing brace)
+                        if test_brace_count <= 1:  # Allow for small discrepancies
+                            # Additional check: verify this is not inside a nested function
+                            # Look for "new Chart" pattern before this position
+                            chart_init_pos = test_content.find('new Chart')
+                            if chart_init_pos >= 0:
+                                # Count braces from new Chart to this position
+                                init_to_end = test_content[chart_init_pos:]
+                                init_brace_count = 0
+                                init_in_string = False
+                                init_string_char = None
+                                init_escaped = False
+                                
+                                for char in init_to_end:
+                                    if init_escaped:
+                                        init_escaped = False
+                                        continue
+                                    if char == '\\':
+                                        init_escaped = True
+                                        continue
+                                    if not init_in_string and (char == '"' or char == "'"):
+                                        init_in_string = True
+                                        init_string_char = char
+                                    elif init_in_string and char == init_string_char:
+                                        init_in_string = False
+                                        init_string_char = None
+                                    elif not init_in_string:
+                                        if char == '{':
+                                            init_brace_count += 1
+                                        elif char == '}':
+                                            init_brace_count -= 1
+                                
+                                # If brace count from "new Chart" to "});" is balanced, this is our end
+                                # We expect init_brace_count to be 0 or 1 (0 if perfectly balanced, 1 if we're counting the closing brace)
+                                if init_brace_count <= 1:
+                                    # Additional verification: check that this "});" is immediately after our chart config
+                                    # Look for patterns that indicate this is the end of new Chart(...)
+                                    # Check if there's a newline or whitespace before the semicolon
+                                    if i + 2 < len(content) and content[i+2] == ';':
+                                        # Verify the context - should have "new Chart" before and our chart_id
+                                        verify_start = max(0, chart_start - 100)
+                                        verify_context = content[verify_start:i+3]
+                                        if 'new Chart' in verify_context and chart_id in verify_context:
+                                            alternative_end = i + 3
+                                            logger.info(f"extract_chart_code: ✓ Found alternative end pattern '}});' at position {alternative_end} (test_brace_count={test_brace_count}, init_brace_count={init_brace_count})")
+                                            break
+                                    else:
+                                        # Even if semicolon check fails, if brace count is balanced, use it
+                                        # This handles cases where there might be whitespace or comments
+                                        if init_brace_count == 0:
+                                            alternative_end = i + 3
+                                            logger.info(f"extract_chart_code: ✓ Found alternative end pattern '}});' at position {alternative_end} (init_brace_count={init_brace_count}, balanced)")
+                                            break
+        
+        if alternative_end:
+            chart_end = alternative_end
+            brace_count = 0  # Reset to indicate success
+            logger.info(f"extract_chart_code: Using alternative end method, chart_end={chart_end}, length={chart_end - chart_start}")
+        else:
+            # Last resort: try to find the end of the statement (semicolon or end of line)
+            # Search from chart_config_start, not chart_end (which might be too early)
+            search_start = chart_config_start + 100
+            for i in range(search_start, min(len(content), search_start + 10000)):
+                if content[i] == ';':
+                    # Check if there's a closing brace and paren before semicolon
+                    if i > 2 and content[i-1] == ')' and content[i-2] == '}':
+                        # Verify this is likely our chart end by checking context
+                        verify_start = max(0, chart_start - 200)
+                        verify_context = content[verify_start:i+1]
+                        if 'new Chart' in verify_context and chart_id in verify_context:
+                            chart_end = i + 1
+                            logger.warning(f"extract_chart_code: Using semicolon after '}});' as fallback end at position {chart_end}")
+                            break
+    
+    # Extract the code
+    chart_code = content[chart_start:chart_end]
+    
+    # Verify we got something meaningful
+    if len(chart_code) < 20:
+        logger.error(f"extract_chart_code: Extracted code too short ({len(chart_code)} chars) for '{chart_id}'")
+        logger.error(f"extract_chart_code: chart_start={chart_start}, chart_end={chart_end}")
+        logger.error(f"extract_chart_code: Extracted snippet: {chart_code[:200]}")
+        return f"// ERROR: Extracted code too short for '{chart_id}' (only {len(chart_code)} characters). Start: {chart_start}, End: {chart_end}"
+    
+    # Verify the extracted code contains the chart_id
+    if chart_id not in chart_code and 'getElementById' in chart_code:
+        logger.warning(f"extract_chart_code: Extracted code does not contain chart_id '{chart_id}'")
+        logger.warning(f"extract_chart_code: Code snippet: {chart_code[:300]}")
+    
+    logger.info(f"extract_chart_code: ✓ Successfully extracted {len(chart_code)} characters for '{chart_id}'")
+    return chart_code
+
+
+
+
+def apply_changes_to_content(content: str, changes: list) -> str:
+    """Apply changes to content (for preview only)"""
+    # Sort changes by position (from end to start to preserve positions)
+    changes_sorted = sorted(changes, key=lambda x: x[0], reverse=True)
+    
+    result = content
+    for start, end, replacement in changes_sorted:
+        result = result[:start] + replacement + result[end:]
+    
+    return result

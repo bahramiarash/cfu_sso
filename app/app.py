@@ -74,6 +74,15 @@ if not secret_key:
     )
 app.secret_key = secret_key
 
+# Configure Jinja2 for template auto-reload in development
+# In production, templates are cached for performance, but we want to detect file changes
+import os
+is_development = os.environ.get('FLASK_ENV') == 'development' or os.environ.get('FLASK_DEBUG') == '1'
+app.jinja_env.auto_reload = is_development
+# Always check for template updates (even in production) - this is safe and ensures changes are detected
+app.jinja_env.cache_size = 50  # Limit cache size
+logger.info(f"Jinja2 template auto_reload: {is_development}, cache_size: {app.jinja_env.cache_size}")
+
 # Error handler for JSON requests
 @app.errorhandler(500)
 def handle_500_error(e):
@@ -782,7 +791,8 @@ def load_current_user():
 
 @login_manager.user_loader
 def load_user(user_id):
-    return User.query.get(int(user_id))
+    # Use Session.get() instead of deprecated Query.get()
+    return db.session.get(User, int(user_id))
 
 @app.route('/project/<int:project_id>/kanban')
 @login_required

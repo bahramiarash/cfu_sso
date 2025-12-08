@@ -10,6 +10,7 @@ from flask import make_response
 from collections import defaultdict
 import geopandas as gpd
 import pandas as pd
+import numpy as np
 import matplotlib
 # Set non-interactive backend to avoid GUI issues
 matplotlib.use('Agg')
@@ -507,6 +508,11 @@ def map_dashboard():
     iran_gdf.plot(ax=ax, color='#eee', edgecolor='#ccc')
     fig.subplots_adjust(top=1.37)
     plt.tight_layout(rect=[0, 0.15, 1, 0.1])
+    
+    # Set default font size for pie chart text BEFORE creating pie charts
+    import matplotlib
+    original_fontsize = matplotlib.rcParams.get('font.size', 10)
+    matplotlib.rcParams['font.size'] = 64
 
     for idx, row in iran_gdf.iterrows():
         province_name_en = row['NAME_1']
@@ -522,16 +528,64 @@ def map_dashboard():
 
         centroid = row['geometry'].centroid
         try:
-            pie_ax = inset_axes(ax, width=0.65, height=1.65, loc='center',
+            pie_ax = inset_axes(ax, width=1.9435, height=4.9335, loc='center',
                                 bbox_to_anchor=(centroid.x, centroid.y),
                                 bbox_transform=ax.transData,
                                 borderpad=15)
-            pie_ax.pie(values, labels=None, colors=['#36A2EB', '#FF6384'], explode=(0.1, 0), autopct='%1.0f%%', startangle=90)
+            
+            # Define a function to format percentage text with larger font
+            # Use round() instead of int() to ensure proper rounding and sum to 100
+            def autopct_format(pct):
+                return f'{round(pct)}%'
+            
+            # Create font properties for large text
+            from matplotlib import font_manager
+            large_font_prop = font_manager.FontProperties(size=64, weight='bold')
+            
+            # Create pie chart WITHOUT autopct first, then add text manually with full control
+            wedges, texts, _ = pie_ax.pie(values, labels=None, colors=['#36A2EB', '#FF6384'], 
+                                          explode=(0.1, 0), startangle=90, radius=2.0)
+            
+            # Calculate percentages and add text annotations manually with large font
+            total = sum(values)
+            if total > 0:
+                percentages = [v / total * 100 for v in values]
+                
+                # Get wedge angles and positions for text placement
+                start_angle = 90  # startangle from pie()
+                current_angle = start_angle
+                
+                for i, (wedge, pct) in enumerate(zip(wedges, percentages)):
+                    # Get the angle span of this wedge
+                    theta1 = wedge.theta1
+                    theta2 = wedge.theta2
+                    mid_angle = (theta1 + theta2) / 2
+                    
+                    # Convert angle to radians (matplotlib uses degrees)
+                    mid_angle_rad = np.deg2rad(mid_angle)
+                    
+                    # Calculate position for text (inside the wedge)
+                    # Use pctdistance to position text (0.6 means 60% from center)
+                    pctdistance = 0.6
+                    x = pctdistance * np.cos(mid_angle_rad)
+                    y = pctdistance * np.sin(mid_angle_rad)
+                    
+                    # Add text annotation with large font size
+                    pie_ax.text(x, y, f'{int(pct)}%', 
+                               ha='center', va='center',
+                               fontsize=64, fontweight='bold',
+                               fontproperties=large_font_prop)
+            
             pie_ax.axis('equal')
         except Exception as e:
             logger.error(f"Error rendering pie chart for {province_name_en}: {e}")
             continue
 
+    # Restore original font size after creating pie charts
+    import matplotlib
+    if 'original_fontsize' in locals():
+        matplotlib.rcParams['font.size'] = original_fontsize
+    
     # Add legend and title
     male_patch = mpatches.Patch(color='#36A2EB', label=reshape_rtl("مرد"))
     female_patch = mpatches.Patch(color='#FF6384', label=reshape_rtl("زن"))
@@ -582,11 +636,11 @@ def map_dashboard():
         key=lambda x: (x['province_name_fa'])
     )
 
-    # Final loop
+    # Final loop - prepare data for template (as list of dicts)
     for item in province_rows_sorted:
         row = item['row']
         province_name_norm = row['NAME_1_normalized']
-        province_name_fa = reshape_rtl(item['province_name_fa'])
+        province_name_fa = item['province_name_fa']
             
         province_code = province_map_dict.get(province_name_norm, None)
 
@@ -604,62 +658,82 @@ def map_dashboard():
         female_percent = (female_count / total * 100) if total > 0 else 0
         national_percent = (total / national_total * 100) if national_total > 0 else 0
 
-        table_data.append([
-            f"{male_percent:1.0f}%",
-            f"{female_percent:1.0f}%",
-            f"{male_count:,}",
-            f"{female_count:,}",
-            f"{total:,}",
-            f"{national_percent:.1f}%",  # <-- New column here
-            province_name_fa,
-            row_number,
-        ])
+        table_data.append({
+            'row': row_number,
+            'province_name': province_name_fa,
+            'total': total,
+            'female_count': female_count,
+            'male_count': male_count,
+            'female_percent': round(female_percent, 1),
+            'male_percent': round(male_percent, 1),
+            'country_percent': round(national_percent, 2),
+            'province_code': province_code
+        })
         row_number += 1
 
-    table_data.append([
-        f"{100*total_male/total_sum:1.0f}%",
-        f"{100*total_female/total_sum:1.0f}%",
-        f"{total_male:,}",
-        f"{total_female:,}",
-        f"{total_sum:,}",
-        "",  # <-- New column here
-        reshape_rtl("جمع کل"),
-        "",
-    ])        
-        
-        
-    headers = [
-        reshape_rtl("درصد مرد"),
-        reshape_rtl("درصد زن"),
-        reshape_rtl("تعداد هیات علمی مرد"),
-        reshape_rtl("تعداد هیات علمی زن"),
-        reshape_rtl("کل هیات علمی استان"),
-        reshape_rtl("%استان از کل"),
-        reshape_rtl("استان"),
-        reshape_rtl("ردیف")
-    ]
-    table_data.insert(0, headers)
+    # Table will be rendered in HTML template, not in matplotlib
 
-    # Create table area
-    from matplotlib import gridspec
-    spec = gridspec.GridSpec(nrows=2, ncols=1, height_ratios=[4, 1])
-    ax_table = fig.add_subplot(spec[1])
-    ax_table.axis('off')
-    table = ax_table.table(
-        cellText=table_data,
-        cellLoc='center',
-        loc='center',
-        colWidths=[0.1, 0.1, 0.15, 0.15, 0.17, 0.15, 0.2, 0.06]
-    )
-    table.auto_set_font_size(False)
-    table.set_fontsize(14)
-    table.scale(1, 2)
-
-    # Return image
+    # Convert image to base64 for template
     img = io.BytesIO()
     FigureCanvas(fig).print_png(img)
     img.seek(0)
-    return send_file(img, mimetype='image/png')
+    encoded_img = base64.b64encode(img.read()).decode('utf-8')
+    plt.close(fig)
+    
+    # Load chart_configs from database and apply to template
+    try:
+        from admin_models import ChartConfig
+        from pathlib import Path
+        import sys
+        import importlib
+        
+        # Import apply_chart_configs_to_html function dynamically to avoid circular import
+        admin_routes_module = sys.modules.get('admin.routes')
+        if admin_routes_module is None:
+            from admin import routes as admin_routes_module
+        apply_chart_configs_to_html = getattr(admin_routes_module, 'apply_chart_configs_to_html', None)
+        
+        if apply_chart_configs_to_html:
+            # Get chart configs for d2 template
+            chart_configs = []
+            try:
+                from extensions import db
+                with db.session.no_autoflush:
+                    configs = ChartConfig.query.filter_by(template_name='d2.html').all()
+                    chart_configs = [config.to_dict() for config in configs]
+            except Exception as e:
+                logger.warning(f"Could not load chart_configs for d2: {e}")
+            
+            # Apply chart configs to template if any exist
+            template_path = Path(__file__).parent.parent / 'templates' / 'dashboards' / 'd2.html'
+            if chart_configs and template_path.exists():
+                apply_chart_configs_to_html(template_path, chart_configs)
+    except Exception as e:
+        logger.warning(f"Error applying chart_configs to d2 template: {e}")
+    
+    # Prepare province data for template
+    province_data_json = {}
+    for code, data in province_data.items():
+        province_name = province_name_dict.get(code, "نامشخص")
+        province_data_json[code] = {
+            'name': province_name,
+            'male': int(data.get('1', 0)),
+            'female': int(data.get('2', 0)),
+            'total': int(data.get('1', 0)) + int(data.get('2', 0))
+        }
+    
+    # Render template
+    response = make_response(render_template("dashboards/d2.html",
+                            image_data=encoded_img,
+                            table_data=table_data,
+                            total_country=national_total,
+                            province_data_json=province_data_json))
+    
+    # Add no-cache headers
+    response.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
+    response.headers['Pragma'] = 'no-cache'
+    response.headers['Expires'] = '0'
+    return response
 
 
 @dashboard_bp.route('/d3')

@@ -301,9 +301,11 @@ class ChartConfig(db.Model):
     chart_type = Column(String(50), default='line', nullable=False)  # 'line', 'bar', 'pie', etc.
     
     # Display options
+    is_visible = Column(Boolean, default=True, nullable=False)  # Show/hide chart
     show_labels = Column(Boolean, default=True, nullable=False)  # Show data labels
     show_legend = Column(Boolean, default=True, nullable=False)  # Show legend
     allow_export = Column(Boolean, default=True, nullable=False)  # Allow image export
+    color_palette = Column(String(50), default='default', nullable=False)  # Color palette name
     
     # Chart options (JSON for additional settings)
     chart_options = Column(JSON, nullable=True)  # Additional Chart.js options
@@ -330,9 +332,11 @@ class ChartConfig(db.Model):
             'title': self.title,
             'display_order': self.display_order,
             'chart_type': self.chart_type,
+            'is_visible': self.is_visible,
             'show_labels': self.show_labels,
             'show_legend': self.show_legend,
             'allow_export': self.allow_export,
+            'color_palette': self.color_palette,
             'chart_options': self.chart_options or {},
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'updated_at': self.updated_at.isoformat() if self.updated_at else None,
