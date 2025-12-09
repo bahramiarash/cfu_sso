@@ -2,7 +2,7 @@
 Survey Manager Routes
 Routes for survey managers to create and manage surveys
 """
-from flask import render_template, request, jsonify, redirect, url_for, flash, session, send_file
+from flask import render_template, request, jsonify, redirect, url_for, flash, session, send_file, make_response
 from flask_login import current_user, login_required
 from . import survey_bp
 from .utils import log_survey_action, sanitize_input, is_survey_manager
@@ -12,12 +12,18 @@ from survey_models import (
     SurveyAccessGroup, SurveyAllowedUser, SurveyResponse, SurveyAnswerItem
 )
 from extensions import db
-from sqlalchemy import desc, func
-from datetime import datetime
+from sqlalchemy import desc, func, cast, Date
+from datetime import datetime, timedelta
 from jdatetime import datetime as jdatetime
 import logging
 import json
 import os
+import io
+try:
+    import pandas as pd
+    PANDAS_AVAILABLE = True
+except ImportError:
+    PANDAS_AVAILABLE = False
 
 logger = logging.getLogger(__name__)
 
@@ -48,10 +54,12 @@ def manager_dashboard():
             flash('شما به عنوان مسئول نظرسنجی تعریف نشده‌اید', 'error')
             return redirect(url_for('list_tools'))
         
-        # Get manager's surveys
-        surveys = Survey.query.filter_by(manager_id=manager.id).order_by(desc(Survey.created_at)).all()
+        # Get manager's surveys with completion counts
+        surveys_query = Survey.query.filter_by(manager_id=manager.id).order_by(desc(Survey.created_at))
+        surveys = surveys_query.all()
         
-        # Get statistics
+        # Prepare surveys data with completion counts
+        surveys_data = []
         stats = {
             'total_surveys': len(surveys),
             'active_surveys': len([s for s in surveys if s.status == 'active']),
@@ -64,11 +72,17 @@ def manager_dashboard():
             completed = SurveyResponse.query.filter_by(survey_id=survey.id, is_completed=True).count()
             stats['total_responses'] += total
             stats['completed_responses'] += completed
+            
+            # Add completion count to survey data
+            surveys_data.append({
+                'survey': survey,
+                'completed_count': completed
+            })
         
         log_survey_action('view_manager_dashboard', 'survey_manager', manager.id)
         return render_template('survey/manager/dashboard.html', 
                              manager=manager,
-                             surveys=surveys,
+                             surveys=surveys_data,
                              stats=stats)
     except Exception as e:
         logger.error(f"Error in manager dashboard: {e}", exc_info=True)
@@ -127,19 +141,31 @@ def manager_surveys_create():
                 flash('عنوان پرسشنامه الزامی است', 'error')
                 return render_template('survey/manager/surveys/create.html')
             
-            # Date parsing
+            # Date parsing (Jalali to Gregorian)
             start_date = None
             end_date = None
             if request.form.get('start_date'):
                 try:
-                    start_date = datetime.strptime(request.form.get('start_date'), '%Y-%m-%d')
-                except:
+                    # Parse Jalali date (format: YYYY/MM/DD)
+                    jalali_str = request.form.get('start_date').strip()
+                    if jalali_str:
+                        jalali_parts = list(map(int, jalali_str.split('/')))
+                        jalali_dt = jdatetime.datetime(jalali_parts[0], jalali_parts[1], jalali_parts[2])
+                        start_date = jalali_dt.togregorian()
+                except Exception as e:
+                    logger.warning(f"Error parsing start_date: {e}")
                     pass
             
             if request.form.get('end_date'):
                 try:
-                    end_date = datetime.strptime(request.form.get('end_date'), '%Y-%m-%d')
-                except:
+                    # Parse Jalali date (format: YYYY/MM/DD)
+                    jalali_str = request.form.get('end_date').strip()
+                    if jalali_str:
+                        jalali_parts = list(map(int, jalali_str.split('/')))
+                        jalali_dt = jdatetime.datetime(jalali_parts[0], jalali_parts[1], jalali_parts[2])
+                        end_date = jalali_dt.togregorian()
+                except Exception as e:
+                    logger.warning(f"Error parsing end_date: {e}")
                     pass
             
             # Create survey
@@ -223,19 +249,35 @@ def manager_surveys_edit(survey_id):
             survey.welcome_button_text = sanitize_input(request.form.get('welcome_button_text', 'شروع نظرسنجی').strip())
             survey.display_mode = request.form.get('display_mode', 'multi_page')
             
-            # Date parsing
+            # Date parsing (Jalali to Gregorian)
             if request.form.get('start_date'):
                 try:
-                    survey.start_date = datetime.strptime(request.form.get('start_date'), '%Y-%m-%d')
-                except:
+                    # Parse Jalali date (format: YYYY/MM/DD)
+                    jalali_str = request.form.get('start_date').strip()
+                    if jalali_str:
+                        jalali_parts = list(map(int, jalali_str.split('/')))
+                        jalali_dt = jdatetime.datetime(jalali_parts[0], jalali_parts[1], jalali_parts[2])
+                        survey.start_date = jalali_dt.togregorian()
+                    else:
+                        survey.start_date = None
+                except Exception as e:
+                    logger.warning(f"Error parsing start_date: {e}")
                     pass
             else:
                 survey.start_date = None
             
             if request.form.get('end_date'):
                 try:
-                    survey.end_date = datetime.strptime(request.form.get('end_date'), '%Y-%m-%d')
-                except:
+                    # Parse Jalali date (format: YYYY/MM/DD)
+                    jalali_str = request.form.get('end_date').strip()
+                    if jalali_str:
+                        jalali_parts = list(map(int, jalali_str.split('/')))
+                        jalali_dt = jdatetime.datetime(jalali_parts[0], jalali_parts[1], jalali_parts[2])
+                        survey.end_date = jalali_dt.togregorian()
+                    else:
+                        survey.end_date = None
+                except Exception as e:
+                    logger.warning(f"Error parsing end_date: {e}")
                     pass
             else:
                 survey.end_date = None
@@ -526,6 +568,188 @@ def manager_reports_overview(survey_id):
         completed_responses = query.filter_by(is_completed=True).count()
         attempted_responses = query.filter_by(is_completed=False).count()
         
+        # Get daily completion statistics (for bar chart)
+        daily_chart_data = []
+        try:
+            # Determine date range
+            chart_start_date = None
+            chart_end_date = None
+            
+            if date_from:
+                try:
+                    jdate_from = jdatetime.strptime(date_from, '%Y/%m/%d')
+                    chart_start_date = jdate_from.togregorian().date()
+                except Exception as e:
+                    logger.warning(f"Error parsing date_from: {e}")
+            
+            if date_to:
+                try:
+                    jdate_to = jdatetime.strptime(date_to, '%Y/%m/%d')
+                    chart_end_date = jdate_to.togregorian().date()
+                except Exception as e:
+                    logger.warning(f"Error parsing date_to: {e}")
+            
+            # If no date range specified, use survey dates or response dates
+            if not chart_start_date:
+                if survey.start_date:
+                    chart_start_date = survey.start_date.date()
+                else:
+                    # Get earliest response date
+                    earliest = db.session.query(func.min(SurveyResponse.started_at)).filter_by(
+                        survey_id=survey_id
+                    ).scalar()
+                    if earliest:
+                        chart_start_date = earliest.date() if isinstance(earliest, datetime) else earliest
+                    else:
+                        chart_start_date = datetime.now().date()
+            
+            if not chart_end_date:
+                if survey.end_date:
+                    chart_end_date = survey.end_date.date()
+                else:
+                    # Get latest response date or today
+                    latest = db.session.query(func.max(SurveyResponse.completed_at)).filter_by(
+                        survey_id=survey_id,
+                        is_completed=True
+                    ).scalar()
+                    if latest:
+                        chart_end_date = latest.date() if isinstance(latest, datetime) else latest
+                    else:
+                        chart_end_date = datetime.now().date()
+            
+            # Get actual completion counts per day
+            # Convert chart dates to datetime for comparison
+            chart_start_datetime = datetime.combine(chart_start_date, datetime.min.time())
+            chart_end_datetime = datetime.combine(chart_end_date, datetime.max.time())
+            
+            # Get all completed responses in date range
+            completed_responses_list = SurveyResponse.query.filter(
+                SurveyResponse.survey_id == survey_id,
+                SurveyResponse.is_completed == True,
+                SurveyResponse.completed_at.isnot(None),
+                SurveyResponse.completed_at >= chart_start_datetime,
+                SurveyResponse.completed_at <= chart_end_datetime
+            ).all()
+            
+            # Group by date manually (more reliable than SQL date functions)
+            counts_by_date = {}
+            for response in completed_responses_list:
+                if response.completed_at:
+                    # Extract date part (handle both datetime and date objects)
+                    if isinstance(response.completed_at, datetime):
+                        resp_date = response.completed_at.date()
+                    else:
+                        resp_date = response.completed_at
+                    
+                    # Only count if within our chart range
+                    if chart_start_date <= resp_date <= chart_end_date:
+                        counts_by_date[resp_date] = counts_by_date.get(resp_date, 0) + 1
+            
+            logger.info(f"Daily stats: Found {len(completed_responses_list)} completed responses, grouped into {len(counts_by_date)} days")
+            
+            # Generate data for all days in range (including days with 0 completions)
+            # Limit to 365 days to prevent performance issues
+            days_diff = (chart_end_date - chart_start_date).days
+            if days_diff > 365:
+                # If range is too large, limit to last 365 days
+                chart_start_date = chart_end_date - timedelta(days=365)
+                logger.warning(f"Date range too large ({days_diff} days), limiting to last 365 days")
+            
+            current_date = chart_start_date
+            while current_date <= chart_end_date:
+                try:
+                    jdate = jdatetime.fromgregorian(date=current_date)
+                    count = counts_by_date.get(current_date, 0)
+                    daily_chart_data.append({
+                        'date': jdate.strftime('%Y/%m/%d'),
+                        'count': count
+                    })
+                except Exception as e:
+                    logger.warning(f"Error converting date to Jalali: {e}")
+                
+                current_date += timedelta(days=1)
+                
+        except Exception as e:
+            logger.error(f"Error getting daily stats: {e}", exc_info=True)
+            daily_chart_data = []
+        
+        # Get all responses for table
+        # Handle NULL values in ordering - order by completed_at if available, otherwise started_at
+        all_responses = query.order_by(
+            desc(SurveyResponse.completed_at),
+            desc(SurveyResponse.started_at)
+        ).all()
+        
+        # Get question statistics (answers per question)
+        from survey_models import SurveyQuestion, SurveyAnswerItem
+        question_stats = []
+        question_stats_json = []
+        
+        try:
+            questions = SurveyQuestion.query.filter_by(survey_id=survey_id).order_by(SurveyQuestion.order).all()
+            
+            for question in questions:
+                try:
+                    # Get all answers for this question
+                    answers_query = db.session.query(SurveyAnswerItem).join(
+                        SurveyResponse
+                    ).filter(
+                        SurveyAnswerItem.question_id == question.id,
+                        SurveyResponse.survey_id == survey_id,
+                        SurveyResponse.is_completed == True
+                    )
+                    
+                    if date_from:
+                        try:
+                            jdate_from = jdatetime.strptime(date_from, '%Y/%m/%d')
+                            date_from_greg = jdate_from.togregorian()
+                            answers_query = answers_query.filter(SurveyResponse.completed_at >= date_from_greg)
+                        except Exception as e:
+                            logger.warning(f"Error parsing date_from for question stats: {e}")
+                    
+                    if date_to:
+                        try:
+                            jdate_to = jdatetime.strptime(date_to, '%Y/%m/%d')
+                            date_to_greg = jdate_to.togregorian()
+                            date_to_greg = datetime.combine(date_to_greg.date(), datetime.max.time())
+                            answers_query = answers_query.filter(SurveyResponse.completed_at <= date_to_greg)
+                        except Exception as e:
+                            logger.warning(f"Error parsing date_to for question stats: {e}")
+                    
+                    answers = answers_query.all()
+                    
+                    # Count answers by option/value
+                    option_counts = {}
+                    if question.question_type.startswith('likert'):
+                        # Likert scale question
+                        options = question.options.get('options', []) if question.options else []
+                        for i, option in enumerate(options):
+                            option_counts[option] = sum(1 for a in answers if a.answer_value == i)
+                    else:
+                        # Text or other types
+                        option_counts['پاسخ داده شده'] = len(answers)
+                    
+                    question_stats.append({
+                        'question': question,
+                        'total_answers': len(answers),
+                        'option_counts': option_counts
+                    })
+                    
+                    question_stats_json.append({
+                        'question_id': question.id,
+                        'question_text': question.question_text,
+                        'total_answers': len(answers),
+                        'option_counts': option_counts
+                    })
+                except Exception as e:
+                    logger.error(f"Error processing question {question.id}: {e}", exc_info=True)
+                    # Continue with next question
+                    continue
+        except Exception as e:
+            logger.error(f"Error getting question stats: {e}", exc_info=True)
+            question_stats = []
+            question_stats_json = []
+        
         log_survey_action('view_survey_reports', 'survey', survey_id)
         return render_template('survey/manager/reports/overview.html',
                              survey=survey,
@@ -533,9 +757,131 @@ def manager_reports_overview(survey_id):
                              completed_responses=completed_responses,
                              attempted_responses=attempted_responses,
                              date_from=date_from,
-                             date_to=date_to)
+                             date_to=date_to,
+                             daily_chart_data=daily_chart_data,
+                             all_responses=all_responses,
+                             question_stats=question_stats,
+                             question_stats_json=question_stats_json)
     except Exception as e:
         logger.error(f"Error viewing reports: {e}", exc_info=True)
         flash('خطا در نمایش گزارش‌ها', 'error')
         return redirect(url_for('survey.manager_surveys_list'))
+
+
+@survey_bp.route('/manager/surveys/<int:survey_id>/reports/export/excel')
+@login_required
+@manager_required
+def manager_reports_export_excel(survey_id):
+    """Export survey reports to Excel"""
+    if not PANDAS_AVAILABLE:
+        flash('کتابخانه pandas برای خروجی Excel نیاز است', 'error')
+        return redirect(url_for('survey.manager_reports_overview', survey_id=survey_id))
+    
+    try:
+        manager = SurveyManager.query.filter_by(user_id=current_user.id, is_active=True).first()
+        if not manager:
+            flash('شما به عنوان مسئول نظرسنجی تعریف نشده‌اید', 'error')
+            return redirect(url_for('list_tools'))
+        
+        survey = Survey.query.get_or_404(survey_id)
+        if survey.manager_id != manager.id:
+            flash('شما دسترسی به این پرسشنامه ندارید', 'error')
+            return redirect(url_for('survey.manager_surveys_list'))
+        
+        # Get date range from query params
+        date_from = request.args.get('date_from')
+        date_to = request.args.get('date_to')
+        
+        # Get all responses
+        query = SurveyResponse.query.filter_by(survey_id=survey_id, is_completed=True)
+        
+        if date_from:
+            try:
+                jdate_from = jdatetime.strptime(date_from, '%Y/%m/%d')
+                date_from_greg = jdate_from.togregorian()
+                query = query.filter(SurveyResponse.completed_at >= date_from_greg)
+            except:
+                pass
+        
+        if date_to:
+            try:
+                jdate_to = jdatetime.strptime(date_to, '%Y/%m/%d')
+                date_to_greg = jdate_to.togregorian()
+                date_to_greg = datetime.combine(date_to_greg.date(), datetime.max.time())
+                query = query.filter(SurveyResponse.completed_at <= date_to_greg)
+            except:
+                pass
+        
+        responses = query.order_by(desc(SurveyResponse.completed_at)).all()
+        
+        # Get questions
+        questions = SurveyQuestion.query.filter_by(survey_id=survey_id).order_by(SurveyQuestion.order).all()
+        
+        # Prepare data for Excel
+        excel_data = {}
+        
+        # Sheet 1: Participants summary
+        participants_data = []
+        for response in responses:
+            jdate_started = jdatetime.fromgregorian(datetime=response.started_at) if response.started_at else None
+            jdate_completed = jdatetime.fromgregorian(datetime=response.completed_at) if response.completed_at else None
+            
+            participants_data.append({
+                'شناسه پاسخ': response.id,
+                'نام کاربر': response.user.name if response.user else 'نامشخص',
+                'کد ملی': response.national_id or 'نامشخص',
+                'تاریخ شروع (هجری شمسی)': jdate_started.strftime('%Y/%m/%d %H:%M') if jdate_started else '',
+                'تاریخ تکمیل (هجری شمسی)': jdate_completed.strftime('%Y/%m/%d %H:%M') if jdate_completed else '',
+                'وضعیت': 'تکمیل شده' if response.is_completed else 'شروع شده'
+            })
+        
+        excel_data['شرکت کنندگان'] = pd.DataFrame(participants_data)
+        
+        # Sheet 2: Question statistics
+        question_stats_data = []
+        for question in questions:
+            answers = SurveyAnswerItem.query.join(SurveyResponse).filter(
+                SurveyAnswerItem.question_id == question.id,
+                SurveyResponse.survey_id == survey_id,
+                SurveyResponse.is_completed == True
+            ).all()
+            
+            if question.question_type.startswith('likert'):
+                options = question.options.get('options', []) if question.options else []
+                for i, option in enumerate(options):
+                    count = sum(1 for a in answers if a.answer_value == i)
+                    question_stats_data.append({
+                        'سوال': question.question_text[:100],  # Limit length
+                        'گزینه': option,
+                        'تعداد پاسخ': count
+                    })
+            else:
+                question_stats_data.append({
+                    'سوال': question.question_text[:100],
+                    'گزینه': 'پاسخ داده شده',
+                    'تعداد پاسخ': len(answers)
+                })
+        
+        excel_data['آمار سوالات'] = pd.DataFrame(question_stats_data)
+        
+        # Create Excel file in memory
+        output = io.BytesIO()
+        with pd.ExcelWriter(output, engine='openpyxl') as writer:
+            for sheet_name, df in excel_data.items():
+                df.to_excel(writer, sheet_name=sheet_name, index=False)
+        
+        output.seek(0)
+        
+        # Create response
+        response = make_response(output.read())
+        response.headers['Content-Type'] = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+        response.headers['Content-Disposition'] = f'attachment; filename=survey_{survey_id}_reports.xlsx'
+        
+        log_survey_action('export_survey_reports_excel', 'survey', survey_id)
+        return response
+        
+    except Exception as e:
+        logger.error(f"Error exporting Excel: {e}", exc_info=True)
+        flash('خطا در خروجی Excel', 'error')
+        return redirect(url_for('survey.manager_reports_overview', survey_id=survey_id))
 

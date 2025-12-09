@@ -240,19 +240,36 @@ def survey_surveys_edit(survey_id):
                 survey.welcome_button_text = sanitize_input(request.form.get('welcome_button_text', 'شروع نظرسنجی').strip())
                 survey.display_mode = request.form.get('display_mode', 'multi_page')
                 
-                # Date parsing
+                # Date parsing (Jalali to Gregorian)
+                from jdatetime import datetime as jdatetime
                 if request.form.get('start_date'):
                     try:
-                        survey.start_date = datetime.strptime(request.form.get('start_date'), '%Y-%m-%d')
-                    except:
+                        # Parse Jalali date (format: YYYY/MM/DD)
+                        jalali_str = request.form.get('start_date').strip()
+                        if jalali_str:
+                            jalali_parts = list(map(int, jalali_str.split('/')))
+                            jalali_dt = jdatetime.datetime(jalali_parts[0], jalali_parts[1], jalali_parts[2])
+                            survey.start_date = jalali_dt.togregorian()
+                        else:
+                            survey.start_date = None
+                    except Exception as e:
+                        logger.warning(f"Error parsing start_date: {e}")
                         pass
                 else:
                     survey.start_date = None
                 
                 if request.form.get('end_date'):
                     try:
-                        survey.end_date = datetime.strptime(request.form.get('end_date'), '%Y-%m-%d')
-                    except:
+                        # Parse Jalali date (format: YYYY/MM/DD)
+                        jalali_str = request.form.get('end_date').strip()
+                        if jalali_str:
+                            jalali_parts = list(map(int, jalali_str.split('/')))
+                            jalali_dt = jdatetime.datetime(jalali_parts[0], jalali_parts[1], jalali_parts[2])
+                            survey.end_date = jalali_dt.togregorian()
+                        else:
+                            survey.end_date = None
+                    except Exception as e:
+                        logger.warning(f"Error parsing end_date: {e}")
                         pass
                 else:
                     survey.end_date = None

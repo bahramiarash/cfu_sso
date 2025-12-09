@@ -6,9 +6,15 @@
 <div class="container-fluid">
     <div class="d-flex justify-content-between align-items-center mb-4">
         <h1><i class="bi bi-graph-up"></i> گزارش‌های پرسشنامه: {{ survey.title }}</h1>
-        <a href="{{ url_for('survey.manager_surveys_list') }}" class="btn btn-secondary">
-            <i class="bi bi-arrow-right"></i> بازگشت
-        </a>
+        <div>
+            <a href="{{ url_for('survey.manager_reports_export_excel', survey_id=survey.id, date_from=date_from or '', date_to=date_to or '') }}" 
+               class="btn btn-success me-2">
+                <i class="bi bi-file-earmark-excel"></i> خروجی Excel
+            </a>
+            <a href="{{ url_for('survey.manager_surveys_list') }}" class="btn btn-secondary">
+                <i class="bi bi-arrow-right"></i> بازگشت
+            </a>
+        </div>
     </div>
 
     <!-- Date Range Filter -->
@@ -18,12 +24,12 @@
                 <div class="col-md-4">
                     <label for="date_from" class="form-label">از تاریخ (هجری شمسی)</label>
                     <input type="text" class="form-control" id="date_from" name="date_from" 
-                           value="{{ date_from or '' }}" placeholder="1403/01/01">
+                           value="{{ date_from or '' }}" placeholder="1403/01/01" autocomplete="off">
                 </div>
                 <div class="col-md-4">
                     <label for="date_to" class="form-label">تا تاریخ (هجری شمسی)</label>
                     <input type="text" class="form-control" id="date_to" name="date_to" 
-                           value="{{ date_to or '' }}" placeholder="1403/12/29">
+                           value="{{ date_to or '' }}" placeholder="1403/12/29" autocomplete="off">
                 </div>
                 <div class="col-md-4 d-flex align-items-end">
                     <button type="submit" class="btn btn-primary me-2">فیلتر</button>
@@ -61,10 +67,339 @@
         </div>
     </div>
 
-    <div class="alert alert-info">
-        <i class="bi bi-info-circle"></i> 
-        گزارش‌های تفصیلی (نمودارها، خروجی Excel، جدول پویا) در حال توسعه هستند.
+    <!-- Daily Completion Chart -->
+    <div class="card mb-4">
+        <div class="card-header">
+            <h5><i class="bi bi-bar-chart"></i> نمودار تعداد پرسشنامه تکمیل شده در هر روز</h5>
+        </div>
+        <div class="card-body">
+            <canvas id="dailyChart" height="80"></canvas>
+        </div>
+    </div>
+
+    <!-- Participants Table -->
+    <div class="card mb-4">
+        <div class="card-header d-flex justify-content-between align-items-center">
+            <h5><i class="bi bi-table"></i> جدول شرکت کنندگان</h5>
+        </div>
+        <div class="card-body">
+            <div class="mb-3">
+                <input type="text" class="form-control" id="participantsSearch" placeholder="جستجو در جدول...">
+            </div>
+            <div class="table-responsive">
+                <table class="table table-striped table-hover" id="participantsTable">
+                    <thead>
+                        <tr>
+                            <th style="cursor: pointer;" onclick="sortTable(0, 'participantsTable')">
+                                شناسه پاسخ <i class="bi bi-arrow-down-up"></i>
+                            </th>
+                            <th style="cursor: pointer;" onclick="sortTable(1, 'participantsTable')">
+                                نام کاربر <i class="bi bi-arrow-down-up"></i>
+                            </th>
+                            <th style="cursor: pointer;" onclick="sortTable(2, 'participantsTable')">
+                                کد ملی <i class="bi bi-arrow-down-up"></i>
+                            </th>
+                            <th style="cursor: pointer;" onclick="sortTable(3, 'participantsTable')">
+                                تاریخ شروع <i class="bi bi-arrow-down-up"></i>
+                            </th>
+                            <th style="cursor: pointer;" onclick="sortTable(4, 'participantsTable')">
+                                تاریخ تکمیل <i class="bi bi-arrow-down-up"></i>
+                            </th>
+                            <th>وضعیت</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for response in all_responses %}
+                        <tr>
+                            <td>{{ response.id }}</td>
+                            <td>{{ response.user.name if response.user else 'نامشخص' }}</td>
+                            <td>{{ response.national_id or 'نامشخص' }}</td>
+                            <td>
+                                {% if response.started_at %}
+                                    {{ jdatetime.datetime.fromgregorian(datetime=response.started_at).strftime('%Y/%m/%d %H:%M') }}
+                                {% else %}
+                                    -
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% if response.completed_at %}
+                                    {{ jdatetime.datetime.fromgregorian(datetime=response.completed_at).strftime('%Y/%m/%d %H:%M') }}
+                                {% else %}
+                                    -
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% if response.is_completed %}
+                                    <span class="badge bg-success">تکمیل شده</span>
+                                {% else %}
+                                    <span class="badge bg-warning">شروع شده</span>
+                                {% endif %}
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- Question Statistics Charts -->
+    <div class="card mb-4">
+        <div class="card-header">
+            <h5><i class="bi bi-bar-chart-fill"></i> نمودار تعداد پاسخ‌های هر سوال</h5>
+        </div>
+        <div class="card-body">
+            {% for stat in question_stats %}
+            <div class="mb-4">
+                <h6>{{ stat.question.question_text if stat.question else '' }}</h6>
+                <canvas id="questionChart{{ loop.index0 }}" height="60"></canvas>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+
+    <!-- Question Statistics Table -->
+    <div class="card mb-4">
+        <div class="card-header d-flex justify-content-between align-items-center">
+            <h5><i class="bi bi-table"></i> جدول آمار پاسخ‌های هر سوال</h5>
+        </div>
+        <div class="card-body">
+            <div class="mb-3">
+                <input type="text" class="form-control" id="questionsSearch" placeholder="جستجو در جدول...">
+            </div>
+            <div class="table-responsive">
+                <table class="table table-striped table-hover" id="questionsTable">
+                    <thead>
+                        <tr>
+                            <th style="cursor: pointer;" onclick="sortTable(0, 'questionsTable')">
+                                سوال <i class="bi bi-arrow-down-up"></i>
+                            </th>
+                            <th style="cursor: pointer;" onclick="sortTable(1, 'questionsTable')">
+                                گزینه <i class="bi bi-arrow-down-up"></i>
+                            </th>
+                            <th style="cursor: pointer;" onclick="sortTable(2, 'questionsTable')">
+                                تعداد پاسخ <i class="bi bi-arrow-down-up"></i>
+                            </th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for stat in question_stats %}
+                            {% for option, count in stat.option_counts.items() %}
+                            <tr>
+                                <td>{{ stat.question.question_text }}</td>
+                                <td>{{ option }}</td>
+                                <td>{{ count }}</td>
+                            </tr>
+                            {% endfor %}
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
     </div>
 </div>
-{% endblock %}
 
+<!-- Chart.js -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js@3.9.1/dist/chart.min.js"></script>
+
+<script>
+// Initialize date pickers
+(function() {
+    function initDatePickers() {
+        if (typeof kamaDatepicker !== 'undefined') {
+            try {
+                kamaDatepicker('date_from', {
+                    forceFarsiDigits: true,
+                    markToday: true,
+                    markHolidays: true,
+                    gotoToday: true,
+                    highlightSelectedDay: true,
+                    format: 'YYYY/MM/DD'
+                });
+                
+                kamaDatepicker('date_to', {
+                    forceFarsiDigits: true,
+                    markToday: true,
+                    markHolidays: true,
+                    gotoToday: true,
+                    highlightSelectedDay: true,
+                    format: 'YYYY/MM/DD'
+                });
+            } catch (error) {
+                console.error('Error initializing KamaDatepicker:', error);
+                setTimeout(initDatePickers, 500);
+            }
+        } else {
+            setTimeout(initDatePickers, 500);
+        }
+    }
+    initDatePickers();
+})();
+
+// Daily completion chart
+const dailyChartData = {{ daily_chart_data | tojson }};
+const ctx = document.getElementById('dailyChart');
+if (ctx && dailyChartData && dailyChartData.length > 0) {
+    new Chart(ctx.getContext('2d'), {
+        type: 'bar',
+        data: {
+            labels: dailyChartData.map(d => d.date),
+            datasets: [{
+                label: 'تعداد تکمیل شده',
+                data: dailyChartData.map(d => d.count),
+                backgroundColor: 'rgba(54, 162, 235, 0.6)',
+                borderColor: 'rgba(54, 162, 235, 1)',
+                borderWidth: 1
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: true,
+            scales: {
+                y: {
+                    beginAtZero: true,
+                    ticks: {
+                        stepSize: 1,
+                        precision: 0
+                    }
+                },
+                x: {
+                    ticks: {
+                        maxRotation: 45,
+                        minRotation: 45
+                    }
+                }
+            },
+            plugins: {
+                legend: {
+                    display: true,
+                    position: 'top'
+                },
+                tooltip: {
+                    callbacks: {
+                        label: function(context) {
+                            return 'تعداد: ' + context.parsed.y;
+                        }
+                    }
+                }
+            }
+        }
+    });
+} else if (ctx) {
+    // Show message if no data
+    ctx.parentElement.innerHTML = '<p class="text-muted text-center p-4">داده‌ای برای نمایش وجود ندارد</p>';
+}
+
+// Question statistics charts
+const questionStats = {{ question_stats_json | tojson }};
+if (questionStats && questionStats.length > 0) {
+    questionStats.forEach((stat, index) => {
+        const canvasId = 'questionChart' + index;
+    const canvas = document.getElementById(canvasId);
+    if (canvas) {
+        const ctx = canvas.getContext('2d');
+        const labels = Object.keys(stat.option_counts);
+        const data = Object.values(stat.option_counts);
+        
+        new Chart(ctx, {
+            type: 'bar',
+            data: {
+                labels: labels,
+                datasets: [{
+                    label: 'تعداد پاسخ',
+                    data: data,
+                    backgroundColor: 'rgba(75, 192, 192, 0.6)',
+                    borderColor: 'rgba(75, 192, 192, 1)',
+                    borderWidth: 1
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: true,
+                scales: {
+                    y: {
+                        beginAtZero: true,
+                        ticks: {
+                            stepSize: 1
+                        }
+                    }
+                },
+                plugins: {
+                    legend: {
+                        display: true,
+                        position: 'top'
+                    }
+                }
+            }
+        });
+        }
+    });
+}
+
+// Table sorting
+let sortDirections = {};
+function sortTable(columnIndex, tableId) {
+    const table = document.getElementById(tableId);
+    const tbody = table.querySelector('tbody');
+    const rows = Array.from(tbody.querySelectorAll('tr'));
+    
+    const direction = sortDirections[tableId + columnIndex] || 'asc';
+    sortDirections[tableId + columnIndex] = direction === 'asc' ? 'desc' : 'asc';
+    
+    rows.sort((a, b) => {
+        const aText = a.cells[columnIndex].textContent.trim();
+        const bText = b.cells[columnIndex].textContent.trim();
+        
+        // Try to parse as number
+        const aNum = parseFloat(aText);
+        const bNum = parseFloat(bText);
+        
+        if (!isNaN(aNum) && !isNaN(bNum)) {
+            return direction === 'asc' ? aNum - bNum : bNum - aNum;
+        }
+        
+        return direction === 'asc' 
+            ? aText.localeCompare(bText, 'fa')
+            : bText.localeCompare(aText, 'fa');
+    });
+    
+    rows.forEach(row => tbody.appendChild(row));
+}
+
+// Table search/filter
+document.getElementById('participantsSearch').addEventListener('keyup', function() {
+    filterTable('participantsTable', this.value);
+});
+
+document.getElementById('questionsSearch').addEventListener('keyup', function() {
+    filterTable('questionsTable', this.value);
+});
+
+function filterTable(tableId, searchText) {
+    const table = document.getElementById(tableId);
+    const rows = table.querySelectorAll('tbody tr');
+    const searchLower = searchText.toLowerCase();
+    
+    rows.forEach(row => {
+        const text = row.textContent.toLowerCase();
+        row.style.display = text.includes(searchLower) ? '' : 'none';
+    });
+}
+</script>
+
+<style>
+.stat-card {
+    border-left: 4px solid #007bff;
+}
+.stat-card .card-title {
+    font-size: 0.9rem;
+    color: #6c757d;
+    margin-bottom: 0.5rem;
+}
+.stat-card h2 {
+    font-size: 2rem;
+    font-weight: bold;
+    margin: 0;
+}
+</style>
+{% endblock %}

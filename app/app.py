@@ -541,6 +541,12 @@ def survey():
         user = User.query.filter_by(sso_id=username).first() if username else None
         national_id = user_info.get('national_id') if user_info else None
         
+        # Check if user is a survey manager
+        is_manager = False
+        if user:
+            from survey.utils import is_survey_manager
+            is_manager = is_survey_manager(user)
+        
         # Get all accessible surveys (public, user_groups, specific_users)
         try:
             surveys = get_accessible_surveys(user, national_id)
@@ -564,7 +570,8 @@ def survey():
         response = make_response(render_template(
             "survey/public/list.html",
             user_display_name=display_name,
-            surveys_data=surveys_with_status
+            surveys_data=surveys_with_status,
+            is_survey_manager=is_manager
         ))
         
         # Prevent caching
@@ -737,12 +744,22 @@ def list_tools():
     has_dashboard_access = check_user_has_valid_dashboard_access(user_info)
     logger.info(f"User has valid dashboard access: {has_dashboard_access}")
     
+    # Check if user is a survey manager
+    is_survey_manager = False
+    username = user_info.get('username', '').lower() if user_info else ''
+    if username:
+        user = User.query.filter_by(sso_id=username).first()
+        if user:
+            from survey.utils import is_survey_manager as check_is_manager
+            is_survey_manager = check_is_manager(user)
+    
     # Create response with no-cache headers to prevent back button access after logout
     response = make_response(render_template(
         "tools.html", 
         user=user_info, 
         user_display_name=display_name,
-        has_dashboard_access=has_dashboard_access
+        has_dashboard_access=has_dashboard_access,
+        is_survey_manager=is_survey_manager
     ))
     
     # Prevent caching - critical for security after logout

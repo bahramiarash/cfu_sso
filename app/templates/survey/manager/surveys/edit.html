@@ -30,15 +30,15 @@
                             <div class="col-md-6">
                                 <div class="mb-3">
                                     <label for="start_date" class="form-label">تاریخ شروع</label>
-                                    <input type="date" class="form-control" id="start_date" name="start_date" 
-                                           value="{{ survey.start_date.strftime('%Y-%m-%d') if survey.start_date else '' }}">
+                                    <input type="text" class="form-control" id="start_date" name="start_date" 
+                                           value="{% if survey.start_date %}{{ survey.start_date|jalali_date }}{% endif %}" placeholder="YYYY/MM/DD">
                                 </div>
                             </div>
                             <div class="col-md-6">
                                 <div class="mb-3">
                                     <label for="end_date" class="form-label">تاریخ پایان</label>
-                                    <input type="date" class="form-control" id="end_date" name="end_date"
-                                           value="{{ survey.end_date.strftime('%Y-%m-%d') if survey.end_date else '' }}">
+                                    <input type="text" class="form-control" id="end_date" name="end_date"
+                                           value="{% if survey.end_date %}{{ survey.end_date|jalali_date }}{% endif %}" placeholder="YYYY/MM/DD">
                                 </div>
                             </div>
                         </div>
@@ -160,6 +160,39 @@ function checkFileSize(input) {
     }
     return true;
 }
+
+// Initialize KamaDatepicker for Persian calendar
+(function() {
+    function initDatePickers() {
+        if (typeof kamaDatepicker !== 'undefined') {
+            try {
+                kamaDatepicker('start_date', {
+                    forceFarsiDigits: true,
+                    markToday: true,
+                    markHolidays: true,
+                    gotoToday: true,
+                    highlightSelectedDay: true,
+                    format: 'YYYY/MM/DD'
+                });
+                
+                kamaDatepicker('end_date', {
+                    forceFarsiDigits: true,
+                    markToday: true,
+                    markHolidays: true,
+                    gotoToday: true,
+                    highlightSelectedDay: true,
+                    format: 'YYYY/MM/DD'
+                });
+            } catch (error) {
+                console.error('Error initializing KamaDatepicker:', error);
+                setTimeout(initDatePickers, 500);
+            }
+        } else {
+            setTimeout(initDatePickers, 500);
+        }
+    }
+    initDatePickers();
+})();
 </script>
 {% endblock %}
 
