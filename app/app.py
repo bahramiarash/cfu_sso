@@ -8,7 +8,7 @@ import subprocess
 import platform
 import time
 from urllib.parse import quote_plus
-from flask import Flask, redirect, url_for, session, request, render_template, jsonify, flash, abort
+from flask import Flask, redirect, url_for, session, request, render_template, jsonify, flash, abort, make_response
 from flask_login import login_user
 
 from models import *
@@ -357,9 +357,23 @@ def authorized():
     returned_state = request.args.get("state")
     logger.info("Stored state: %s, Returned state: %s", stored_state, returned_state)
 
+    # If state mismatch, it could be due to:
+    # 1. Session expired/cleared (user refreshed during auth flow)
+    # 2. CSRF attack (legitimate security concern)
+    # 3. Multiple login attempts
+    
+    # Check if user is already authenticated (has sso_token and user_info)
+    # If yes, redirect to dashboard instead of showing error
     if stored_state != returned_state:
-        logger.error("CSRF Warning: State mismatch")
-        return render_template("error.html", error="Authorization error: CSRF Warning!"), 400
+        if session.get("sso_token") and session.get("user_info"):
+            # User is already authenticated, just redirect to dashboard
+            logger.warning("State mismatch but user already authenticated, redirecting to dashboard")
+            return redirect(url_for("dashboard.dashboard_list"))
+        
+        # If not authenticated, clear any stale state and redirect to login
+        logger.error("CSRF Warning: State mismatch - stored_state=%s, returned_state=%s", stored_state, returned_state)
+        session.pop("oauth_state", None)  # Clear stale state
+        return redirect(url_for("login"))
 
     try:
         # token = oauth.sso.authorize_access_token(include_client_id=True)  # Removed withhold_token=True
@@ -455,16 +469,134 @@ def get_user_info(token):
 
 @app.route("/logout")
 def logout():
-    """Log out the user."""
+    """Log out the user with proper security and cache control."""
+    # Get session cookie name from app config
+    session_cookie_name = app.config.get('SESSION_COOKIE_NAME', 'session')
+    
+    # Clear all session data
     session.clear()
+    
+    # Log the logout action
     logger.info("User logged out, session cleared.")
-    return redirect("https://sso.cfu.ac.ir/logout?service=https://bi.cfu.ac.ir")
+    
+    # Create response with security headers
+    response = redirect("https://sso.cfu.ac.ir/logout?service=https://bi.cfu.ac.ir")
+    
+    # Prevent caching of logout page
+    response.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0, private'
+    response.headers['Pragma'] = 'no-cache'
+    response.headers['Expires'] = '0'
+    
+    # Security headers
+    response.headers['X-Content-Type-Options'] = 'nosniff'
+    response.headers['X-Frame-Options'] = 'DENY'
+    response.headers['X-XSS-Protection'] = '1; mode=block'
+    response.headers['Referrer-Policy'] = 'strict-origin-when-cross-origin'
+    
+    # Clear session cookie with proper settings
+    cookie_secure = app.config.get('SESSION_COOKIE_SECURE', True)
+    cookie_httponly = app.config.get('SESSION_COOKIE_HTTPONLY', True)
+    cookie_samesite = app.config.get('SESSION_COOKIE_SAMESITE', 'Lax')
+    
+    response.set_cookie(
+        session_cookie_name, 
+        '', 
+        expires=0, 
+        httponly=cookie_httponly, 
+        secure=cookie_secure, 
+        samesite=cookie_samesite,
+        path='/'
+    )
+    
+    return response
 
+
+def get_user_display_name(user_info):
+    """Extract user display name from user_info dictionary"""
+    if not user_info or not isinstance(user_info, dict):
+        return "کاربر گرامی"
+    
+    # Try different field names that SSO might return
+    if user_info.get('fullname'):
+        return user_info.get('fullname')
+    
+    firstname = user_info.get('firstname', '')
+    lastname = user_info.get('lastname', '')
+    if firstname or lastname:
+        return f"{firstname} {lastname}".strip()
+    
+    if user_info.get('name'):
+        return user_info.get('name')
+    
+    if user_info.get('preferred_username'):
+        return user_info.get('preferred_username')
+    
+    if user_info.get('username'):
+        return user_info.get('username')
+    
+    return "کاربر گرامی"
 
 @app.route('/tools')
+@requires_auth
 def list_tools():
+    # Check if user has valid session
+    # First check if user_info exists, if not, try to get it from token
     user_info = session.get("user_info")
-    return render_template("tools.html", user_info=user_info)
+    
+    if not user_info:
+        # Try to get user info from token if available
+        token = session.get("sso_token")
+        if token:
+            try:
+                logger.info("User info not in session, fetching from token")
+                user_info = get_user_info(token)
+                if user_info and "error" not in user_info:
+                    session["user_info"] = user_info
+                    logger.info("Successfully fetched user info from token")
+                else:
+                    logger.warning("Failed to fetch user info from token, redirecting to login")
+                    return redirect(url_for('login'))
+            except Exception as e:
+                logger.error(f"Error fetching user info from token: {e}")
+                return redirect(url_for('login'))
+        else:
+            logging.info("User not authenticated (no token or user_info), redirecting to login")
+            return redirect(url_for('login'))
+    
+    # Log user_info for debugging and extract display name
+    if user_info:
+        logger.info(f"User info in tools route: {user_info}")
+        logger.info(f"User info keys: {list(user_info.keys()) if isinstance(user_info, dict) else 'Not a dict'}")
+        display_name = get_user_display_name(user_info)
+        logger.info(f"Extracted display name: {display_name}")
+        # Ensure display_name is always set
+        if not display_name or display_name == "کاربر گرامی":
+            # Try to extract from firstname and lastname directly
+            if isinstance(user_info, dict):
+                firstname = user_info.get('firstname', '')
+                lastname = user_info.get('lastname', '')
+                if firstname or lastname:
+                    display_name = f"{firstname} {lastname}".strip()
+                    logger.info(f"Fallback: Using firstname+lastname: {display_name}")
+    else:
+        logger.warning("User info is None or empty in tools route")
+        display_name = "کاربر گرامی"
+    
+    # Ensure display_name is always set
+    if not display_name:
+        display_name = "کاربر گرامی"
+    
+    # Create response with no-cache headers to prevent back button access after logout
+    response = make_response(render_template("tools.html", user=user_info, user_display_name=display_name))
+    
+    # Prevent caching - critical for security after logout
+    response.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0, private'
+    response.headers['Pragma'] = 'no-cache'
+    response.headers['Expires'] = '0'
+    response.headers['X-Content-Type-Options'] = 'nosniff'
+    response.headers['X-Frame-Options'] = 'DENY'
+    
+    return response
 
 # #######################################
 # Projects

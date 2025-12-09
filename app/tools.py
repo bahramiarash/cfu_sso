@@ -76,6 +76,7 @@ def tools_list():
     session['access_level'] = [level] if isinstance(level, str) else level
 
 #     tools = get_accessible_tools()
+    # Pass user_info as 'user' to template for consistency
     response = make_response(render_template("tools.html", user=user_info))
 
     # Add no-cache headers
