@@ -355,3 +355,63 @@ def get_accessible_surveys(user: User, national_id: str = None) -> list:
     
     return accessible_surveys
 
+
+def get_user_survey_status(user: User, survey_id: int, national_id: str = None) -> Dict[str, Any]:
+    """
+    Get user's completion status for a survey
+    
+    Args:
+        user: User object (can be None)
+        survey_id: Survey ID
+        national_id: National ID for anonymous users
+        
+    Returns:
+        Dictionary with status information:
+        - 'status': 'completed', 'started', 'not_started'
+        - 'completed_count': Number of completed responses
+        - 'last_completed_at': Last completion datetime (if any)
+        - 'last_started_at': Last start datetime (if any)
+    """
+    if not user and not national_id:
+        return {'status': 'not_started', 'completed_count': 0}
+    
+    # Query for responses
+    query = SurveyResponse.query.filter_by(survey_id=survey_id)
+    
+    if user:
+        query = query.filter_by(user_id=user.id)
+    elif national_id:
+        query = query.filter_by(national_id=national_id)
+    else:
+        return {'status': 'not_started', 'completed_count': 0}
+    
+    # Get all responses
+    all_responses = query.order_by(SurveyResponse.started_at.desc()).all()
+    
+    if not all_responses:
+        return {'status': 'not_started', 'completed_count': 0, 'last_started_at': None, 'last_completed_at': None}
+    
+    # Check for completed responses
+    completed_responses = [r for r in all_responses if r.is_completed]
+    
+    if completed_responses:
+        return {
+            'status': 'completed',
+            'completed_count': len(completed_responses),
+            'last_completed_at': completed_responses[0].completed_at if completed_responses[0].completed_at else None,
+            'last_started_at': all_responses[0].started_at if all_responses else None
+        }
+    
+    # Check for started but not completed
+    started_responses = [r for r in all_responses if not r.is_completed]
+    
+    if started_responses:
+        return {
+            'status': 'started',
+            'completed_count': 0,
+            'last_started_at': started_responses[0].started_at if started_responses else None,
+            'last_completed_at': None
+        }
+    
+    return {'status': 'not_started', 'completed_count': 0, 'last_started_at': None, 'last_completed_at': None}
+

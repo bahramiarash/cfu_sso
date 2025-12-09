@@ -6,13 +6,27 @@
 <div class="container mt-4">
     <h2 class="mb-4">خوش آمدید، {{ user_display_name }}</h2>
     
-    {% if surveys %}
+    {% if surveys_data %}
     <div class="row">
-        {% for survey in surveys %}
+        {% for item in surveys_data %}
+        {% set survey = item.survey %}
+        {% set status = item.status %}
         <div class="col-md-6 mb-4">
-            <div class="card h-100">
+            <div class="card h-100 {% if status == 'completed' %}border-success{% elif status == 'started' %}border-warning{% endif %}">
                 <div class="card-body d-flex flex-column">
-                    <h5 class="card-title">{{ survey.title }}</h5>
+                    <div class="d-flex justify-content-between align-items-start mb-2">
+                        <h5 class="card-title mb-0">{{ survey.title }}</h5>
+                        {% if status == 'completed' %}
+                        <span class="badge bg-success" title="تکمیل شده">
+                            <i class="bi bi-check-circle-fill"></i> تکمیل شده
+                        </span>
+                        {% elif status == 'started' %}
+                        <span class="badge bg-warning text-dark" title="شروع شده اما تکمیل نشده">
+                            <i class="bi bi-clock-history"></i> در حال تکمیل
+                        </span>
+                        {% endif %}
+                    </div>
+                    
                     {% if survey.description %}
                     <p class="card-text text-muted">{{ survey.description }}</p>
                     {% endif %}
@@ -33,10 +47,40 @@
                         {% endif %}
                     </div>
                     
+                    <!-- اطلاعات وضعیت تکمیل -->
+                    {% if status == 'completed' and item.last_completed_at %}
+                    <div class="mb-2">
+                        <small class="text-success">
+                            <i class="bi bi-check2-circle"></i>
+                            آخرین تکمیل: {{ item.last_completed_at | jalali_date }}
+                            {% if item.completed_count > 1 %}
+                                <span class="badge bg-info ms-1">{{ item.completed_count }} بار</span>
+                            {% endif %}
+                        </small>
+                    </div>
+                    {% elif status == 'started' and item.last_started_at %}
+                    <div class="mb-2">
+                        <small class="text-warning">
+                            <i class="bi bi-hourglass-split"></i>
+                            شروع شده در: {{ item.last_started_at | jalali_date }}
+                        </small>
+                    </div>
+                    {% endif %}
+                    
                     <div class="mt-auto">
+                        {% if status == 'completed' %}
+                        <a href="{{ url_for('survey.survey_start', survey_id=survey.id) }}" class="btn btn-success w-100">
+                            <i class="bi bi-arrow-repeat"></i> تکمیل مجدد
+                        </a>
+                        {% elif status == 'started' %}
+                        <a href="{{ url_for('survey.survey_start', survey_id=survey.id) }}" class="btn btn-warning w-100">
+                            <i class="bi bi-play-circle"></i> ادامه تکمیل
+                        </a>
+                        {% else %}
                         <a href="{{ url_for('survey.survey_start', survey_id=survey.id) }}" class="btn btn-primary w-100">
                             <i class="bi bi-play-circle"></i> شروع نظرسنجی
                         </a>
+                        {% endif %}
                     </div>
                 </div>
             </div>

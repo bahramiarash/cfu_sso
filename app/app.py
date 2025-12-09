@@ -544,14 +544,27 @@ def survey():
         # Get all accessible surveys (public, user_groups, specific_users)
         try:
             surveys = get_accessible_surveys(user, national_id)
+            
+            # Get completion status for each survey
+            from survey.utils import get_user_survey_status
+            surveys_with_status = []
+            for survey in surveys:
+                status_info = get_user_survey_status(user, survey.id, national_id)
+                surveys_with_status.append({
+                    'survey': survey,
+                    'status': status_info['status'],  # 'completed', 'started', 'not_started'
+                    'completed_count': status_info.get('completed_count', 0),
+                    'last_completed_at': status_info.get('last_completed_at'),
+                    'last_started_at': status_info.get('last_started_at')
+                })
         except Exception as e:
             logger.error(f"Error fetching accessible surveys: {e}", exc_info=True)
-            surveys = []
+            surveys_with_status = []
         
         response = make_response(render_template(
             "survey/public/list.html",
             user_display_name=display_name,
-            surveys=surveys
+            surveys_data=surveys_with_status
         ))
         
         # Prevent caching
