@@ -1,0 +1,132 @@
+{% extends "admin/base.html" %}
+
+{% block title %}مدیریت مسئولین نظرسنجی{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h1><i class="bi bi-person-badge"></i> مدیریت مسئولین نظرسنجی</h1>
+        <a href="{{ url_for('admin.survey_managers_create') }}" class="btn btn-primary">
+            <i class="bi bi-plus-circle"></i> مسئول جدید
+        </a>
+    </div>
+
+    <!-- Managers Table -->
+    <div class="card">
+        <div class="card-body">
+            <div class="table-responsive">
+                <table class="table table-hover">
+                    <thead>
+                        <tr>
+                            <th>نام کاربر</th>
+                            <th>SSO ID</th>
+                            <th>وضعیت</th>
+                            <th>تعداد پرسشنامه‌ها</th>
+                            <th>تاریخ ایجاد</th>
+                            <th>عملیات</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for item in managers %}
+                        <tr>
+                            <td>{{ item.user.name }}</td>
+                            <td>{{ item.user.sso_id }}</td>
+                            <td>
+                                {% if item.manager.is_active %}
+                                    <span class="badge bg-success">فعال</span>
+                                {% else %}
+                                    <span class="badge bg-secondary">غیرفعال</span>
+                                {% endif %}
+                            </td>
+                            <td>{{ item.survey_count }}</td>
+                            <td>
+                                {% if item.manager.created_at %}
+                                    {{ item.manager.created_at.strftime('%Y/%m/%d %H:%M') }}
+                                {% else %}
+                                    -
+                                {% endif %}
+                            </td>
+                            <td>
+                                <button class="btn btn-sm btn-{{ 'warning' if item.manager.is_active else 'success' }} toggle-manager"
+                                        data-manager-id="{{ item.manager.id }}"
+                                        data-is-active="{{ item.manager.is_active|lower }}">
+                                    <i class="bi bi-{{ 'x-circle' if item.manager.is_active else 'check-circle' }}"></i>
+                                    {{ 'غیرفعال کردن' if item.manager.is_active else 'فعال کردن' }}
+                                </button>
+                                {% if item.survey_count == 0 %}
+                                <button class="btn btn-sm btn-danger delete-manager" data-manager-id="{{ item.manager.id }}">
+                                    <i class="bi bi-trash"></i> حذف
+                                </button>
+                                {% endif %}
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // Toggle manager status
+    document.querySelectorAll('.toggle-manager').forEach(btn => {
+        btn.addEventListener('click', function() {
+            const managerId = this.dataset.managerId;
+            const isActive = this.dataset.isActive === 'true';
+            
+            if (confirm(`آیا مطمئن هستید که می‌خواهید وضعیت این مسئول را تغییر دهید؟`)) {
+                fetch(`{{ url_for('admin.survey_managers_toggle', manager_id=0) }}`.replace('0', managerId), {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    }
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        location.reload();
+                    } else {
+                        alert('خطا: ' + data.message);
+                    }
+                })
+                .catch(error => {
+                    console.error('Error:', error);
+                    alert('خطا در تغییر وضعیت');
+                });
+            }
+        });
+    });
+
+    // Delete manager
+    document.querySelectorAll('.delete-manager').forEach(btn => {
+        btn.addEventListener('click', function() {
+            const managerId = this.dataset.managerId;
+            
+            if (confirm('آیا مطمئن هستید که می‌خواهید این مسئول را حذف کنید؟')) {
+                fetch(`{{ url_for('admin.survey_managers_delete', manager_id=0) }}`.replace('0', managerId), {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    }
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        location.reload();
+                    } else {
+                        alert('خطا: ' + data.message);
+                    }
+                })
+                .catch(error => {
+                    console.error('Error:', error);
+                    alert('خطا در حذف مسئول');
+                });
+            }
+        });
+    });
+});
+</script>
+{% endblock %}
+

@@ -20,32 +20,33 @@
             padding: 0;
         }
         .navbar-custom {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            background: #ffffff;
+            border-bottom: 1px solid #e0e0e0;
+            padding: 0.5rem 0;
         }
         .navbar-brand-custom {
-            color: white !important;
+            color: #2c3e50 !important;
             font-weight: bold;
             font-size: 1.1rem;
         }
         .navbar-brand-custom:hover {
-            color: #f0f0f0 !important;
+            color: #1a252f !important;
         }
         .navbar-toggler {
-            border-color: rgba(255,255,255,0.5);
+            border-color: #dee2e6;
         }
         .navbar-toggler-icon {
-            background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 30 30'%3e%3cpath stroke='rgba%28255, 255, 255, 1%29' stroke-linecap='round' stroke-miterlimit='10' stroke-width='2' d='M4 7h22M4 15h22M4 23h22'/%3e%3c/svg%3e");
+            background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 30 30'%3e%3cpath stroke='rgba%2844, 62, 80, 1%29' stroke-linecap='round' stroke-miterlimit='10' stroke-width='2' d='M4 7h22M4 15h22M4 23h22'/%3e%3c/svg%3e");
         }
         .logout-btn {
-            color: white !important;
-            border-color: rgba(255,255,255,0.5) !important;
+            color: #2c3e50 !important;
+            border-color: #dee2e6 !important;
             transition: all 0.3s ease;
         }
         .logout-btn:hover {
-            background-color: rgba(255,255,255,0.2) !important;
-            border-color: white !important;
-            color: white !important;
+            background-color: #f8f9fa !important;
+            border-color: #adb5bd !important;
+            color: #1a252f !important;
         }
         .main-content {
             padding: 2rem 1rem;
@@ -72,6 +73,22 @@
 </head>
 <body>
 
+<!-- University Header -->
+<div class="university-header" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 1.5rem 0; box-shadow: 0 2px 4px rgba(0,0,0,0.1); margin-bottom: 0;">
+    <div class="container">
+        <div class="d-flex align-items-center justify-content-center gap-3 flex-wrap">
+            <img src="{{ url_for('static', filename='img/university-logo.png') }}" 
+                 alt="لوگوی دانشگاه فرهنگیان" 
+                 class="university-logo"
+                 style="height: 60px; width: auto; object-fit: contain; display: block;"
+                 onerror="this.style.display='none'">
+            <h3 class="mb-0 text-center" style="font-weight: bold; font-size: 1.5rem; color: #2c3e50; background-color: rgba(255, 255, 255, 0.95); padding: 0.75rem 1.5rem; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.15); display: inline-block;">
+                سامانه پایش و رصد اطلاعات دانشگاه فرهنگیان
+            </h3>
+        </div>
+    </div>
+</div>
+
 <!-- Navigation Bar -->
 <nav class="navbar navbar-expand-lg navbar-custom">
     <div class="container">
@@ -84,7 +101,7 @@
         <div class="collapse navbar-collapse" id="navbarNav">
             <ul class="navbar-nav me-auto">
                 <li class="nav-item">
-                    <a class="nav-link text-white" href="{{ url_for('dashboard.dashboard_list') }}">
+                    <a class="nav-link" href="{{ url_for('dashboard.dashboard_list') }}" style="color: #2c3e50;">
                         <i class="bi bi-bar-chart"></i> داشبوردها
                     </a>
                 </li>
@@ -92,7 +109,7 @@
             <div class="d-flex align-items-center gap-2">
                 {% set nav_name = user_display_name if user_display_name else (user.get('firstname', '') + ' ' + user.get('lastname', '')).strip() if (user and (user.get('firstname') or user.get('lastname'))) else (user.get('name') if user else '') %}
                 {% if nav_name and nav_name != 'کاربر گرامی' %}
-                <span class="text-white me-2">
+                <span class="me-2" style="color: #2c3e50;">
                     <i class="bi bi-person-circle"></i>
                     {{ nav_name }}
                 </span>
@@ -127,12 +144,21 @@
                 کاربر گرامی
             {% endif %}
         </h2>
-        <a href="{{ url_for('logout') }}" class="btn btn-danger btn-sm flex-shrink-0" aria-label="خروج از سیستم" title="خروج از سیستم">
-            <i class="bi bi-box-arrow-right"></i> خروج
-        </a>
     </div>
 
     <div class="row g-4">
+        <!-- نظرسنجی - همیشه نمایش داده می‌شود -->
+        <div class="col-12 col-sm-6 col-md-4">
+            <a href="/survey" class="text-decoration-none text-dark" aria-label="نظرسنجی">
+                <div class="card tile-card text-center p-4 h-100" role="button" tabindex="0">
+                    <div class="tile-icon" aria-hidden="true">📝</div>
+                    <h5 class="mt-3">نظرسنجی</h5>
+                </div>
+            </a>
+        </div>
+
+        <!-- لینک‌های دیگر - فقط در صورت داشتن دسترسی به داشبورد -->
+        {% if has_dashboard_access %}
         <div class="col-12 col-sm-6 col-md-4">
             <a href="{{ url_for('dashboard.dashboard_list') }}" class="text-decoration-none text-dark" aria-label="مشاهده داشبوردها">
                 <div class="card tile-card text-center p-4 h-100" role="button" tabindex="0">
@@ -187,6 +213,7 @@
                 </div>
             </a>
         </div>
+        {% endif %}
     </div>
 </div>
 

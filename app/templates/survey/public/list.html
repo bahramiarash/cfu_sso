@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+
+{% block title %}نظرسنجی‌ها{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <h2 class="mb-4">خوش آمدید، {{ user_display_name }}</h2>
+    
+    {% if surveys %}
+    <div class="row">
+        {% for survey in surveys %}
+        <div class="col-md-6 mb-4">
+            <div class="card h-100">
+                <div class="card-body d-flex flex-column">
+                    <h5 class="card-title">{{ survey.title }}</h5>
+                    {% if survey.description %}
+                    <p class="card-text text-muted">{{ survey.description }}</p>
+                    {% endif %}
+                    
+                    <!-- تاریخ شروع و پایان -->
+                    <div class="mb-3">
+                        {% if survey.start_date or survey.end_date %}
+                        <div class="small text-muted">
+                            <i class="bi bi-calendar-event"></i>
+                            {% if survey.start_date and survey.end_date %}
+                                از {{ survey.start_date | jalali_date }} تا {{ survey.end_date | jalali_date }}
+                            {% elif survey.start_date %}
+                                از {{ survey.start_date | jalali_date }}
+                            {% elif survey.end_date %}
+                                تا {{ survey.end_date | jalali_date }}
+                            {% endif %}
+                        </div>
+                        {% endif %}
+                    </div>
+                    
+                    <div class="mt-auto">
+                        <a href="{{ url_for('survey.survey_start', survey_id=survey.id) }}" class="btn btn-primary w-100">
+                            <i class="bi bi-play-circle"></i> شروع نظرسنجی
+                        </a>
+                    </div>
+                </div>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+    {% else %}
+    <div class="alert alert-info">
+        در حال حاضر پرسشنامه فعالی برای شما وجود ندارد.
+    </div>
+    {% endif %}
+    
+    <a href="{{ url_for('list_tools') }}" class="btn btn-secondary mt-3">
+        <i class="bi bi-arrow-right"></i> بازگشت به صفحه اصلی
+    </a>
+</div>
+{% endblock %}
+

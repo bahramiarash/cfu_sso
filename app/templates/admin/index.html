@@ -46,6 +46,33 @@
         </div>
     </div>
 
+    <!-- Quick Access Section -->
+    <div class="row mb-4">
+        <div class="col-md-12">
+            <div class="card">
+                <div class="card-header">
+                    <h5><i class="bi bi-lightning-charge"></i> دسترسی سریع</h5>
+                </div>
+                <div class="card-body">
+                    <div class="row">
+                        <div class="col-md-3 mb-3">
+                            <a href="{{ url_for('admin.survey_managers_list') }}" class="btn btn-outline-primary w-100">
+                                <i class="bi bi-clipboard-data"></i><br>
+                                مدیریت مسئولین نظرسنجی
+                            </a>
+                        </div>
+                        <div class="col-md-3 mb-3">
+                            <a href="{{ url_for('admin.survey_surveys_list') }}" class="btn btn-outline-info w-100">
+                                <i class="bi bi-list-check"></i><br>
+                                مشاهده همه پرسشنامه‌ها
+                            </a>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- Recent Access Logs -->
     <div class="row">
         <div class="col-md-8">

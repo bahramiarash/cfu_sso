@@ -1,0 +1,86 @@
+{% extends "survey/manager/base.html" %}
+
+{% block title %}لیست پرسشنامه‌ها{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h1><i class="bi bi-clipboard-data"></i> پرسشنامه‌های من</h1>
+        <a href="{{ url_for('survey.manager_surveys_create') }}" class="btn btn-primary">
+            <i class="bi bi-plus-circle"></i> پرسشنامه جدید
+        </a>
+    </div>
+
+    <div class="card">
+        <div class="card-body">
+            <div class="table-responsive">
+                <table class="table table-hover">
+                    <thead>
+                        <tr>
+                            <th>عنوان</th>
+                            <th>وضعیت</th>
+                            <th>تاریخ شروع</th>
+                            <th>تاریخ پایان</th>
+                            <th>پاسخ‌ها (کل/تکمیل شده)</th>
+                            <th>عملیات</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for item in surveys %}
+                        <tr>
+                            <td>{{ item.survey.title }}</td>
+                            <td>
+                                {% if item.survey.status == 'active' %}
+                                    <span class="badge bg-success">فعال</span>
+                                {% else %}
+                                    <span class="badge bg-secondary">غیرفعال</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% if item.survey.start_date %}
+                                    {{ item.survey.start_date.strftime('%Y/%m/%d') }}
+                                {% else %}
+                                    -
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% if item.survey.end_date %}
+                                    {{ item.survey.end_date.strftime('%Y/%m/%d') }}
+                                {% else %}
+                                    -
+                                {% endif %}
+                            </td>
+                            <td>
+                                <span class="badge bg-info">{{ item.total_responses }}</span> /
+                                <span class="badge bg-success">{{ item.completed_responses }}</span>
+                            </td>
+                            <td>
+                                {% if item.survey.status == 'active' %}
+                                <a href="{{ url_for('survey.survey_start', survey_id=item.survey.id) }}" 
+                                   class="btn btn-sm btn-success" title="تکمیل پرسشنامه">
+                                    <i class="bi bi-play-circle"></i> شروع نظرسنجی
+                                </a>
+                                {% endif %}
+                                <a href="{{ url_for('survey.manager_surveys_questions', survey_id=item.survey.id) }}" 
+                                   class="btn btn-sm btn-info">
+                                    <i class="bi bi-list-check"></i> سوالات
+                                </a>
+                                <a href="{{ url_for('survey.manager_surveys_edit', survey_id=item.survey.id) }}" 
+                                   class="btn btn-sm btn-warning">
+                                    <i class="bi bi-pencil"></i> ویرایش
+                                </a>
+                                <a href="{{ url_for('survey.manager_reports_overview', survey_id=item.survey.id) }}" 
+                                   class="btn btn-sm btn-primary">
+                                    <i class="bi bi-graph-up"></i> گزارش‌ها
+                                </a>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+

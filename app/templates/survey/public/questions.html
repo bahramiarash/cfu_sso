@@ -1,0 +1,215 @@
+{% extends "base.html" %}
+
+{% block title %}تکمیل پرسشنامه: {{ survey.title }}{% endblock %}
+
+{% block extra_css %}
+<style>
+    .question-section {
+        margin-bottom: 2rem;
+        padding: 1.5rem;
+        background: #f8f9fa;
+        border-radius: 8px;
+    }
+    .category-title {
+        color: #0d6efd;
+        border-bottom: 2px solid #0d6efd;
+        padding-bottom: 0.5rem;
+        margin-bottom: 1.5rem;
+    }
+    .question-item {
+        margin-bottom: 1.5rem;
+        padding: 1rem;
+        background: white;
+        border-radius: 5px;
+        border-left: 4px solid #0d6efd;
+    }
+    .question-text {
+        font-weight: bold;
+        margin-bottom: 0.5rem;
+    }
+    .required-badge {
+        color: #dc3545;
+        font-size: 0.9em;
+    }
+    .likert-options {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 1rem;
+        margin-top: 0.5rem;
+    }
+    .likert-option {
+        flex: 1;
+        min-width: 120px;
+    }
+    .likert-option input[type="radio"] {
+        margin-left: 0.5rem;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container mt-4 mb-4">
+    <div class="row">
+        <div class="col-md-10 offset-md-1">
+            <div class="card">
+                <div class="card-header bg-primary text-white">
+                    <h3 class="mb-0">{{ survey.title }}</h3>
+                </div>
+                <div class="card-body">
+                    <form method="POST" id="surveyForm" enctype="multipart/form-data">
+                        {% if categories %}
+                            {% for category in categories %}
+                            <div class="question-section">
+                                <h4 class="category-title">{{ category.title }}</h4>
+                                {% if category.description %}
+                                <p class="text-muted">{{ category.description }}</p>
+                                {% endif %}
+                                
+                                {% for question in questions_by_category.get(category.id, []) %}
+                                <div class="question-item">
+                                    <div class="question-text">
+                                        {{ question.question_text }}
+                                        {% if question.is_required %}
+                                        <span class="required-badge">*</span>
+                                        {% endif %}
+                                    </div>
+                                    {% if question.description %}
+                                    <p class="text-muted small">{{ question.description }}</p>
+                                    {% endif %}
+                                    
+                                    <div class="answer-field">
+                                        {% if question.question_type.startswith('likert_') %}
+                                            {% set option_count = question.question_type.split('_')[1] | int %}
+                                            {% set options = question.options if question.options else [] %}
+                                            <div class="likert-options">
+                                                {% for i in range(option_count) %}
+                                                <div class="likert-option">
+                                                    <label class="form-check-label">
+                                                        <input type="radio" 
+                                                               name="question_{{ question.id }}" 
+                                                               value="{{ i }}" 
+                                                               class="form-check-input"
+                                                               {% if question.is_required %}required{% endif %}>
+                                                        {{ options[i] if options and i < options|length else "گزینه " + (i+1)|string }}
+                                                    </label>
+                                                </div>
+                                                {% endfor %}
+                                            </div>
+                                        {% elif question.question_type == 'text' %}
+                                            <textarea name="question_{{ question.id }}" 
+                                                      class="form-control" 
+                                                      rows="4"
+                                                      {% if question.is_required %}required{% endif %}
+                                                      placeholder="پاسخ خود را وارد کنید..."></textarea>
+                                        {% elif question.question_type == 'file_upload' %}
+                                            <input type="file" 
+                                                   name="question_{{ question.id }}" 
+                                                   class="form-control"
+                                                   {% if question.is_required %}required{% endif %}
+                                                   accept=".pdf,.doc,.docx,.jpg,.jpeg,.png,.txt">
+                                            <small class="text-muted">حداکثر حجم: 2 مگابایت</small>
+                                        {% endif %}
+                                    </div>
+                                </div>
+                                {% endfor %}
+                            </div>
+                            {% endfor %}
+                        {% endif %}
+                        
+                        {% if questions_without_category %}
+                        <div class="question-section">
+                            <h4 class="category-title">سوالات عمومی</h4>
+                            {% for question in questions_without_category %}
+                            <div class="question-item">
+                                <div class="question-text">
+                                    {{ question.question_text }}
+                                    {% if question.is_required %}
+                                    <span class="required-badge">*</span>
+                                    {% endif %}
+                                </div>
+                                {% if question.description %}
+                                <p class="text-muted small">{{ question.description }}</p>
+                                {% endif %}
+                                
+                                <div class="answer-field">
+                                    {% if question.question_type.startswith('likert_') %}
+                                        {% set option_count = question.question_type.split('_')[1] | int %}
+                                        {% set options = question.options if question.options else [] %}
+                                        <div class="likert-options">
+                                            {% for i in range(option_count) %}
+                                            <div class="likert-option">
+                                                <label class="form-check-label">
+                                                    <input type="radio" 
+                                                           name="question_{{ question.id }}" 
+                                                           value="{{ i }}" 
+                                                           class="form-check-input"
+                                                           {% if question.is_required %}required{% endif %}>
+                                                    {{ options[i] if options and i < options|length else "گزینه " + (i+1)|string }}
+                                                </label>
+                                            </div>
+                                            {% endfor %}
+                                        </div>
+                                    {% elif question.question_type == 'text' %}
+                                        <textarea name="question_{{ question.id }}" 
+                                                  class="form-control" 
+                                                  rows="4"
+                                                  {% if question.is_required %}required{% endif %}
+                                                  placeholder="پاسخ خود را وارد کنید..."></textarea>
+                                    {% elif question.question_type == 'file_upload' %}
+                                        <input type="file" 
+                                               name="question_{{ question.id }}" 
+                                               class="form-control"
+                                               {% if question.is_required %}required{% endif %}
+                                               accept=".pdf,.doc,.docx,.jpg,.jpeg,.png,.txt">
+                                        <small class="text-muted">حداکثر حجم: 2 مگابایت</small>
+                                    {% endif %}
+                                </div>
+                            </div>
+                            {% endfor %}
+                        </div>
+                        {% endif %}
+                        
+                        <div class="d-flex justify-content-between mt-4">
+                            <a href="{{ url_for('survey') }}" class="btn btn-secondary">
+                                <i class="bi bi-arrow-right"></i> انصراف
+                            </a>
+                            <button type="submit" class="btn btn-primary btn-lg">
+                                <i class="bi bi-check-circle"></i> ثبت نهایی پاسخ‌ها
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+// Form validation
+document.getElementById('surveyForm').addEventListener('submit', function(e) {
+    const requiredFields = this.querySelectorAll('[required]');
+    let isValid = true;
+    
+    requiredFields.forEach(field => {
+        if (!field.value || (field.type === 'radio' && !this.querySelector(`input[name="${field.name}"]:checked`))) {
+            isValid = false;
+            field.classList.add('is-invalid');
+        } else {
+            field.classList.remove('is-invalid');
+        }
+    });
+    
+    if (!isValid) {
+        e.preventDefault();
+        alert('لطفاً تمام سوالات الزامی را پاسخ دهید');
+        return false;
+    }
+    
+    // Confirm submission
+    if (!confirm('آیا از ثبت نهایی پاسخ‌های خود اطمینان دارید؟')) {
+        e.preventDefault();
+        return false;
+    }
+});
+</script>
+{% endblock %}

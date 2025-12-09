@@ -1,0 +1,37 @@
+{% extends "admin/base.html" %}
+
+{% block title %}ایجاد مسئول نظرسنجی{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <div class="row">
+        <div class="col-md-8">
+            <div class="card">
+                <div class="card-header">
+                    <h5><i class="bi bi-person-plus"></i> ایجاد مسئول نظرسنجی جدید</h5>
+                </div>
+                <div class="card-body">
+                    <form method="POST">
+                        <div class="mb-3">
+                            <label for="user_sso_id" class="form-label">شناسه کاربری (SSO ID) <span class="text-danger">*</span></label>
+                            <input type="text" class="form-control" id="user_sso_id" name="user_sso_id" required
+                                   placeholder="شناسه کاربری را وارد کنید">
+                            <small class="form-text text-muted">شناسه کاربری که در سیستم SSO استفاده می‌شود</small>
+                        </div>
+                        
+                        <div class="d-flex justify-content-between">
+                            <a href="{{ url_for('admin.survey_managers_list') }}" class="btn btn-secondary">
+                                <i class="bi bi-arrow-right"></i> بازگشت
+                            </a>
+                            <button type="submit" class="btn btn-primary">
+                                <i class="bi bi-check-circle"></i> ایجاد مسئول
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+

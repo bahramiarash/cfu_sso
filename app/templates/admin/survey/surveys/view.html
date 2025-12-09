@@ -1,0 +1,111 @@
+{% extends "admin/base.html" %}
+
+{% block title %}مشاهده پرسشنامه{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h1><i class="bi bi-clipboard-data"></i> {{ survey.title }}</h1>
+        <div>
+            <a href="{{ url_for('admin.survey_surveys_edit', survey_id=survey.id) }}" class="btn btn-warning">
+                <i class="bi bi-pencil"></i> ویرایش پرسشنامه
+            </a>
+            <a href="{{ url_for('admin.survey_surveys_questions', survey_id=survey.id) }}" class="btn btn-secondary">
+                <i class="bi bi-list-check"></i> مدیریت سوالات
+            </a>
+            <a href="{{ url_for('admin.survey_surveys_list') }}" class="btn btn-secondary">
+                <i class="bi bi-arrow-right"></i> بازگشت
+            </a>
+        </div>
+    </div>
+
+    <div class="row">
+        <div class="col-md-8">
+            <div class="card mb-3">
+                <div class="card-header">
+                    <h5>اطلاعات پرسشنامه</h5>
+                </div>
+                <div class="card-body">
+                    <dl class="row">
+                        <dt class="col-sm-4">عنوان:</dt>
+                        <dd class="col-sm-8">{{ survey.title }}</dd>
+                        
+                        <dt class="col-sm-4">توضیحات:</dt>
+                        <dd class="col-sm-8">{{ survey.description or '-' }}</dd>
+                        
+                        <dt class="col-sm-4">مسئول:</dt>
+                        <dd class="col-sm-8">{{ manager_user.name if manager_user else '-' }}</dd>
+                        
+                        <dt class="col-sm-4">وضعیت:</dt>
+                        <dd class="col-sm-8">
+                            {% if survey.status == 'active' %}
+                                <span class="badge bg-success">فعال</span>
+                            {% else %}
+                                <span class="badge bg-secondary">غیرفعال</span>
+                            {% endif %}
+                        </dd>
+                        
+                        <dt class="col-sm-4">نوع دسترسی:</dt>
+                        <dd class="col-sm-8">
+                            {% if survey.access_type == 'public' %}
+                                عمومی
+                            {% elif survey.access_type == 'user_groups' %}
+                                گروه‌های کاربری
+                            {% elif survey.access_type == 'specific_users' %}
+                                کاربران مشخص
+                            {% else %}
+                                {{ survey.access_type }}
+                            {% endif %}
+                        </dd>
+                        
+                        <dt class="col-sm-4">تاریخ شروع:</dt>
+                        <dd class="col-sm-8">{{ survey.start_date.strftime('%Y/%m/%d %H:%M') if survey.start_date else '-' }}</dd>
+                        
+                        <dt class="col-sm-4">تاریخ پایان:</dt>
+                        <dd class="col-sm-8">{{ survey.end_date.strftime('%Y/%m/%d %H:%M') if survey.end_date else '-' }}</dd>
+                        
+                        <dt class="col-sm-4">حداکثر تکمیل:</dt>
+                        <dd class="col-sm-8">{{ survey.max_completions_per_user }} بار در هر {{ survey.completion_period_type }}</dd>
+                        
+                        <dt class="col-sm-4">حالت نمایش:</dt>
+                        <dd class="col-sm-8">
+                            {% if survey.display_mode == 'single_page' %}
+                                یک صفحه
+                            {% else %}
+                                صفحه به صفحه
+                            {% endif %}
+                        </dd>
+                    </dl>
+                </div>
+            </div>
+        </div>
+        
+        <div class="col-md-4">
+            <div class="card">
+                <div class="card-header">
+                    <h5>آمار</h5>
+                </div>
+                <div class="card-body">
+                    <div class="mb-3">
+                        <strong>کل پاسخ‌ها:</strong>
+                        <span class="badge bg-info">{{ total_responses }}</span>
+                    </div>
+                    <div class="mb-3">
+                        <strong>تکمیل شده:</strong>
+                        <span class="badge bg-success">{{ completed_responses }}</span>
+                    </div>
+                    <div class="mb-3">
+                        <strong>شروع شده (ناتمام):</strong>
+                        <span class="badge bg-warning">{{ attempted_responses }}</span>
+                    </div>
+                    <a href="{{ url_for('admin.survey_surveys_responses', survey_id=survey.id) }}" 
+                       class="btn btn-primary w-100">
+                        <i class="bi bi-list-check"></i> مشاهده پاسخ‌ها
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+

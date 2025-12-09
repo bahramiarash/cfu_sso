@@ -1,0 +1,588 @@
+{% if is_admin %}
+{% extends "admin/base.html" %}
+{% else %}
+{% extends "survey/manager/base.html" %}
+{% endif %}
+
+{% block title %}مدیریت سوالات{% endblock %}
+
+{% block extra_css %}
+<style>
+    .question-item, .category-item {
+        border: 1px solid #dee2e6;
+        border-radius: 5px;
+        padding: 15px;
+        margin-bottom: 10px;
+        background: #f8f9fa;
+        cursor: move;
+        position: relative;
+    }
+    .question-item:hover, .category-item:hover {
+        background: #e9ecef;
+    }
+    .question-item.sortable-ghost {
+        opacity: 0.4;
+    }
+    .question-item .drag-handle {
+        position: absolute;
+        left: 10px;
+        top: 50%;
+        transform: translateY(-50%);
+        cursor: move;
+        color: #6c757d;
+    }
+    .question-item .question-actions {
+        position: absolute;
+        left: 40px;
+        top: 10px;
+    }
+    .questions-in-category {
+        min-height: 20px;
+    }
+    .questions-without-category {
+        min-height: 20px;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h1><i class="bi bi-list-check"></i> مدیریت سوالات: {{ survey.title }}</h1>
+        <div>
+            <button class="btn btn-success" data-bs-toggle="modal" data-bs-target="#categoryModal">
+                <i class="bi bi-folder-plus"></i> دسته‌بندی جدید
+            </button>
+            <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#questionModal">
+                <i class="bi bi-plus-circle"></i> سوال جدید
+            </button>
+            {% if is_admin %}
+            <a href="{{ url_for('admin.survey_surveys_list') }}" class="btn btn-secondary">
+                <i class="bi bi-arrow-right"></i> بازگشت
+            </a>
+            {% else %}
+            <a href="{{ url_for('survey.manager_surveys_list') }}" class="btn btn-secondary">
+                <i class="bi bi-arrow-right"></i> بازگشت
+            </a>
+            {% endif %}
+        </div>
+    </div>
+
+    <!-- Categories and Questions -->
+    <div class="row">
+        <div class="col-md-12">
+            {% for category in categories %}
+            <div class="category-item mb-4">
+                <h5>{{ category.title }}</h5>
+                {% if category.description %}
+                <p class="text-muted">{{ category.description }}</p>
+                {% endif %}
+                <div class="questions-in-category" data-category-id="{{ category.id }}">
+                    {% for question in questions %}
+                        {% if question.category_id == category.id %}
+                        <div class="question-item ms-4" data-question-id="{{ question.id }}" data-order="{{ question.order }}">
+                            <i class="bi bi-grip-vertical drag-handle"></i>
+                            <div class="question-actions">
+                                <button class="btn btn-sm btn-warning" onclick="editQuestion({{ question.id }})" title="ویرایش">
+                                    <i class="bi bi-pencil"></i>
+                                </button>
+                            </div>
+                            <div style="margin-right: 80px;">
+                                <strong>{{ question.question_text }}</strong>
+                                <span class="badge bg-secondary">{{ question.question_type }}</span>
+                                {% if question.is_required %}
+                                <span class="badge bg-danger">الزامی</span>
+                                {% endif %}
+                            </div>
+                        </div>
+                        {% endif %}
+                    {% endfor %}
+                </div>
+            </div>
+            {% endfor %}
+            
+            <!-- Questions without category -->
+            <div class="questions-without-category" data-category-id="null">
+                {% for question in questions %}
+                    {% if not question.category_id %}
+                    <div class="question-item" data-question-id="{{ question.id }}" data-order="{{ question.order }}">
+                        <i class="bi bi-grip-vertical drag-handle"></i>
+                        <div class="question-actions">
+                            <button class="btn btn-sm btn-warning" onclick="editQuestion({{ question.id }})" title="ویرایش">
+                                <i class="bi bi-pencil"></i>
+                            </button>
+                        </div>
+                        <div style="margin-right: 80px;">
+                            <strong>{{ question.question_text }}</strong>
+                            <span class="badge bg-secondary">{{ question.question_type }}</span>
+                            {% if question.is_required %}
+                            <span class="badge bg-danger">الزامی</span>
+                            {% endif %}
+                        </div>
+                    </div>
+                    {% endif %}
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Category Modal -->
+<div class="modal fade" id="categoryModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">ایجاد دسته‌بندی جدید</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <form id="categoryForm">
+                    <div class="mb-3">
+                        <label for="category_title" class="form-label">عنوان <span class="text-danger">*</span></label>
+                        <input type="text" class="form-control" id="category_title" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="category_description" class="form-label">توضیحات</label>
+                        <textarea class="form-control" id="category_description" rows="3"></textarea>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">انصراف</button>
+                <button type="button" class="btn btn-primary" onclick="createCategory()">ایجاد</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Question Modal (for create and edit) -->
+<div class="modal fade" id="questionModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="questionModalTitle">ایجاد سوال جدید</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <form id="questionForm">
+                    <div class="mb-3">
+                        <label for="question_type" class="form-label">نوع سوال <span class="text-danger">*</span></label>
+                        <select class="form-select" id="question_type" required onchange="updateQuestionOptions()">
+                            <option value="">انتخاب کنید</option>
+                            <option value="likert_2">لیکرت 2 گزینه‌ای</option>
+                            <option value="likert_3">لیکرت 3 گزینه‌ای</option>
+                            <option value="likert_4">لیکرت 4 گزینه‌ای</option>
+                            <option value="likert_5">لیکرت 5 گزینه‌ای</option>
+                            <option value="likert_6">لیکرت 6 گزینه‌ای</option>
+                            <option value="likert_7">لیکرت 7 گزینه‌ای</option>
+                            <option value="likert_8">لیکرت 8 گزینه‌ای</option>
+                            <option value="likert_9">لیکرت 9 گزینه‌ای</option>
+                            <option value="text">پاسخ تشریحی</option>
+                            <option value="file_upload">آپلود فایل</option>
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label for="question_text" class="form-label">متن سوال <span class="text-danger">*</span></label>
+                        <textarea class="form-control" id="question_text" rows="3" required></textarea>
+                    </div>
+                    <div class="mb-3">
+                        <label for="question_description" class="form-label">توضیحات</label>
+                        <textarea class="form-control" id="question_description" rows="2"></textarea>
+                    </div>
+                    <div class="mb-3" id="optionsContainer" style="display: none;">
+                        <label class="form-label">گزینه‌های لیکرت</label>
+                        <div id="optionsList"></div>
+                    </div>
+                    <div class="mb-3">
+                        <label for="question_category" class="form-label">دسته‌بندی</label>
+                        <select class="form-select" id="question_category">
+                            <option value="">بدون دسته‌بندی</option>
+                            {% for category in categories %}
+                            <option value="{{ category.id }}">{{ category.title }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" id="question_required" checked>
+                            <label class="form-check-label" for="question_required">
+                                سوال الزامی است
+                            </label>
+                        </div>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">انصراف</button>
+                <button type="button" class="btn btn-primary" id="questionSubmitBtn" onclick="createQuestion()">ایجاد</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<input type="hidden" id="editing_question_id" value="">
+
+<!-- Sortable.js for drag & drop -->
+<script src="https://cdn.jsdelivr.net/npm/sortablejs@latest/Sortable.min.js"></script>
+
+<script>
+// Store last question data for auto-fill
+const lastQuestionData = {% if last_question %}{
+    question_type: '{{ last_question.question_type }}',
+    category_id: {{ last_question.category_id if last_question.category_id else 'null' }},
+    options: {{ last_question.options | tojson if last_question.options else 'null' }},
+    is_required: {{ 'true' if last_question.is_required else 'false' }}
+}{% else %}null{% endif %};
+
+// Auto-fill form when modal opens (only for creating new questions, not editing)
+document.getElementById('questionModal').addEventListener('show.bs.modal', function() {
+    const editingId = document.getElementById('editing_question_id').value;
+    // Only auto-fill if not in edit mode and we have last question data
+    if (!editingId && lastQuestionData) {
+        // Set question type first
+        if (lastQuestionData.question_type) {
+            const questionTypeSelect = document.getElementById('question_type');
+            questionTypeSelect.value = lastQuestionData.question_type;
+            
+            // Trigger updateQuestionOptions to create input fields
+            updateQuestionOptions();
+            
+            // Fill Likert options if available (wait a bit for DOM to update)
+            if (lastQuestionData.question_type.startsWith('likert_') && 
+                lastQuestionData.options && Array.isArray(lastQuestionData.options)) {
+                setTimeout(() => {
+                    const optionInputs = document.querySelectorAll('.option-input');
+                    lastQuestionData.options.forEach((option, index) => {
+                        if (optionInputs[index] && option) {
+                            optionInputs[index].value = option;
+                        }
+                    });
+                }, 150);
+            }
+        }
+        
+        // Set category
+        if (lastQuestionData.category_id) {
+            document.getElementById('question_category').value = lastQuestionData.category_id;
+        }
+        
+        // Set required checkbox
+        if (lastQuestionData.hasOwnProperty('is_required')) {
+            document.getElementById('question_required').checked = lastQuestionData.is_required;
+        }
+    }
+});
+
+// Reset form when modal is hidden
+document.getElementById('questionModal').addEventListener('hidden.bs.modal', function() {
+    document.getElementById('questionForm').reset();
+    document.getElementById('optionsContainer').style.display = 'none';
+    document.getElementById('optionsList').innerHTML = '';
+    document.getElementById('editing_question_id').value = '';
+    document.getElementById('questionModalTitle').textContent = 'ایجاد سوال جدید';
+    document.getElementById('questionSubmitBtn').textContent = 'ایجاد';
+    document.getElementById('questionSubmitBtn').setAttribute('onclick', 'createQuestion()');
+});
+
+function updateQuestionOptions() {
+    const questionType = document.getElementById('question_type').value;
+    const container = document.getElementById('optionsContainer');
+    const optionsList = document.getElementById('optionsList');
+    
+    if (questionType && questionType.startsWith('likert_')) {
+        const count = parseInt(questionType.split('_')[1]);
+        let html = '';
+        
+        // Check if we have saved options from last question (only if same type)
+        let savedOptions = null;
+        if (lastQuestionData && 
+            lastQuestionData.question_type === questionType && 
+            lastQuestionData.options && 
+            Array.isArray(lastQuestionData.options)) {
+            savedOptions = lastQuestionData.options;
+        }
+        
+        for (let i = 0; i < count; i++) {
+            // Escape HTML to prevent XSS
+            const savedValue = savedOptions && savedOptions[i] ? 
+                savedOptions[i].replace(/"/g, '&quot;').replace(/'/g, '&#39;') : '';
+            html += `<div class="mb-2">
+                <input type="text" class="form-control option-input" placeholder="گزینه ${i + 1}" data-index="${i}" value="${savedValue}">
+            </div>`;
+        }
+        optionsList.innerHTML = html;
+        container.style.display = 'block';
+    } else {
+        container.style.display = 'none';
+    }
+}
+
+function createCategory() {
+    const title = document.getElementById('category_title').value;
+    const description = document.getElementById('category_description').value;
+    
+    if (!title) {
+        alert('عنوان دسته‌بندی الزامی است');
+        return;
+    }
+    
+    {% if is_admin %}
+    const categoryUrl = '{{ url_for("admin.survey_categories_create", survey_id=survey.id) }}';
+    {% else %}
+    const categoryUrl = '{{ url_for("survey.manager_categories_create", survey_id=survey.id) }}';
+    {% endif %}
+    
+    fetch(categoryUrl, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+            title: title,
+            description: description,
+            order: 0
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            location.reload();
+        } else {
+            alert('خطا: ' + data.message);
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        alert('خطا در ایجاد دسته‌بندی');
+    });
+}
+
+// Store questions data for editing
+const questionsData = {
+    {% for question in questions %}
+    {{ question.id }}: {
+        id: {{ question.id }},
+        question_type: '{{ question.question_type }}',
+        question_text: {{ question.question_text | tojson }},
+        description: {{ question.description | tojson if question.description else 'null' }},
+        category_id: {{ question.category_id if question.category_id else 'null' }},
+        is_required: {{ 'true' if question.is_required else 'false' }},
+        options: {{ question.options | tojson if question.options else 'null' }}
+    }{% if not loop.last %},{% endif %}
+    {% endfor %}
+};
+
+function editQuestion(questionId) {
+    const question = questionsData[questionId];
+    if (!question) {
+        alert('سوال یافت نشد');
+        return;
+    }
+    
+    // Set editing mode
+    document.getElementById('editing_question_id').value = questionId;
+    document.getElementById('questionModalTitle').textContent = 'ویرایش سوال';
+    document.getElementById('questionSubmitBtn').textContent = 'ذخیره تغییرات';
+    document.getElementById('questionSubmitBtn').setAttribute('onclick', 'saveQuestion()');
+    
+    // Fill form
+    document.getElementById('question_type').value = question.question_type;
+    document.getElementById('question_text').value = question.question_text;
+    document.getElementById('question_description').value = question.description || '';
+    document.getElementById('question_category').value = question.category_id || '';
+    document.getElementById('question_required').checked = question.is_required;
+    
+    // Update options
+    updateQuestionOptions();
+    
+    // Fill Likert options if available
+    if (question.question_type.startsWith('likert_') && question.options && Array.isArray(question.options)) {
+        setTimeout(() => {
+            const optionInputs = document.querySelectorAll('.option-input');
+            question.options.forEach((option, index) => {
+                if (optionInputs[index] && option) {
+                    optionInputs[index].value = option;
+                }
+            });
+        }, 150);
+    }
+    
+    // Show modal
+    const modal = new bootstrap.Modal(document.getElementById('questionModal'));
+    modal.show();
+}
+
+function createQuestion() {
+    const questionType = document.getElementById('question_type').value;
+    const questionText = document.getElementById('question_text').value;
+    const description = document.getElementById('question_description').value;
+    const categoryId = document.getElementById('question_category').value;
+    const isRequired = document.getElementById('question_required').checked;
+    
+    if (!questionType || !questionText) {
+        alert('نوع سوال و متن سوال الزامی است');
+        return;
+    }
+    
+    let options = null;
+    if (questionType.startsWith('likert_')) {
+        const optionInputs = document.querySelectorAll('.option-input');
+        options = Array.from(optionInputs).map(input => input.value).filter(v => v);
+    }
+    
+    {% if is_admin %}
+    const questionUrl = '{{ url_for("admin.survey_questions_create", survey_id=survey.id) }}';
+    {% else %}
+    const questionUrl = '{{ url_for("survey.manager_questions_create", survey_id=survey.id) }}';
+    {% endif %}
+    
+    fetch(questionUrl, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+            question_type: questionType,
+            question_text: questionText,
+            description: description,
+            category_id: categoryId || null,
+            is_required: isRequired,
+            options: options,
+            order: 0
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            location.reload();
+        } else {
+            alert('خطا: ' + data.message);
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        alert('خطا در ایجاد سوال');
+    });
+}
+
+function saveQuestion() {
+    const questionId = document.getElementById('editing_question_id').value;
+    if (!questionId) {
+        alert('خطا: شناسه سوال یافت نشد');
+        return;
+    }
+    
+    const questionType = document.getElementById('question_type').value;
+    const questionText = document.getElementById('question_text').value;
+    const description = document.getElementById('question_description').value;
+    const categoryId = document.getElementById('question_category').value;
+    const isRequired = document.getElementById('question_required').checked;
+    
+    if (!questionType || !questionText) {
+        alert('نوع سوال و متن سوال الزامی است');
+        return;
+    }
+    
+    let options = null;
+    if (questionType.startsWith('likert_')) {
+        const optionInputs = document.querySelectorAll('.option-input');
+        options = Array.from(optionInputs).map(input => input.value).filter(v => v);
+    }
+    
+    {% if is_admin %}
+    const questionUrl = '{{ url_for("admin.survey_questions_edit", question_id=0) }}'.replace('0', questionId);
+    {% else %}
+    const questionUrl = '{{ url_for("survey.manager_questions_edit", question_id=0) }}'.replace('0', questionId);
+    {% endif %}
+    
+    fetch(questionUrl, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+            question_type: questionType,
+            question_text: questionText,
+            description: description,
+            category_id: categoryId || null,
+            is_required: isRequired,
+            options: options
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            location.reload();
+        } else {
+            alert('خطا: ' + data.message);
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        alert('خطا در به‌روزرسانی سوال');
+    });
+}
+
+// Initialize drag & drop with Sortable.js
+document.addEventListener('DOMContentLoaded', function() {
+    // Make questions sortable within each category
+    document.querySelectorAll('.questions-in-category, .questions-without-category').forEach(container => {
+        new Sortable(container, {
+            animation: 150,
+            handle: '.drag-handle',
+            ghostClass: 'sortable-ghost',
+            onEnd: function(evt) {
+                saveQuestionOrder();
+            }
+        });
+    });
+    
+    // Also make categories sortable (optional - for future enhancement)
+    // You can enable this if you want to reorder categories too
+});
+
+function saveQuestionOrder() {
+    const questions = [];
+    let globalOrder = 0;
+    
+    // Collect all questions with their new order and category
+    document.querySelectorAll('.questions-in-category, .questions-without-category').forEach(container => {
+        const categoryId = container.getAttribute('data-category-id');
+        const categoryIdValue = categoryId === 'null' ? null : parseInt(categoryId);
+        
+        container.querySelectorAll('.question-item').forEach((item, index) => {
+            const questionId = parseInt(item.getAttribute('data-question-id'));
+            questions.push({
+                question_id: questionId,
+                order: globalOrder++,
+                category_id: categoryIdValue
+            });
+        });
+    });
+    
+    {% if is_admin %}
+    const reorderUrl = '{{ url_for("admin.survey_questions_reorder", survey_id=survey.id) }}';
+    {% else %}
+    const reorderUrl = '{{ url_for("survey.manager_questions_reorder", survey_id=survey.id) }}';
+    {% endif %}
+    
+    fetch(reorderUrl, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+            questions: questions
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            // Optionally show a success message
+            // You can add a toast notification here
+        } else {
+            alert('خطا در به‌روزرسانی ترتیب: ' + data.message);
+            location.reload(); // Reload on error
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        alert('خطا در به‌روزرسانی ترتیب');
+        location.reload(); // Reload on error
+    });
+}
+</script>
+{% endblock %}
+

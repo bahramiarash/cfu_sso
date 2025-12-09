@@ -21,6 +21,7 @@ from requests.auth import HTTPBasicAuth
 from dashboard_routes import dashboard_bp as new_dashboard_bp  # New dashboard architecture
 from dashboards.api import api_bp as dashboard_api_bp  # Dashboard API
 from admin import admin_bp  # Admin panel
+from survey import survey_bp  # Survey system
 # from tools import tools_bp
 import json
 from auth_utils import requires_auth
@@ -180,6 +181,7 @@ app.register_blueprint(assignment_bp)
 app.register_blueprint(new_dashboard_bp)  # New architecture routes
 app.register_blueprint(dashboard_api_bp)  # Dashboard API for filters
 app.register_blueprint(admin_bp)  # Admin panel
+app.register_blueprint(survey_bp)  # Survey system
 # app.register_blueprint(dashboard_bp)  # Legacy routes - DISABLED (using new architecture)
 
 # Start auto-sync scheduler
@@ -363,12 +365,12 @@ def authorized():
     # 3. Multiple login attempts
     
     # Check if user is already authenticated (has sso_token and user_info)
-    # If yes, redirect to dashboard instead of showing error
+    # If yes, redirect to tools page instead of showing error
     if stored_state != returned_state:
         if session.get("sso_token") and session.get("user_info"):
-            # User is already authenticated, just redirect to dashboard
-            logger.warning("State mismatch but user already authenticated, redirecting to dashboard")
-            return redirect(url_for("dashboard.dashboard_list"))
+            # User is already authenticated, just redirect to tools
+            logger.warning("State mismatch but user already authenticated, redirecting to tools")
+            return redirect(url_for("list_tools"))
         
         # If not authenticated, clear any stale state and redirect to login
         logger.error("CSRF Warning: State mismatch - stored_state=%s, returned_state=%s", stored_state, returned_state)
@@ -439,12 +441,11 @@ def authorized():
         # Allow all authenticated users to access the system (access control happens at dashboard level)
         if is_admin:
             logger.info(f"Admin user {username} logged in successfully")
-            return render_template("tools.html", user_info=userinfo)
-            # return redirect(url_for("dashboard.dashboard_list"))
+            return redirect(url_for("list_tools"))
         else:
             # Allow non-admin users to access as well - they'll have limited access based on their role
             logger.info(f"Regular user {username} logged in successfully")
-            return redirect(url_for("dashboard.dashboard_list"))
+            return redirect(url_for("list_tools"))
 
     except OAuthError as e:
         logger.error("OAuth error: %s", e.description)
@@ -510,6 +511,59 @@ def logout():
     
     return response
 
+@app.template_filter('jalali_date')
+def jalali_date_filter(dt_value):
+    """Convert datetime to Jalali date string"""
+    if not dt_value:
+        return None
+    try:
+        from jdatetime import datetime as jdatetime
+        from datetime import datetime as dt_class
+        if isinstance(dt_value, str):
+            dt_value = dt_class.fromisoformat(dt_value)
+        jalali = jdatetime.fromgregorian(datetime=dt_value)
+        return jalali.strftime("%Y/%m/%d")
+    except Exception:
+        return str(dt_value)
+
+@app.route('/survey')
+@requires_auth
+def survey():
+    """Survey page - shows all accessible surveys (public, user_groups, specific_users) for all users including managers"""
+    try:
+        user_info = session.get("user_info")
+        display_name = get_user_display_name(user_info) if user_info else "کاربر گرامی"
+        
+        from models import User
+        from survey.utils import get_accessible_surveys
+        
+        username = user_info.get('username', '').lower() if user_info else ''
+        user = User.query.filter_by(sso_id=username).first() if username else None
+        national_id = user_info.get('national_id') if user_info else None
+        
+        # Get all accessible surveys (public, user_groups, specific_users)
+        try:
+            surveys = get_accessible_surveys(user, national_id)
+        except Exception as e:
+            logger.error(f"Error fetching accessible surveys: {e}", exc_info=True)
+            surveys = []
+        
+        response = make_response(render_template(
+            "survey/public/list.html",
+            user_display_name=display_name,
+            surveys=surveys
+        ))
+        
+        # Prevent caching
+        response.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0, private'
+        response.headers['Pragma'] = 'no-cache'
+        response.headers['Expires'] = '0'
+        
+        return response
+        
+    except Exception as e:
+        logger.error(f"Error in survey route: {e}", exc_info=True)
+        return render_template("error.html", error=f"خطا در بارگذاری صفحه نظرسنجی: {str(e)}"), 500
 
 def get_user_display_name(user_info):
     """Extract user display name from user_info dictionary"""
@@ -535,6 +589,86 @@ def get_user_display_name(user_info):
         return user_info.get('username')
     
     return "کاربر گرامی"
+
+def check_user_has_valid_dashboard_access(user_info):
+    """
+    Check if user has at least one valid dashboard access permission
+    Admin users always have access regardless of DashboardAccess records
+    
+    Args:
+        user_info: Dictionary containing user information from SSO
+        
+    Returns:
+        bool: True if user has at least one valid dashboard access, False otherwise
+    """
+    try:
+        from admin_models import DashboardAccess
+        from models import User
+        from datetime import datetime
+        
+        if not user_info or not isinstance(user_info, dict):
+            return False
+        
+        # Get username from user_info
+        username = user_info.get('username', '').lower()
+        if not username:
+            return False
+        
+        # Find user in database
+        user = User.query.filter_by(sso_id=username).first()
+        if not user:
+            logger.info(f"User {username} not found in database")
+            return False
+        
+        # Check if user is admin - admins always have access
+        admin_users_env = os.getenv("ADMIN_USERS", "").split(",")
+        admin_users_env = [u.strip().lower() for u in admin_users_env if u.strip()]
+        is_admin = user.is_admin() or username in admin_users_env
+        
+        if is_admin:
+            logger.info(f"User {username} is admin, granting dashboard access")
+            return True
+        
+        # Check if user has any dashboard access records
+        access_records = DashboardAccess.query.filter_by(
+            user_id=user.id,
+            can_access=True
+        ).all()
+        
+        if not access_records:
+            logger.info(f"User {username} has no dashboard access records")
+            return False
+        
+        # Check if at least one access record is valid (within date range)
+        current_time = datetime.utcnow()
+        
+        for access in access_records:
+            # Check date range if specified
+            if access.date_from and access.date_to:
+                if access.date_from <= current_time <= access.date_to:
+                    logger.info(f"User {username} has valid dashboard access to {access.dashboard_id}")
+                    return True
+            elif access.date_from:
+                # Only start date specified
+                if access.date_from <= current_time:
+                    logger.info(f"User {username} has valid dashboard access to {access.dashboard_id} (from {access.date_from})")
+                    return True
+            elif access.date_to:
+                # Only end date specified
+                if current_time <= access.date_to:
+                    logger.info(f"User {username} has valid dashboard access to {access.dashboard_id} (until {access.date_to})")
+                    return True
+            else:
+                # No date restrictions, access is valid
+                logger.info(f"User {username} has valid dashboard access to {access.dashboard_id} (no date restrictions)")
+                return True
+        
+        logger.info(f"User {username} has dashboard access records but none are currently valid")
+        return False
+        
+    except Exception as e:
+        logger.error(f"Error checking user dashboard access: {e}", exc_info=True)
+        return False
 
 @app.route('/tools')
 @requires_auth
@@ -586,8 +720,17 @@ def list_tools():
     if not display_name:
         display_name = "کاربر گرامی"
     
+    # Check if user has valid dashboard access
+    has_dashboard_access = check_user_has_valid_dashboard_access(user_info)
+    logger.info(f"User has valid dashboard access: {has_dashboard_access}")
+    
     # Create response with no-cache headers to prevent back button access after logout
-    response = make_response(render_template("tools.html", user=user_info, user_display_name=display_name))
+    response = make_response(render_template(
+        "tools.html", 
+        user=user_info, 
+        user_display_name=display_name,
+        has_dashboard_access=has_dashboard_access
+    ))
     
     # Prevent caching - critical for security after logout
     response.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0, private'

@@ -1,0 +1,113 @@
+{% extends "survey/manager/base.html" %}
+
+{% block title %}داشبورد مسئول نظرسنجی{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h1><i class="bi bi-clipboard-data"></i> داشبورد مسئول نظرسنجی</h1>
+        <a href="{{ url_for('survey.manager_surveys_create') }}" class="btn btn-primary">
+            <i class="bi bi-plus-circle"></i> پرسشنامه جدید
+        </a>
+    </div>
+
+    <!-- Statistics Cards -->
+    <div class="row mb-4">
+        <div class="col-md-3">
+            <div class="card stat-card">
+                <div class="card-body">
+                    <h5 class="card-title">کل پرسشنامه‌ها</h5>
+                    <h2 class="text-primary">{{ stats.total_surveys }}</h2>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card stat-card">
+                <div class="card-body">
+                    <h5 class="card-title">پرسشنامه‌های فعال</h5>
+                    <h2 class="text-success">{{ stats.active_surveys }}</h2>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card stat-card">
+                <div class="card-body">
+                    <h5 class="card-title">کل پاسخ‌ها</h5>
+                    <h2 class="text-info">{{ stats.total_responses }}</h2>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card stat-card">
+                <div class="card-body">
+                    <h5 class="card-title">پاسخ‌های تکمیل شده</h5>
+                    <h2 class="text-success">{{ stats.completed_responses }}</h2>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Surveys List -->
+    <div class="card">
+        <div class="card-header">
+            <h5>پرسشنامه‌های من</h5>
+        </div>
+        <div class="card-body">
+            <div class="table-responsive">
+                <table class="table table-hover">
+                    <thead>
+                        <tr>
+                            <th>عنوان</th>
+                            <th>وضعیت</th>
+                            <th>تاریخ ایجاد</th>
+                            <th>عملیات</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for survey in surveys %}
+                        <tr>
+                            <td>{{ survey.title }}</td>
+                            <td>
+                                {% if survey.status == 'active' %}
+                                    <span class="badge bg-success">فعال</span>
+                                {% else %}
+                                    <span class="badge bg-secondary">غیرفعال</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% if survey.created_at %}
+                                    {{ survey.created_at.strftime('%Y/%m/%d') }}
+                                {% else %}
+                                    -
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% if survey.status == 'active' %}
+                                <a href="{{ url_for('survey.survey_start', survey_id=survey.id) }}" 
+                                   class="btn btn-sm btn-success" title="تکمیل پرسشنامه">
+                                    <i class="bi bi-play-circle"></i> شروع نظرسنجی
+                                </a>
+                                {% endif %}
+                                <a href="{{ url_for('survey.manager_surveys_questions', survey_id=survey.id) }}" 
+                                   class="btn btn-sm btn-info">
+                                    <i class="bi bi-list-check"></i> سوالات
+                                </a>
+                                <a href="{{ url_for('survey.manager_surveys_edit', survey_id=survey.id) }}" 
+                                   class="btn btn-sm btn-warning">
+                                    <i class="bi bi-pencil"></i> ویرایش
+                                </a>
+                                <a href="{{ url_for('survey.manager_reports_overview', survey_id=survey.id) }}" 
+                                   class="btn btn-sm btn-primary">
+                                    <i class="bi bi-graph-up"></i> گزارش‌ها
+                                </a>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+

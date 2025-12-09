@@ -1,0 +1,108 @@
+{% extends "admin/base.html" %}
+
+{% block title %}پاسخ‌های پرسشنامه{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h1><i class="bi bi-list-check"></i> پاسخ‌های پرسشنامه: {{ survey.title }}</h1>
+        <a href="{{ url_for('admin.survey_surveys_view', survey_id=survey.id) }}" class="btn btn-secondary">
+            <i class="bi bi-arrow-right"></i> بازگشت
+        </a>
+    </div>
+
+    <div class="card">
+        <div class="card-body">
+            <div class="table-responsive">
+                <table class="table table-hover">
+                    <thead>
+                        <tr>
+                            <th>ID</th>
+                            <th>کاربر</th>
+                            <th>کد ملی</th>
+                            <th>وضعیت</th>
+                            <th>شروع شده در</th>
+                            <th>تکمیل شده در</th>
+                            <th>IP</th>
+                            <th>عملیات</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for response in responses %}
+                        <tr>
+                            <td>{{ response.id }}</td>
+                            <td>
+                                {% if response.user %}
+                                    {{ response.user.name }}
+                                {% else %}
+                                    -
+                                {% endif %}
+                            </td>
+                            <td>{{ response.national_id or '-' }}</td>
+                            <td>
+                                {% if response.is_completed %}
+                                    <span class="badge bg-success">تکمیل شده</span>
+                                {% else %}
+                                    <span class="badge bg-warning">شروع شده</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% if response.started_at %}
+                                    {{ response.started_at.strftime('%Y/%m/%d %H:%M') }}
+                                {% else %}
+                                    -
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% if response.completed_at %}
+                                    {{ response.completed_at.strftime('%Y/%m/%d %H:%M') }}
+                                {% else %}
+                                    -
+                                {% endif %}
+                            </td>
+                            <td>{{ response.ip_address or '-' }}</td>
+                            <td>
+                                <button class="btn btn-sm btn-info view-response" data-response-id="{{ response.id }}">
+                                    <i class="bi bi-eye"></i> مشاهده پاسخ‌ها
+                                </button>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Modal for viewing response details -->
+<div class="modal fade" id="responseModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">جزئیات پاسخ</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body" id="responseDetails">
+                <p>در حال بارگذاری...</p>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">بستن</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    document.querySelectorAll('.view-response').forEach(btn => {
+        btn.addEventListener('click', function() {
+            const responseId = this.dataset.responseId;
+            // TODO: Implement AJAX call to fetch response details
+            alert('این قابلیت در حال توسعه است');
+        });
+    });
+});
+</script>
+{% endblock %}
+

@@ -1,0 +1,143 @@
+{% extends "survey/manager/base.html" %}
+
+{% block title %}ایجاد پرسشنامه جدید{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <div class="row">
+        <div class="col-md-10">
+            <div class="card">
+                <div class="card-header">
+                    <h5><i class="bi bi-plus-circle"></i> ایجاد پرسشنامه جدید</h5>
+                </div>
+                <div class="card-body">
+                    <form method="POST" enctype="multipart/form-data">
+                        <div class="mb-3">
+                            <label for="title" class="form-label">عنوان پرسشنامه <span class="text-danger">*</span></label>
+                            <input type="text" class="form-control" id="title" name="title" required>
+                        </div>
+                        
+                        <div class="mb-3">
+                            <label for="description" class="form-label">توضیحات</label>
+                            <textarea class="form-control" id="description" name="description" rows="3"></textarea>
+                        </div>
+                        
+                        <div class="row">
+                            <div class="col-md-6">
+                                <div class="mb-3">
+                                    <label for="start_date" class="form-label">تاریخ شروع</label>
+                                    <input type="date" class="form-control" id="start_date" name="start_date">
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="mb-3">
+                                    <label for="end_date" class="form-label">تاریخ پایان</label>
+                                    <input type="date" class="form-control" id="end_date" name="end_date">
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="mb-3">
+                            <label for="status" class="form-label">وضعیت</label>
+                            <select class="form-select" id="status" name="status">
+                                <option value="active">فعال</option>
+                                <option value="inactive">غیرفعال</option>
+                            </select>
+                        </div>
+                        
+                        <div class="mb-3">
+                            <label for="access_type" class="form-label">نوع دسترسی</label>
+                            <select class="form-select" id="access_type" name="access_type">
+                                <option value="public">عمومی</option>
+                                <option value="user_groups">گروه‌های کاربری</option>
+                                <option value="specific_users">کاربران مشخص (کد ملی)</option>
+                            </select>
+                        </div>
+                        
+                        <div class="row">
+                            <div class="col-md-6">
+                                <div class="mb-3">
+                                    <label for="max_completions_per_user" class="form-label">حداکثر تکمیل در هر بازه</label>
+                                    <input type="number" class="form-control" id="max_completions_per_user" 
+                                           name="max_completions_per_user" value="1" min="1">
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="mb-3">
+                                    <label for="completion_period_type" class="form-label">نوع بازه زمانی</label>
+                                    <select class="form-select" id="completion_period_type" name="completion_period_type">
+                                        <option value="monthly">ماهانه</option>
+                                        <option value="quarterly">فصلی</option>
+                                        <option value="semester">ترمی</option>
+                                        <option value="yearly" selected>سالیانه</option>
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="mb-3">
+                            <label for="welcome_message" class="form-label">پیام خوش‌آمدگویی</label>
+                            <textarea class="form-control" id="welcome_message" name="welcome_message" rows="3"></textarea>
+                        </div>
+                        
+                        <div class="mb-3">
+                            <label for="welcome_button_text" class="form-label">متن دکمه شروع</label>
+                            <input type="text" class="form-control" id="welcome_button_text" 
+                                   name="welcome_button_text" value="شروع نظرسنجی">
+                        </div>
+                        
+                        <div class="mb-3">
+                            <label for="logo" class="form-label">لوگو (اختیاری)</label>
+                            <input type="file" class="form-control" id="logo" name="logo" accept="image/*" onchange="checkFileSize(this)">
+                            <small class="form-text text-muted">حداکثر حجم: 2 مگابایت. فرمت‌های مجاز: JPG, PNG, GIF</small>
+                            <div id="fileSizeError" class="text-danger mt-1" style="display: none;"></div>
+                        </div>
+                        
+                        <div class="mb-3">
+                            <label for="display_mode" class="form-label">حالت نمایش</label>
+                            <select class="form-select" id="display_mode" name="display_mode">
+                                <option value="multi_page">صفحه به صفحه</option>
+                                <option value="single_page">یک صفحه</option>
+                            </select>
+                        </div>
+                        
+                        <div class="d-flex justify-content-between">
+                            <a href="{{ url_for('survey.manager_surveys_list') }}" class="btn btn-secondary">
+                                <i class="bi bi-arrow-right"></i> بازگشت
+                            </a>
+                            <button type="submit" class="btn btn-primary">
+                                <i class="bi bi-check-circle"></i> ایجاد و ادامه به مدیریت سوالات
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+function checkFileSize(input) {
+    const maxSize = 2 * 1024 * 1024; // 2MB in bytes
+    const errorDiv = document.getElementById('fileSizeError');
+    
+    if (input.files && input.files[0]) {
+        const fileSize = input.files[0].size;
+        if (fileSize > maxSize) {
+            errorDiv.textContent = 'حجم فایل بیشتر از 2 مگابایت است. لطفاً تصویر را فشرده کنید.';
+            errorDiv.style.display = 'block';
+            input.value = ''; // Clear the input
+            return false;
+        } else {
+            errorDiv.style.display = 'none';
+            const sizeInMB = (fileSize / (1024 * 1024)).toFixed(2);
+            errorDiv.textContent = `حجم فایل: ${sizeInMB} مگابایت ✓`;
+            errorDiv.className = 'text-success mt-1';
+            errorDiv.style.display = 'block';
+        }
+    }
+    return true;
+}
+</script>
+{% endblock %}
+
