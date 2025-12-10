@@ -30,11 +30,23 @@
         transform: translateY(-50%);
         cursor: move;
         color: #6c757d;
+        z-index: 10;
+        width: 20px;
     }
     .question-item .question-actions {
         position: absolute;
         left: 40px;
         top: 10px;
+        z-index: 10;
+        width: 50px;
+    }
+    .question-item .question-content {
+        margin-left: 120px;
+        padding-right: 15px;
+        min-height: 30px;
+        display: block;
+        word-wrap: break-word;
+        overflow-wrap: break-word;
     }
     .questions-in-category {
         min-height: 20px;
@@ -42,13 +54,19 @@
     .questions-without-category {
         min-height: 20px;
     }
+    .question-item.ms-4 {
+        -webkit-user-select: none; /* Safari */
+        -moz-user-select: none; /* Firefox */
+        -ms-user-select: none; /* IE 10 and IE 11 */
+        user-select: none; /* Standard syntax */
+    }
 </style>
 {% endblock %}
 
 {% block content %}
 <div class="container-fluid">
-    <div class="d-flex justify-content-between align-items-center mb-4">
-        <h1><i class="bi bi-list-check"></i> مدیریت سوالات: {{ survey.title }}</h1>
+    <div class="d-flex justify-content-between align-items-center mb-4" style="margin-top: 20px;">
+        <h2 style="font-size: 1.5rem; margin-bottom: 0;"><i class="bi bi-list-check"></i> مدیریت سوالات: {{ survey.title }}</h2>
         <div>
             <button class="btn btn-success" data-bs-toggle="modal" data-bs-target="#categoryModal">
                 <i class="bi bi-folder-plus"></i> دسته‌بندی جدید
@@ -87,7 +105,7 @@
                                     <i class="bi bi-pencil"></i>
                                 </button>
                             </div>
-                            <div style="margin-right: 80px;">
+                            <div class="question-content">
                                 <strong>{{ question.question_text }}</strong>
                                 <span class="badge bg-secondary">{{ question.question_type }}</span>
                                 {% if question.is_required %}
@@ -112,7 +130,7 @@
                                 <i class="bi bi-pencil"></i>
                             </button>
                         </div>
-                        <div style="margin-right: 80px;">
+                        <div class="question-content">
                             <strong>{{ question.question_text }}</strong>
                             <span class="badge bg-secondary">{{ question.question_type }}</span>
                             {% if question.is_required %}
@@ -193,6 +211,14 @@
                         <label class="form-label">گزینه‌های لیکرت</label>
                         <div id="optionsList"></div>
                     </div>
+                    <div class="mb-3" id="optionDisplayTypeContainer" style="display: none;">
+                        <label for="option_display_type" class="form-label">نحوه نمایش گزینه‌ها</label>
+                        <select class="form-select" id="option_display_type">
+                            <option value="radio">دکمه رادیویی (Radio Button)</option>
+                            <option value="dropdown">منوی کشویی (Dropdown)</option>
+                        </select>
+                        <small class="form-text text-muted">نحوه نمایش گزینه‌ها به کاربر نهایی</small>
+                    </div>
                     <div class="mb-3">
                         <label for="question_category" class="form-label">دسته‌بندی</label>
                         <select class="form-select" id="question_category">
@@ -201,6 +227,24 @@
                             <option value="{{ category.id }}">{{ category.title }}</option>
                             {% endfor %}
                         </select>
+                    </div>
+                    <div class="mb-3" id="maxWordsContainer" style="display: none;">
+                        <label for="text_input_type" class="form-label">نوع فیلد ورودی</label>
+                        <select class="form-select" id="text_input_type">
+                            <option value="multi_line">چند خطی (Textarea)</option>
+                            <option value="single_line">یک خطی (Input)</option>
+                        </select>
+                        <small class="form-text text-muted">نوع فیلد ورودی برای پاسخ تشریحی</small>
+                    </div>
+                    <div class="mb-3" id="maxWordsLimitContainer" style="display: none;">
+                        <label for="max_words" class="form-label">حداکثر تعداد حروف</label>
+                        <input type="number" class="form-control" id="max_words" min="1" max="2000" value="100">
+                        <small class="form-text text-muted">حداکثر تعداد حروف مجاز برای پاسخ (1 تا 2000 حرف)</small>
+                    </div>
+                    <div class="mb-3" id="maxFileSizeContainer" style="display: none;">
+                        <label for="max_file_size_mb" class="form-label">حداکثر حجم فایل (مگابایت)</label>
+                        <input type="number" class="form-control" id="max_file_size_mb" min="1" max="50" value="25">
+                        <small class="form-text text-muted">حداکثر حجم فایل مجاز برای آپلود (1 تا 50 مگابایت)</small>
                     </div>
                     <div class="mb-3">
                         <div class="form-check">
@@ -231,7 +275,11 @@ const lastQuestionData = {% if last_question %}{
     question_type: '{{ last_question.question_type }}',
     category_id: {{ last_question.category_id if last_question.category_id else 'null' }},
     options: {{ last_question.options | tojson if last_question.options else 'null' }},
-    is_required: {{ 'true' if last_question.is_required else 'false' }}
+    is_required: {{ 'true' if last_question.is_required else 'false' }},
+    text_input_type: '{{ last_question.text_input_type|default("multi_line") }}',
+    max_words: {{ last_question.max_words if last_question.max_words else 'null' }},
+    max_file_size_mb: {{ last_question.max_file_size_mb if last_question.max_file_size_mb else 'null' }},
+    option_display_type: '{{ last_question.option_display_type|default("radio") }}'
 }{% else %}null{% endif %};
 
 // Auto-fill form when modal opens (only for creating new questions, not editing)
@@ -244,8 +292,27 @@ document.getElementById('questionModal').addEventListener('show.bs.modal', funct
             const questionTypeSelect = document.getElementById('question_type');
             questionTypeSelect.value = lastQuestionData.question_type;
             
-            // Trigger updateQuestionOptions to create input fields
+            // Trigger updateQuestionOptions to create input fields and show/hide limit fields
             updateQuestionOptions();
+            
+            // Fill max_words, text_input_type and max_file_size_mb if available
+            setTimeout(() => {
+                if (lastQuestionData.question_type === 'text') {
+                    const maxWordsInput = document.getElementById('max_words');
+                    if (maxWordsInput) {
+                        maxWordsInput.value = lastQuestionData.max_words || 100;
+                    }
+                    const textInputTypeSelect = document.getElementById('text_input_type');
+                    if (textInputTypeSelect) {
+                        textInputTypeSelect.value = lastQuestionData.text_input_type || 'multi_line';
+                    }
+                } else if (lastQuestionData.question_type === 'file_upload') {
+                    const maxFileSizeInput = document.getElementById('max_file_size_mb');
+                    if (maxFileSizeInput) {
+                        maxFileSizeInput.value = lastQuestionData.max_file_size_mb || 25;
+                    }
+                }
+            }, 150);
             
             // Fill Likert options if available (wait a bit for DOM to update)
             if (lastQuestionData.question_type.startsWith('likert_') && 
@@ -278,6 +345,10 @@ document.getElementById('questionModal').addEventListener('hidden.bs.modal', fun
     document.getElementById('questionForm').reset();
     document.getElementById('optionsContainer').style.display = 'none';
     document.getElementById('optionsList').innerHTML = '';
+    document.getElementById('maxWordsContainer').style.display = 'none';
+    document.getElementById('maxFileSizeContainer').style.display = 'none';
+    document.getElementById('max_words').value = '100';
+    document.getElementById('max_file_size_mb').value = '25';
     document.getElementById('editing_question_id').value = '';
     document.getElementById('questionModalTitle').textContent = 'ایجاد سوال جدید';
     document.getElementById('questionSubmitBtn').textContent = 'ایجاد';
@@ -288,8 +359,22 @@ function updateQuestionOptions() {
     const questionType = document.getElementById('question_type').value;
     const container = document.getElementById('optionsContainer');
     const optionsList = document.getElementById('optionsList');
+    const maxWordsContainer = document.getElementById('maxWordsContainer');
+    const maxFileSizeContainer = document.getElementById('maxFileSizeContainer');
+    const maxWordsInput = document.getElementById('max_words');
+    const maxFileSizeInput = document.getElementById('max_file_size_mb');
     
-    if (questionType && questionType.startsWith('likert_')) {
+    // Hide all containers first
+    container.style.display = 'none';
+    maxWordsContainer.style.display = 'none';
+    maxFileSizeContainer.style.display = 'none';
+    document.getElementById('optionDisplayTypeContainer').style.display = 'none';
+    
+    if (!questionType) {
+        return; // No question type selected
+    }
+    
+    if (questionType.startsWith('likert_')) {
         const count = parseInt(questionType.split('_')[1]);
         let html = '';
         
@@ -312,8 +397,22 @@ function updateQuestionOptions() {
         }
         optionsList.innerHTML = html;
         container.style.display = 'block';
-    } else {
-        container.style.display = 'none';
+        
+        // Show option display type selector
+        document.getElementById('optionDisplayTypeContainer').style.display = 'block';
+    } else if (questionType === 'text') {
+        maxWordsContainer.style.display = 'block';
+        document.getElementById('maxWordsLimitContainer').style.display = 'block';
+        // Set default value if input is empty
+        if (maxWordsInput && (!maxWordsInput.value || maxWordsInput.value === '0')) {
+            maxWordsInput.value = '100';
+        }
+    } else if (questionType === 'file_upload') {
+        maxFileSizeContainer.style.display = 'block';
+        // Set default value if input is empty
+        if (maxFileSizeInput && (!maxFileSizeInput.value || maxFileSizeInput.value === '0')) {
+            maxFileSizeInput.value = '25';
+        }
     }
 }
 
@@ -365,7 +464,11 @@ const questionsData = {
         description: {{ question.description | tojson if question.description else 'null' }},
         category_id: {{ question.category_id if question.category_id else 'null' }},
         is_required: {{ 'true' if question.is_required else 'false' }},
-        options: {{ question.options | tojson if question.options else 'null' }}
+        options: {{ question.options | tojson if question.options else 'null' }},
+        option_display_type: '{{ question.option_display_type if question.option_display_type else "radio" }}',
+        text_input_type: '{{ question.text_input_type|default("multi_line") }}',
+        max_words: {{ question.max_words if question.max_words else 'null' }},
+        max_file_size_mb: {{ question.max_file_size_mb if question.max_file_size_mb else 'null' }}
     }{% if not loop.last %},{% endif %}
     {% endfor %}
 };
@@ -390,8 +493,63 @@ function editQuestion(questionId) {
     document.getElementById('question_category').value = question.category_id || '';
     document.getElementById('question_required').checked = question.is_required;
     
-    // Update options
+    // Update options and show/hide relevant fields FIRST
     updateQuestionOptions();
+    
+    // Fill max_words, text_input_type and max_file_size_mb if available (after updateQuestionOptions shows the fields)
+    setTimeout(() => {
+        if (question.max_words !== undefined && question.max_words !== null) {
+            const maxWordsInput = document.getElementById('max_words');
+            if (maxWordsInput) {
+                maxWordsInput.value = question.max_words;
+            }
+        } else if (question.question_type === 'text') {
+            // Set default if not set
+            const maxWordsInput = document.getElementById('max_words');
+            if (maxWordsInput) {
+                maxWordsInput.value = 100;
+            }
+        }
+        
+        // Fill text_input_type if available
+        if (question.question_type === 'text') {
+            const textInputTypeSelect = document.getElementById('text_input_type');
+            if (textInputTypeSelect) {
+                textInputTypeSelect.value = question.text_input_type || 'multi_line';
+            }
+        }
+        
+        if (question.max_file_size_mb !== undefined && question.max_file_size_mb !== null) {
+            const maxFileSizeInput = document.getElementById('max_file_size_mb');
+            if (maxFileSizeInput) {
+                maxFileSizeInput.value = question.max_file_size_mb;
+            }
+        } else if (question.question_type === 'file_upload') {
+            // Set default if not set
+            const maxFileSizeInput = document.getElementById('max_file_size_mb');
+            if (maxFileSizeInput) {
+                maxFileSizeInput.value = 25;
+            }
+        }
+        
+        // Fill option_display_type if available (only for Likert questions)
+        if (question.question_type.startsWith('likert_') && question.option_display_type) {
+            setTimeout(() => {
+                const optionDisplayTypeSelect = document.getElementById('option_display_type');
+                if (optionDisplayTypeSelect) {
+                    optionDisplayTypeSelect.value = question.option_display_type;
+                }
+            }, 250);
+        } else if (question.question_type.startsWith('likert_')) {
+            // Set default to 'radio' if not set
+            setTimeout(() => {
+                const optionDisplayTypeSelect = document.getElementById('option_display_type');
+                if (optionDisplayTypeSelect) {
+                    optionDisplayTypeSelect.value = 'radio';
+                }
+            }, 250);
+        }
+    }, 200);
     
     // Fill Likert options if available
     if (question.question_type.startsWith('likert_') && question.options && Array.isArray(question.options)) {
@@ -403,6 +561,24 @@ function editQuestion(questionId) {
                 }
             });
         }, 150);
+    }
+    
+    // Fill option_display_type if available (only for Likert questions)
+    if (question.question_type.startsWith('likert_') && question.option_display_type) {
+        setTimeout(() => {
+            const optionDisplayTypeSelect = document.getElementById('option_display_type');
+            if (optionDisplayTypeSelect) {
+                optionDisplayTypeSelect.value = question.option_display_type;
+            }
+        }, 250);
+    } else if (question.question_type.startsWith('likert_')) {
+        // Set default to 'radio' if not set
+        setTimeout(() => {
+            const optionDisplayTypeSelect = document.getElementById('option_display_type');
+            if (optionDisplayTypeSelect) {
+                optionDisplayTypeSelect.value = 'radio';
+            }
+        }, 250);
     }
     
     // Show modal
@@ -423,9 +599,28 @@ function createQuestion() {
     }
     
     let options = null;
+    let optionDisplayType = 'radio'; // Default
     if (questionType.startsWith('likert_')) {
         const optionInputs = document.querySelectorAll('.option-input');
         options = Array.from(optionInputs).map(input => input.value).filter(v => v);
+        const optionDisplayTypeSelect = document.getElementById('option_display_type');
+        if (optionDisplayTypeSelect) {
+            optionDisplayType = optionDisplayTypeSelect.value || 'radio';
+        }
+    }
+    
+    // Get max_words, text_input_type and max_file_size_mb
+    let maxWords = null;
+    let textInputType = 'multi_line'; // Default
+    let maxFileSizeMb = null;
+    if (questionType === 'text') {
+        maxWords = parseInt(document.getElementById('max_words').value) || 100;
+        const textInputTypeSelect = document.getElementById('text_input_type');
+        if (textInputTypeSelect) {
+            textInputType = textInputTypeSelect.value || 'multi_line';
+        }
+    } else if (questionType === 'file_upload') {
+        maxFileSizeMb = parseInt(document.getElementById('max_file_size_mb').value) || 25;
     }
     
     {% if is_admin %}
@@ -444,6 +639,10 @@ function createQuestion() {
             category_id: categoryId || null,
             is_required: isRequired,
             options: options,
+            option_display_type: optionDisplayType,
+            text_input_type: textInputType,
+            max_words: maxWords,
+            max_file_size_mb: maxFileSizeMb,
             order: 0
         })
     })
@@ -480,9 +679,28 @@ function saveQuestion() {
     }
     
     let options = null;
+    let optionDisplayType = 'radio'; // Default
     if (questionType.startsWith('likert_')) {
         const optionInputs = document.querySelectorAll('.option-input');
         options = Array.from(optionInputs).map(input => input.value).filter(v => v);
+        const optionDisplayTypeSelect = document.getElementById('option_display_type');
+        if (optionDisplayTypeSelect) {
+            optionDisplayType = optionDisplayTypeSelect.value || 'radio';
+        }
+    }
+    
+    // Get max_words, text_input_type and max_file_size_mb
+    let maxWords = null;
+    let textInputType = 'multi_line'; // Default
+    let maxFileSizeMb = null;
+    if (questionType === 'text') {
+        maxWords = parseInt(document.getElementById('max_words').value) || 100;
+        const textInputTypeSelect = document.getElementById('text_input_type');
+        if (textInputTypeSelect) {
+            textInputType = textInputTypeSelect.value || 'multi_line';
+        }
+    } else if (questionType === 'file_upload') {
+        maxFileSizeMb = parseInt(document.getElementById('max_file_size_mb').value) || 25;
     }
     
     {% if is_admin %}
@@ -496,11 +714,15 @@ function saveQuestion() {
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({
             question_type: questionType,
+            option_display_type: optionDisplayType,
+            text_input_type: textInputType,
             question_text: questionText,
             description: description,
             category_id: categoryId || null,
             is_required: isRequired,
-            options: options
+            options: options,
+            max_words: maxWords,
+            max_file_size_mb: maxFileSizeMb
         })
     })
     .then(response => response.json())

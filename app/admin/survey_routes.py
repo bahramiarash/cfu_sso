@@ -7,7 +7,7 @@ from flask_login import current_user
 from . import admin_bp
 from .utils import admin_required, log_action
 from models import User
-from survey_models import SurveyManager, Survey, SurveyResponse
+from survey_models import SurveyManager, Survey, SurveyResponse, SurveyQuestion, SurveyCategory, SurveyAnswerItem
 from extensions import db
 from sqlalchemy import or_, func, desc
 from datetime import datetime
@@ -364,11 +364,26 @@ def survey_questions_create(survey_id):
         order = data.get('order', 0)
         is_required = data.get('is_required', True)
         options = data.get('options')  # For Likert scale questions
+        option_display_type = data.get('option_display_type', 'radio')  # Default to radio
+        text_input_type = data.get('text_input_type', 'multi_line')  # Default to multi_line
         
         if not question_text:
             return jsonify({'success': False, 'message': 'متن سوال الزامی است'}), 400
         
         from survey_models import SurveyQuestion
+        # Get max_words and max_file_size_mb based on question type
+        max_words = None
+        max_file_size_mb = None
+        if question_type == 'text':
+            max_words = data.get('max_words', 100)  # Default: 100 characters (stored in max_words field)
+            if max_words and (max_words < 1 or max_words > 2000):
+                return jsonify({'success': False, 'message': 'حداکثر تعداد حروف باید بین 1 تا 2000 باشد'}), 400
+        elif question_type == 'file_upload':
+            max_file_size_mb = data.get('max_file_size_mb', 25)  # Default: 25 MB
+            if max_file_size_mb and (max_file_size_mb < 1 or max_file_size_mb > 50):
+                return jsonify({'success': False, 'message': 'حداکثر حجم فایل باید بین 1 تا 50 مگابایت باشد'}), 400
+        # For Likert questions, both will remain None
+        
         question = SurveyQuestion(
             survey_id=survey_id,
             category_id=category_id if category_id else None,
@@ -377,7 +392,11 @@ def survey_questions_create(survey_id):
             description=sanitize_input(data.get('description', '').strip()),
             order=order,
             is_required=is_required,
-            options=options
+            options=options,
+            option_display_type=option_display_type,
+            text_input_type=text_input_type,
+            max_words=max_words,
+            max_file_size_mb=max_file_size_mb
         )
         
         db.session.add(question)
@@ -445,6 +464,26 @@ def survey_questions_edit(question_id):
         question.category_id = data.get('category_id') if data.get('category_id') else None
         question.is_required = data.get('is_required', True)
         question.options = data.get('options')  # For Likert scale questions
+        question.option_display_type = data.get('option_display_type', 'radio')  # Default to radio
+        question.text_input_type = data.get('text_input_type', 'multi_line')  # Default to multi_line
+        
+        # Update max_words and max_file_size_mb based on question type
+        if question.question_type == 'text':
+            max_words = data.get('max_words', 100)  # Default: 100 characters (stored in max_words field)
+            if max_words and (max_words < 1 or max_words > 2000):
+                return jsonify({'success': False, 'message': 'حداکثر تعداد حروف باید بین 1 تا 2000 باشد'}), 400
+            question.max_words = max_words
+            question.max_file_size_mb = None  # Clear file size limit for text questions
+        elif question.question_type == 'file_upload':
+            max_file_size_mb = data.get('max_file_size_mb', 25)  # Default: 25 MB
+            if max_file_size_mb and (max_file_size_mb < 1 or max_file_size_mb > 50):
+                return jsonify({'success': False, 'message': 'حداکثر حجم فایل باید بین 1 تا 50 مگابایت باشد'}), 400
+            question.max_file_size_mb = max_file_size_mb
+            question.max_words = None  # Clear word limit for file questions
+        else:
+            # For Likert questions, clear both limits
+            question.max_words = None
+            question.max_file_size_mb = None
         
         if not question.question_text:
             return jsonify({'success': False, 'message': 'متن سوال الزامی است'}), 400

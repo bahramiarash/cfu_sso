@@ -14,9 +14,16 @@
     <!-- KamaDatepicker CSS -->
     <link href="{{ url_for('static', filename='kamadatepicker.css') }}" rel="stylesheet">
     
+    <!-- Vazir Font -->
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    
     <style>
         body {
             padding-top: 56px;
+            font-family: "Vazir", Tahoma, sans-serif;
+        }
+        * {
+            font-family: "Vazir", Tahoma, sans-serif;
         }
         .sidebar {
             position: fixed;
@@ -27,11 +34,13 @@
             background-color: #f8f9fa;
             border-left: 1px solid #dee2e6;
             padding: 20px;
+            padding-top: 30px;
             overflow-y: auto;
         }
         .main-content {
             margin-right: 250px;
             padding: 20px;
+            padding-top: 30px;
         }
         .nav-link.active {
             background-color: #0d6efd;

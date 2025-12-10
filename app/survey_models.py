@@ -200,6 +200,16 @@ class SurveyQuestion(db.Model):
     # Example: {"options": ["خیلی کم", "کم", "متوسط", "زیاد", "خیلی زیاد"]}
     options = Column(JSON, nullable=True)
     
+    # Display type for options: 'radio' (default) or 'dropdown'
+    option_display_type = Column(String(20), default='radio', nullable=False)
+    
+    # Input type for text questions: 'single_line' (input) or 'multi_line' (textarea)
+    text_input_type = Column(String(20), default='multi_line', nullable=False)
+    
+    # Limits for text and file questions
+    max_words = Column(Integer, nullable=True)  # Maximum words for text questions (default: 100)
+    max_file_size_mb = Column(Integer, nullable=True)  # Maximum file size in MB for file_upload questions (default: 25)
+    
     # Relationships
     survey = relationship('Survey', back_populates='questions')
     category = relationship('SurveyCategory', back_populates='questions')

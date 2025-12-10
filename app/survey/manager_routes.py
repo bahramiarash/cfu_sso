@@ -2,7 +2,7 @@
 Survey Manager Routes
 Routes for survey managers to create and manage surveys
 """
-from flask import render_template, request, jsonify, redirect, url_for, flash, session, send_file, make_response
+from flask import render_template, request, jsonify, redirect, url_for, flash, session, send_file, make_response, send_from_directory, abort
 from flask_login import current_user, login_required
 from . import survey_bp
 from .utils import log_survey_action, sanitize_input, is_survey_manager
@@ -375,9 +375,24 @@ def manager_questions_create(survey_id):
         order = data.get('order', 0)
         is_required = data.get('is_required', True)
         options = data.get('options')  # For Likert scale questions
+        option_display_type = data.get('option_display_type', 'radio')  # Default to radio
+        text_input_type = data.get('text_input_type', 'multi_line')  # Default to multi_line
         
         if not question_text:
             return jsonify({'success': False, 'message': 'متن سوال الزامی است'}), 400
+        
+        # Get max_words and max_file_size_mb based on question type
+        max_words = None
+        max_file_size_mb = None
+        if question_type == 'text':
+            max_words = data.get('max_words', 100)  # Default: 100 characters (stored in max_words field)
+            if max_words and (max_words < 1 or max_words > 2000):
+                return jsonify({'success': False, 'message': 'حداکثر تعداد حروف باید بین 1 تا 2000 باشد'}), 400
+        elif question_type == 'file_upload':
+            max_file_size_mb = data.get('max_file_size_mb', 25)  # Default: 25 MB
+            if max_file_size_mb and (max_file_size_mb < 1 or max_file_size_mb > 50):
+                return jsonify({'success': False, 'message': 'حداکثر حجم فایل باید بین 1 تا 50 مگابایت باشد'}), 400
+        # For Likert questions, both will remain None
         
         question = SurveyQuestion(
             survey_id=survey_id,
@@ -387,7 +402,11 @@ def manager_questions_create(survey_id):
             description=sanitize_input(data.get('description', '').strip()),
             order=order,
             is_required=is_required,
-            options=options
+            options=options,
+            option_display_type=option_display_type,
+            text_input_type=text_input_type,
+            max_words=max_words,
+            max_file_size_mb=max_file_size_mb
         )
         
         db.session.add(question)
@@ -466,6 +485,26 @@ def manager_questions_edit(question_id):
         question.category_id = data.get('category_id') if data.get('category_id') else None
         question.is_required = data.get('is_required', True)
         question.options = data.get('options')  # For Likert scale questions
+        question.option_display_type = data.get('option_display_type', 'radio')  # Default to radio
+        question.text_input_type = data.get('text_input_type', 'multi_line')  # Default to multi_line
+        
+        # Update max_words and max_file_size_mb based on question type
+        if question.question_type == 'text':
+            max_words = data.get('max_words', 100)  # Default: 100 characters (stored in max_words field)
+            if max_words and (max_words < 1 or max_words > 2000):
+                return jsonify({'success': False, 'message': 'حداکثر تعداد حروف باید بین 1 تا 2000 باشد'}), 400
+            question.max_words = max_words
+            question.max_file_size_mb = None  # Clear file size limit for text questions
+        elif question.question_type == 'file_upload':
+            max_file_size_mb = data.get('max_file_size_mb', 25)  # Default: 25 MB
+            if max_file_size_mb and (max_file_size_mb < 1 or max_file_size_mb > 50):
+                return jsonify({'success': False, 'message': 'حداکثر حجم فایل باید بین 1 تا 50 مگابایت باشد'}), 400
+            question.max_file_size_mb = max_file_size_mb
+            question.max_words = None  # Clear word limit for file questions
+        else:
+            # For Likert questions, clear both limits
+            question.max_words = None
+            question.max_file_size_mb = None
         
         if not question.question_text:
             return jsonify({'success': False, 'message': 'متن سوال الزامی است'}), 400
@@ -680,74 +719,224 @@ def manager_reports_overview(survey_id):
             desc(SurveyResponse.started_at)
         ).all()
         
-        # Get question statistics (answers per question)
+        # Get question statistics (answers per question) grouped by category
         from survey_models import SurveyQuestion, SurveyAnswerItem
-        question_stats = []
+        question_stats_by_category = []
         question_stats_json = []
         
         try:
-            questions = SurveyQuestion.query.filter_by(survey_id=survey_id).order_by(SurveyQuestion.order).all()
+            # Get all categories for this survey, ordered by order field
+            categories = SurveyCategory.query.filter_by(survey_id=survey_id).order_by(SurveyCategory.order).all()
             
-            for question in questions:
-                try:
-                    # Get all answers for this question
-                    answers_query = db.session.query(SurveyAnswerItem).join(
-                        SurveyResponse
-                    ).filter(
-                        SurveyAnswerItem.question_id == question.id,
-                        SurveyResponse.survey_id == survey_id,
-                        SurveyResponse.is_completed == True
+            # Process questions for each category
+            for category in categories:
+                category_questions = SurveyQuestion.query.filter_by(
+                    survey_id=survey_id,
+                    category_id=category.id
+                ).order_by(SurveyQuestion.order).all()
+                
+                category_question_stats = []
+                
+                for question in category_questions:
+                    try:
+                        # Get all answers for this question
+                        answers_query = db.session.query(SurveyAnswerItem).join(
+                            SurveyResponse
+                        ).filter(
+                            SurveyAnswerItem.question_id == question.id,
+                            SurveyResponse.survey_id == survey_id,
+                            SurveyResponse.is_completed == True
+                        )
+                        
+                        if date_from:
+                            try:
+                                jdate_from = jdatetime.strptime(date_from, '%Y/%m/%d')
+                                date_from_greg = jdate_from.togregorian()
+                                answers_query = answers_query.filter(SurveyResponse.completed_at >= date_from_greg)
+                            except Exception as e:
+                                logger.warning(f"Error parsing date_from for question stats: {e}")
+                        
+                        if date_to:
+                            try:
+                                jdate_to = jdatetime.strptime(date_to, '%Y/%m/%d')
+                                date_to_greg = jdate_to.togregorian()
+                                date_to_greg = datetime.combine(date_to_greg.date(), datetime.max.time())
+                                answers_query = answers_query.filter(SurveyResponse.completed_at <= date_to_greg)
+                            except Exception as e:
+                                logger.warning(f"Error parsing date_to for question stats: {e}")
+                        
+                        answers = answers_query.all()
+                        
+                        # Count answers by option/value
+                        # Use OrderedDict or list of tuples to preserve order
+                        option_counts_ordered = []
+                        options_list = []
+                        
+                        if question.question_type.startswith('likert'):
+                            # Likert scale question
+                            # Handle both dict format {'options': [...]} and list format [...]
+                            if question.options:
+                                if isinstance(question.options, dict):
+                                    options_list = question.options.get('options', [])
+                                elif isinstance(question.options, list):
+                                    options_list = question.options
+                                else:
+                                    options_list = []
+                            else:
+                                options_list = []
+                            
+                            # Preserve order and count answers
+                            for i, option in enumerate(options_list):
+                                count = sum(1 for a in answers if a.answer_value == i)
+                                option_counts_ordered.append({
+                                    'option': option,
+                                    'count': count,
+                                    'index': i
+                                })
+                        else:
+                            # Text or other types
+                            option_counts_ordered.append({
+                                'option': 'پاسخ داده شده',
+                                'count': len(answers),
+                                'index': 0
+                            })
+                        
+                        # Convert to dict for backward compatibility
+                        option_counts = {item['option']: item['count'] for item in option_counts_ordered}
+                        
+                        question_stat = {
+                            'question': question,
+                            'total_answers': len(answers),
+                            'option_counts': option_counts,
+                            'option_counts_ordered': option_counts_ordered
+                        }
+                        category_question_stats.append(question_stat)
+                        
+                        question_stats_json.append({
+                            'question_id': question.id,
+                            'question_text': question.question_text,
+                            'total_answers': len(answers),
+                            'option_counts': option_counts,
+                            'option_counts_ordered': option_counts_ordered
+                        })
+                    except Exception as e:
+                        logger.error(f"Error processing question {question.id}: {e}", exc_info=True)
+                        # Continue with next question
+                        continue
+                
+                # Only add category if it has questions
+                if category_question_stats:
+                    question_stats_by_category.append({
+                        'category': category,
+                        'questions': category_question_stats
+                    })
+            
+            # Process questions without category (category_id is None)
+            questions_without_category = SurveyQuestion.query.filter_by(
+                survey_id=survey_id
+            ).filter(
+                SurveyQuestion.category_id.is_(None)
+            ).order_by(SurveyQuestion.order).all()
+            
+            if questions_without_category:
+                uncategorized_question_stats = []
+                
+                for question in questions_without_category:
+                    try:
+                        # Get all answers for this question
+                        answers_query = db.session.query(SurveyAnswerItem).join(
+                            SurveyResponse
+                        ).filter(
+                            SurveyAnswerItem.question_id == question.id,
+                            SurveyResponse.survey_id == survey_id,
+                            SurveyResponse.is_completed == True
+                        )
+                        
+                        if date_from:
+                            try:
+                                jdate_from = jdatetime.strptime(date_from, '%Y/%m/%d')
+                                date_from_greg = jdate_from.togregorian()
+                                answers_query = answers_query.filter(SurveyResponse.completed_at >= date_from_greg)
+                            except Exception as e:
+                                logger.warning(f"Error parsing date_from for question stats: {e}")
+                        
+                        if date_to:
+                            try:
+                                jdate_to = jdatetime.strptime(date_to, '%Y/%m/%d')
+                                date_to_greg = jdate_to.togregorian()
+                                date_to_greg = datetime.combine(date_to_greg.date(), datetime.max.time())
+                                answers_query = answers_query.filter(SurveyResponse.completed_at <= date_to_greg)
+                            except Exception as e:
+                                logger.warning(f"Error parsing date_to for question stats: {e}")
+                        
+                        answers = answers_query.all()
+                        
+                        # Count answers by option/value
+                        option_counts_ordered = []
+                        options_list = []
+                        
+                        if question.question_type.startswith('likert'):
+                            if question.options:
+                                if isinstance(question.options, dict):
+                                    options_list = question.options.get('options', [])
+                                elif isinstance(question.options, list):
+                                    options_list = question.options
+                                else:
+                                    options_list = []
+                            else:
+                                options_list = []
+                            
+                            for i, option in enumerate(options_list):
+                                count = sum(1 for a in answers if a.answer_value == i)
+                                option_counts_ordered.append({
+                                    'option': option,
+                                    'count': count,
+                                    'index': i
+                                })
+                        else:
+                            option_counts_ordered.append({
+                                'option': 'پاسخ داده شده',
+                                'count': len(answers),
+                                'index': 0
+                            })
+                        
+                        option_counts = {item['option']: item['count'] for item in option_counts_ordered}
+                        
+                        question_stat = {
+                            'question': question,
+                            'total_answers': len(answers),
+                            'option_counts': option_counts,
+                            'option_counts_ordered': option_counts_ordered
+                        }
+                        uncategorized_question_stats.append(question_stat)
+                        
+                        question_stats_json.append({
+                            'question_id': question.id,
+                            'question_text': question.question_text,
+                            'total_answers': len(answers),
+                            'option_counts': option_counts,
+                            'option_counts_ordered': option_counts_ordered
+                        })
+                    except Exception as e:
+                        logger.error(f"Error processing question {question.id}: {e}", exc_info=True)
+                        continue
+                
+                if uncategorized_question_stats:
+                    # Create a dummy category object for uncategorized questions
+                    from types import SimpleNamespace
+                    uncategorized_category = SimpleNamespace(
+                        id=None,
+                        title='سوالات بدون دسته',
+                        description=None,
+                        order=9999  # Put at the end
                     )
-                    
-                    if date_from:
-                        try:
-                            jdate_from = jdatetime.strptime(date_from, '%Y/%m/%d')
-                            date_from_greg = jdate_from.togregorian()
-                            answers_query = answers_query.filter(SurveyResponse.completed_at >= date_from_greg)
-                        except Exception as e:
-                            logger.warning(f"Error parsing date_from for question stats: {e}")
-                    
-                    if date_to:
-                        try:
-                            jdate_to = jdatetime.strptime(date_to, '%Y/%m/%d')
-                            date_to_greg = jdate_to.togregorian()
-                            date_to_greg = datetime.combine(date_to_greg.date(), datetime.max.time())
-                            answers_query = answers_query.filter(SurveyResponse.completed_at <= date_to_greg)
-                        except Exception as e:
-                            logger.warning(f"Error parsing date_to for question stats: {e}")
-                    
-                    answers = answers_query.all()
-                    
-                    # Count answers by option/value
-                    option_counts = {}
-                    if question.question_type.startswith('likert'):
-                        # Likert scale question
-                        options = question.options.get('options', []) if question.options else []
-                        for i, option in enumerate(options):
-                            option_counts[option] = sum(1 for a in answers if a.answer_value == i)
-                    else:
-                        # Text or other types
-                        option_counts['پاسخ داده شده'] = len(answers)
-                    
-                    question_stats.append({
-                        'question': question,
-                        'total_answers': len(answers),
-                        'option_counts': option_counts
+                    question_stats_by_category.append({
+                        'category': uncategorized_category,
+                        'questions': uncategorized_question_stats
                     })
-                    
-                    question_stats_json.append({
-                        'question_id': question.id,
-                        'question_text': question.question_text,
-                        'total_answers': len(answers),
-                        'option_counts': option_counts
-                    })
-                except Exception as e:
-                    logger.error(f"Error processing question {question.id}: {e}", exc_info=True)
-                    # Continue with next question
-                    continue
         except Exception as e:
             logger.error(f"Error getting question stats: {e}", exc_info=True)
-            question_stats = []
+            question_stats_by_category = []
             question_stats_json = []
         
         log_survey_action('view_survey_reports', 'survey', survey_id)
@@ -760,7 +949,7 @@ def manager_reports_overview(survey_id):
                              date_to=date_to,
                              daily_chart_data=daily_chart_data,
                              all_responses=all_responses,
-                             question_stats=question_stats,
+                             question_stats_by_category=question_stats_by_category,
                              question_stats_json=question_stats_json)
     except Exception as e:
         logger.error(f"Error viewing reports: {e}", exc_info=True)
@@ -835,53 +1024,280 @@ def manager_reports_export_excel(survey_id):
                 'وضعیت': 'تکمیل شده' if response.is_completed else 'شروع شده'
             })
         
-        excel_data['شرکت کنندگان'] = pd.DataFrame(participants_data)
+        # Create DataFrames, handling empty data
+        if participants_data:
+            excel_data['شرکت کنندگان'] = pd.DataFrame(participants_data)
+        else:
+            excel_data['شرکت کنندگان'] = pd.DataFrame([{
+                'شناسه پاسخ': '',
+                'نام کاربر': 'داده‌ای یافت نشد',
+                'کد ملی': '',
+                'تاریخ شروع (هجری شمسی)': '',
+                'تاریخ تکمیل (هجری شمسی)': '',
+                'وضعیت': ''
+            }])
         
         # Sheet 2: Question statistics
         question_stats_data = []
         for question in questions:
-            answers = SurveyAnswerItem.query.join(SurveyResponse).filter(
-                SurveyAnswerItem.question_id == question.id,
-                SurveyResponse.survey_id == survey_id,
-                SurveyResponse.is_completed == True
-            ).all()
-            
-            if question.question_type.startswith('likert'):
-                options = question.options.get('options', []) if question.options else []
-                for i, option in enumerate(options):
-                    count = sum(1 for a in answers if a.answer_value == i)
+            try:
+                # Apply date filters to answers query
+                answers_query = SurveyAnswerItem.query.join(SurveyResponse).filter(
+                    SurveyAnswerItem.question_id == question.id,
+                    SurveyResponse.survey_id == survey_id,
+                    SurveyResponse.is_completed == True
+                )
+                
+                # Apply date filters if provided
+                if date_from:
+                    try:
+                        jdate_from = jdatetime.strptime(date_from, '%Y/%m/%d')
+                        date_from_greg = jdate_from.togregorian()
+                        answers_query = answers_query.filter(SurveyResponse.completed_at >= date_from_greg)
+                    except Exception as e:
+                        logger.warning(f"Error parsing date_from in Excel export: {e}")
+                
+                if date_to:
+                    try:
+                        jdate_to = jdatetime.strptime(date_to, '%Y/%m/%d')
+                        date_to_greg = jdate_to.togregorian()
+                        date_to_greg = datetime.combine(date_to_greg.date(), datetime.max.time())
+                        answers_query = answers_query.filter(SurveyResponse.completed_at <= date_to_greg)
+                    except Exception as e:
+                        logger.warning(f"Error parsing date_to in Excel export: {e}")
+                
+                answers = answers_query.all()
+                
+                if question.question_type.startswith('likert'):
+                    # Handle both dict format {'options': [...]} and list format [...]
+                    if question.options:
+                        if isinstance(question.options, dict):
+                            options = question.options.get('options', [])
+                        elif isinstance(question.options, list):
+                            options = question.options
+                        else:
+                            options = []
+                    else:
+                        options = []
+                    
+                    for i, option in enumerate(options):
+                        count = sum(1 for a in answers if a.answer_value == i)
+                        question_stats_data.append({
+                            'سوال': question.question_text[:100] if question.question_text else '',  # Limit length
+                            'گزینه': option if option else '',
+                            'تعداد پاسخ': count
+                        })
+                else:
                     question_stats_data.append({
-                        'سوال': question.question_text[:100],  # Limit length
-                        'گزینه': option,
-                        'تعداد پاسخ': count
+                        'سوال': question.question_text[:100] if question.question_text else '',
+                        'گزینه': 'پاسخ داده شده',
+                        'تعداد پاسخ': len(answers)
                     })
-            else:
-                question_stats_data.append({
-                    'سوال': question.question_text[:100],
-                    'گزینه': 'پاسخ داده شده',
-                    'تعداد پاسخ': len(answers)
-                })
+            except Exception as e:
+                logger.error(f"Error processing question {question.id} in Excel export: {e}", exc_info=True)
+                # Continue with next question
+                continue
         
-        excel_data['آمار سوالات'] = pd.DataFrame(question_stats_data)
+        # Create DataFrames, handling empty data
+        if participants_data:
+            excel_data['شرکت کنندگان'] = pd.DataFrame(participants_data)
+        else:
+            excel_data['شرکت کنندگان'] = pd.DataFrame([{
+                'شناسه پاسخ': '',
+                'نام کاربر': 'داده‌ای یافت نشد',
+                'کد ملی': '',
+                'تاریخ شروع (هجری شمسی)': '',
+                'تاریخ تکمیل (هجری شمسی)': '',
+                'وضعیت': ''
+            }])
+        
+        if question_stats_data:
+            excel_data['آمار سوالات'] = pd.DataFrame(question_stats_data)
+        else:
+            excel_data['آمار سوالات'] = pd.DataFrame([{
+                'سوال': 'داده‌ای یافت نشد',
+                'گزینه': '',
+                'تعداد پاسخ': 0
+            }])
         
         # Create Excel file in memory
         output = io.BytesIO()
-        with pd.ExcelWriter(output, engine='openpyxl') as writer:
-            for sheet_name, df in excel_data.items():
-                df.to_excel(writer, sheet_name=sheet_name, index=False)
-        
-        output.seek(0)
-        
-        # Create response
-        response = make_response(output.read())
-        response.headers['Content-Type'] = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-        response.headers['Content-Disposition'] = f'attachment; filename=survey_{survey_id}_reports.xlsx'
-        
-        log_survey_action('export_survey_reports_excel', 'survey', survey_id)
-        return response
+        try:
+            with pd.ExcelWriter(output, engine='openpyxl') as writer:
+                for sheet_name, df in excel_data.items():
+                    # Excel sheet names have limitations (max 31 chars, no special chars)
+                    # Keep Persian names but ensure they're valid
+                    safe_sheet_name = sheet_name[:31] if len(sheet_name) <= 31 else sheet_name[:28] + '...'
+                    # Remove invalid characters for Excel sheet names
+                    invalid_chars = ['\\', '/', '?', '*', '[', ']', ':']
+                    for char in invalid_chars:
+                        safe_sheet_name = safe_sheet_name.replace(char, '_')
+                    
+                    try:
+                        df.to_excel(writer, sheet_name=safe_sheet_name, index=False)
+                    except Exception as e:
+                        logger.error(f"Error writing sheet {safe_sheet_name}: {e}", exc_info=True)
+                        # Try with a simpler name
+                        simple_name = f"Sheet{list(excel_data.keys()).index(sheet_name) + 1}"
+                        df.to_excel(writer, sheet_name=simple_name, index=False)
+            
+            output.seek(0)
+            
+            # Create response
+            response = make_response(output.read())
+            response.headers['Content-Type'] = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+            response.headers['Content-Disposition'] = f'attachment; filename=survey_{survey_id}_reports.xlsx'
+            
+            log_survey_action('export_survey_reports_excel', 'survey', survey_id)
+            return response
+        except Exception as e:
+            logger.error(f"Error creating Excel file: {e}", exc_info=True)
+            raise
         
     except Exception as e:
         logger.error(f"Error exporting Excel: {e}", exc_info=True)
         flash('خطا در خروجی Excel', 'error')
         return redirect(url_for('survey.manager_reports_overview', survey_id=survey_id))
+
+
+@survey_bp.route('/manager/surveys/<int:survey_id>/reports/response/<int:response_id>')
+@login_required
+@manager_required
+def manager_reports_response_detail(survey_id, response_id):
+    """View detailed response for a specific user"""
+    try:
+        manager = SurveyManager.query.filter_by(user_id=current_user.id, is_active=True).first()
+        if not manager:
+            flash('شما به عنوان مسئول نظرسنجی تعریف نشده‌اید', 'error')
+            return redirect(url_for('list_tools'))
+        
+        survey = Survey.query.get_or_404(survey_id)
+        if survey.manager_id != manager.id:
+            flash('شما دسترسی به این پرسشنامه ندارید', 'error')
+            return redirect(url_for('survey.manager_surveys_list'))
+        
+        # Get the response
+        response = SurveyResponse.query.get_or_404(response_id)
+        if response.survey_id != survey_id:
+            flash('این پاسخ متعلق به این پرسشنامه نیست', 'error')
+            return redirect(url_for('survey.manager_reports_overview', survey_id=survey_id))
+        
+        # Get all questions with their answers
+        questions = SurveyQuestion.query.filter_by(survey_id=survey_id).order_by(SurveyQuestion.order).all()
+        
+        # Get categories
+        categories = SurveyCategory.query.filter_by(survey_id=survey_id).order_by(SurveyCategory.order).all()
+        
+        # Group questions by category
+        questions_by_category = {}
+        questions_without_category = []
+        
+        for question in questions:
+            if question.category_id:
+                if question.category_id not in questions_by_category:
+                    questions_by_category[question.category_id] = []
+                questions_by_category[question.category_id].append(question)
+            else:
+                questions_without_category.append(question)
+        
+        # Get all answers for this response
+        answers = {}
+        answer_items = SurveyAnswerItem.query.filter_by(response_id=response_id).all()
+        for answer_item in answer_items:
+            answers[answer_item.question_id] = answer_item
+        
+        # Get user info
+        user = response.user if response.user else None
+        user_display_name = user.name if user else (response.national_id or 'کاربر ناشناس')
+        
+        # Check if current user is admin
+        is_admin = False
+        try:
+            if current_user.is_authenticated and hasattr(current_user, 'is_admin'):
+                is_admin = current_user.is_admin()
+        except:
+            pass
+        
+        return render_template('survey/manager/reports/response_detail.html',
+                             survey=survey,
+                             response=response,
+                             questions=questions,
+                             categories=categories,
+                             questions_by_category=questions_by_category,
+                             questions_without_category=questions_without_category,
+                             answers=answers,
+                             user=user,
+                             user_display_name=user_display_name,
+                             is_admin=is_admin)
+        
+    except Exception as e:
+        logger.error(f"Error viewing response detail: {e}", exc_info=True)
+        flash('خطا در نمایش جزئیات پاسخ', 'error')
+        return redirect(url_for('survey.manager_reports_overview', survey_id=survey_id))
+
+
+@survey_bp.route('/uploads/surveys/files/<path:filename>')
+@login_required
+def survey_uploaded_file(filename):
+    """Serve uploaded survey files - requires authentication"""
+    try:
+        import os
+        # Get the app directory (parent of survey directory)
+        current_file_dir = os.path.dirname(os.path.abspath(__file__))  # app/survey/
+        app_dir = os.path.dirname(current_file_dir)  # app/
+        
+        # Try multiple possible paths (files are saved relative to working directory)
+        possible_paths = [
+            os.path.join(app_dir, 'app', 'static', 'uploads', 'surveys', 'files'),  # app/app/static/... (when running from app/)
+            os.path.join(app_dir, 'static', 'uploads', 'surveys', 'files'),  # app/static/...
+            os.path.join(os.getcwd(), 'app', 'static', 'uploads', 'surveys', 'files'),  # current_dir/app/static/...
+            os.path.join(os.getcwd(), 'static', 'uploads', 'surveys', 'files'),  # current_dir/static/...
+        ]
+        
+        upload_dir = None
+        file_path = None
+        for path in possible_paths:
+            test_file = os.path.join(path, filename)
+            if os.path.exists(test_file):
+                upload_dir = path
+                file_path = test_file
+                logger.info(f"Found file in: {upload_dir}")
+                break
+        
+        if not upload_dir:
+            # Default to the path where files are actually saved (app/app/static/...)
+            upload_dir = possible_paths[0]
+            file_path = os.path.join(upload_dir, filename)
+            logger.warning(f"File not found, using path: {upload_dir}")
+        
+        # Security: Only allow access to survey managers or admins
+        if not current_user.is_authenticated:
+            from flask import abort
+            abort(401)
+        
+        # Check if user is survey manager or admin
+        is_manager = is_survey_manager(current_user)
+        is_admin = False
+        try:
+            if hasattr(current_user, 'is_admin'):
+                is_admin = current_user.is_admin()
+        except:
+            pass
+        
+        if not (is_manager or is_admin):
+            from flask import abort
+            abort(403)
+        
+        logger.info(f"Serving file: {file_path}, exists: {os.path.exists(file_path)}")
+        
+        if os.path.exists(file_path):
+            return send_from_directory(upload_dir, filename)
+        else:
+            logger.warning(f"File not found: {file_path}")
+            from flask import abort
+            abort(404)
+    except Exception as e:
+        logger.error(f"Error serving file: {e}", exc_info=True)
+        from flask import abort
+        abort(404)
 
