@@ -185,13 +185,86 @@
 </div>
 
 <script>
+// Set custom validation messages in Persian
+document.addEventListener('DOMContentLoaded', function() {
+    const form = document.getElementById('surveyForm');
+    
+    // Set custom validation messages for all required fields
+    const requiredFields = form.querySelectorAll('[required]');
+    requiredFields.forEach(field => {
+        // Remove default validation message
+        field.addEventListener('invalid', function(e) {
+            e.preventDefault();
+            
+            if (field.type === 'radio') {
+                // For radio buttons, find all radio buttons in the same group
+                const radioGroup = form.querySelectorAll(`input[name="${field.name}"]`);
+                radioGroup.forEach(radio => {
+                    radio.setCustomValidity('لطفاً یکی از گزینه‌های این سوال را انتخاب کنید');
+                });
+                
+                // Show validation message on the first radio button
+                if (radioGroup.length > 0) {
+                    radioGroup[0].reportValidity();
+                }
+            } else if (field.type === 'file') {
+                field.setCustomValidity('لطفاً فایل مورد نظر را انتخاب کنید');
+                field.reportValidity();
+            } else if (field.tagName === 'TEXTAREA') {
+                field.setCustomValidity('لطفاً پاسخ این سوال را وارد کنید');
+                field.reportValidity();
+            } else {
+                field.setCustomValidity('لطفاً این فیلد را پر کنید');
+                field.reportValidity();
+            }
+        });
+        
+        // Clear custom validation message when user interacts with the field
+        field.addEventListener('input', function() {
+            if (field.type === 'radio') {
+                // Clear validation for all radio buttons in the group
+                const radioGroup = form.querySelectorAll(`input[name="${field.name}"]`);
+                radioGroup.forEach(radio => {
+                    radio.setCustomValidity('');
+                });
+            } else {
+                field.setCustomValidity('');
+            }
+        });
+        
+        // For radio buttons, also clear validation when any radio in the group is clicked
+        if (field.type === 'radio') {
+            field.addEventListener('change', function() {
+                const radioGroup = form.querySelectorAll(`input[name="${field.name}"]`);
+                radioGroup.forEach(radio => {
+                    radio.setCustomValidity('');
+                });
+            });
+        }
+    });
+});
+
 // Form validation
 document.getElementById('surveyForm').addEventListener('submit', function(e) {
     const requiredFields = this.querySelectorAll('[required]');
     let isValid = true;
     
     requiredFields.forEach(field => {
-        if (!field.value || (field.type === 'radio' && !this.querySelector(`input[name="${field.name}"]:checked`))) {
+        if (field.type === 'radio') {
+            // Check if any radio in the group is checked
+            const radioGroup = this.querySelectorAll(`input[name="${field.name}"]`);
+            const isChecked = Array.from(radioGroup).some(radio => radio.checked);
+            if (!isChecked) {
+                isValid = false;
+                radioGroup.forEach(radio => {
+                    radio.classList.add('is-invalid');
+                });
+            } else {
+                radioGroup.forEach(radio => {
+                    radio.classList.remove('is-invalid');
+                });
+            }
+        } else if (!field.value) {
             isValid = false;
             field.classList.add('is-invalid');
         } else {

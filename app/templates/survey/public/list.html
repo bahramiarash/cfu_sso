@@ -4,7 +4,14 @@
 
 {% block content %}
 <div class="container mt-4">
-    <h2 class="mb-4">خوش آمدید، {{ user_display_name }}</h2>
+    <div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-2">
+        <h2 class="mb-0">خوش آمدید، {{ user_display_name }}</h2>
+        {% if is_survey_manager %}
+        <a href="{{ url_for('survey.manager_dashboard') }}" class="btn btn-primary">
+            <i class="bi bi-speedometer2"></i> پنل مدیریت نظرسنجی
+        </a>
+        {% endif %}
+    </div>
     
     {% if surveys_data %}
     <div class="row">
@@ -68,7 +75,27 @@
                     {% endif %}
                     
                     <div class="mt-auto">
-                        {% if status == 'completed' %}
+                        {% if not item.can_complete %}
+                        <!-- کاربر نمی‌تواند پرسشنامه را تکمیل کند -->
+                        <div class="alert alert-warning mb-0" role="alert">
+                            <i class="bi bi-exclamation-triangle-fill"></i>
+                            <strong>{{ item.limit_message }}</strong>
+                            {% if item.current_completion_count > 0 %}
+                            <br><small class="text-muted">
+                                تعداد تکمیل‌های شما در این بازه: {{ item.current_completion_count }} از {{ item.max_completions }}
+                                {% if item.completion_period_type == 'monthly' %}
+                                    (ماهیانه)
+                                {% elif item.completion_period_type == 'quarterly' %}
+                                    (فصلی)
+                                {% elif item.completion_period_type == 'semester' %}
+                                    (ترمی)
+                                {% elif item.completion_period_type == 'yearly' %}
+                                    (سالیانه)
+                                {% endif %}
+                            </small>
+                            {% endif %}
+                        </div>
+                        {% elif status == 'completed' %}
                         <a href="{{ url_for('survey.survey_start', survey_id=survey.id) }}" class="btn btn-success w-100">
                             <i class="bi bi-arrow-repeat"></i> تکمیل مجدد
                         </a>

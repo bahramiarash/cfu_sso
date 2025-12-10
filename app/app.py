@@ -552,16 +552,39 @@ def survey():
             surveys = get_accessible_surveys(user, national_id)
             
             # Get completion status for each survey
-            from survey.utils import get_user_survey_status
+            from survey.utils import get_user_survey_status, check_completion_limit
+            from survey_models import SurveyManager
             surveys_with_status = []
             for survey in surveys:
                 status_info = get_user_survey_status(user, survey.id, national_id)
+                
+                # Check if user is the survey manager (managers can always access their own surveys)
+                is_manager_owner = False
+                if user:
+                    from survey.utils import is_survey_manager
+                    if is_survey_manager(user):
+                        manager = SurveyManager.query.filter_by(user_id=user.id, is_active=True).first()
+                        if manager and survey.manager_id == manager.id:
+                            is_manager_owner = True
+                
+                # Check completion limit (skip for manager owners - they can test their surveys)
+                can_complete = True
+                limit_message = ""
+                current_count = 0
+                if not is_manager_owner:
+                    can_complete, limit_message, current_count = check_completion_limit(user, survey, national_id)
+                
                 surveys_with_status.append({
                     'survey': survey,
                     'status': status_info['status'],  # 'completed', 'started', 'not_started'
                     'completed_count': status_info.get('completed_count', 0),
                     'last_completed_at': status_info.get('last_completed_at'),
-                    'last_started_at': status_info.get('last_started_at')
+                    'last_started_at': status_info.get('last_started_at'),
+                    'can_complete': can_complete,
+                    'limit_message': limit_message,
+                    'current_completion_count': current_count,
+                    'max_completions': survey.max_completions_per_user,
+                    'completion_period_type': survey.completion_period_type
                 })
         except Exception as e:
             logger.error(f"Error fetching accessible surveys: {e}", exc_info=True)

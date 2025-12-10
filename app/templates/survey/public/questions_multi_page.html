@@ -1,0 +1,516 @@
+{% extends "base.html" %}
+
+{% block title %}تکمیل پرسشنامه: {{ survey.title }}{% endblock %}
+
+{% block extra_css %}
+<style>
+    .question-container {
+        min-height: 400px;
+        padding: 2rem;
+        background: #f8f9fa;
+        border-radius: 8px;
+        margin-bottom: 2rem;
+    }
+    .question-card {
+        background: white;
+        padding: 2rem;
+        border-radius: 8px;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        display: none;
+    }
+    .question-card.active {
+        display: block;
+    }
+    .question-header {
+        margin-bottom: 1.5rem;
+        padding-bottom: 1rem;
+        border-bottom: 2px solid #0d6efd;
+    }
+    .question-number {
+        color: #0d6efd;
+        font-weight: bold;
+        font-size: 1.1rem;
+    }
+    .category-badge {
+        display: inline-block;
+        background: #e7f3ff;
+        color: #0d6efd;
+        padding: 0.25rem 0.75rem;
+        border-radius: 20px;
+        font-size: 0.9rem;
+        margin-bottom: 0.5rem;
+    }
+    .question-text {
+        font-size: 1.2rem;
+        font-weight: bold;
+        margin-bottom: 1rem;
+        color: #2c3e50;
+    }
+    .question-description {
+        color: #6c757d;
+        margin-bottom: 1.5rem;
+    }
+    .required-badge {
+        color: #dc3545;
+        font-size: 0.9em;
+        margin-right: 0.5rem;
+    }
+    .likert-options {
+        display: flex;
+        flex-direction: column;
+        gap: 1rem;
+        margin-top: 1rem;
+    }
+    .likert-option {
+        padding: 1rem;
+        border: 2px solid #dee2e6;
+        border-radius: 8px;
+        cursor: pointer;
+        transition: all 0.3s ease;
+    }
+    .likert-option:hover {
+        border-color: #0d6efd;
+        background-color: #f0f7ff;
+    }
+    .likert-option input[type="radio"]:checked + label {
+        color: #0d6efd;
+        font-weight: bold;
+    }
+    .likert-option input[type="radio"] {
+        margin-left: 0.5rem;
+    }
+    .likert-option label {
+        cursor: pointer;
+        width: 100%;
+        margin: 0;
+    }
+    .navigation-buttons {
+        display: flex;
+        justify-content: space-between;
+        margin-top: 2rem;
+        padding-top: 1.5rem;
+        border-top: 1px solid #dee2e6;
+    }
+    .progress-bar-container {
+        margin-bottom: 2rem;
+    }
+    .progress-info {
+        display: flex;
+        justify-content: space-between;
+        margin-bottom: 0.5rem;
+        font-size: 0.9rem;
+        color: #6c757d;
+    }
+    .answer-field textarea {
+        min-height: 120px;
+    }
+    .question-indicator {
+        text-align: center;
+        margin-bottom: 1rem;
+        font-size: 0.9rem;
+        color: #6c757d;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container mt-4 mb-4">
+    <div class="row">
+        <div class="col-md-10 offset-md-1">
+            <div class="card">
+                <div class="card-header bg-primary text-white">
+                    <h3 class="mb-0">{{ survey.title }}</h3>
+                </div>
+                <div class="card-body">
+                    <!-- Progress Bar -->
+                    <div class="progress-bar-container">
+                        <div class="progress-info">
+                            <span>پیشرفت: <strong id="currentQuestionNum">1</strong> از <strong>{{ total_questions }}</strong></span>
+                            <span id="progressPercent">0%</span>
+                        </div>
+                        <div class="progress" style="height: 25px;">
+                            <div class="progress-bar progress-bar-striped progress-bar-animated" 
+                                 role="progressbar" 
+                                 id="progressBar"
+                                 style="width: 0%"
+                                 aria-valuenow="0" 
+                                 aria-valuemin="0" 
+                                 aria-valuemax="100">
+                            </div>
+                        </div>
+                    </div>
+
+                    <form method="POST" id="surveyForm" enctype="multipart/form-data">
+                        <div class="question-container">
+                            {% for item in all_questions %}
+                            {% set question = item.question %}
+                            {% set category = item.category %}
+                            {% set question_index = item.question_index %}
+                            
+                            <div class="question-card {% if question_index == 0 %}active{% endif %}" 
+                                 data-question-id="{{ question.id }}" 
+                                 data-question-index="{{ question_index }}">
+                                
+                                {% if category %}
+                                <div class="category-badge">
+                                    <i class="bi bi-folder"></i> {{ category.title }}
+                                </div>
+                                {% endif %}
+                                
+                                <div class="question-header">
+                                    <div class="question-number">
+                                        سوال {{ question_index + 1 }} از {{ total_questions }}
+                                    </div>
+                                </div>
+                                
+                                <div class="question-text">
+                                    {% if question.is_required %}
+                                    <span class="required-badge">*</span>
+                                    {% endif %}
+                                    {{ question.question_text }}
+                                </div>
+                                
+                                {% if question.description %}
+                                <div class="question-description">
+                                    {{ question.description }}
+                                </div>
+                                {% endif %}
+                                
+                                <div class="answer-field">
+                                    {% if question.question_type.startswith('likert_') %}
+                                        {% set option_count = question.question_type.split('_')[1] | int %}
+                                        {% set options = question.options if question.options else [] %}
+                                        <div class="likert-options">
+                                            {% for i in range(option_count) %}
+                                            <div class="likert-option">
+                                                <input type="radio" 
+                                                       name="question_{{ question.id }}" 
+                                                       id="question_{{ question.id }}_option_{{ i }}"
+                                                       value="{{ i }}" 
+                                                       class="form-check-input"
+                                                       {% if question.is_required %}required{% endif %}>
+                                                <label for="question_{{ question.id }}_option_{{ i }}" class="form-check-label">
+                                                    {{ options[i] if options and i < options|length else "گزینه " + (i+1)|string }}
+                                                </label>
+                                            </div>
+                                            {% endfor %}
+                                        </div>
+                                    {% elif question.question_type == 'text' %}
+                                        <textarea name="question_{{ question.id }}" 
+                                                  class="form-control" 
+                                                  rows="6"
+                                                  {% if question.is_required %}required{% endif %}
+                                                  placeholder="پاسخ خود را وارد کنید..."></textarea>
+                                    {% elif question.question_type == 'file_upload' %}
+                                        <input type="file" 
+                                               name="question_{{ question.id }}" 
+                                               class="form-control"
+                                               {% if question.is_required %}required{% endif %}
+                                               accept=".pdf,.doc,.docx,.jpg,.jpeg,.png,.txt">
+                                        <small class="text-muted d-block mt-2">حداکثر حجم: 2 مگابایت</small>
+                                    {% endif %}
+                                </div>
+                                
+                                <div class="navigation-buttons">
+                                    <button type="button" 
+                                            class="btn btn-secondary btn-lg prev-btn" 
+                                            {% if question_index == 0 %}disabled{% endif %}
+                                            onclick="goToPreviousQuestion()">
+                                        <i class="bi bi-arrow-right"></i> سوال قبلی
+                                    </button>
+                                    
+                                    {% if question_index == total_questions - 1 %}
+                                    <button type="submit" class="btn btn-success btn-lg">
+                                        <i class="bi bi-check-circle"></i> ثبت نهایی پاسخ‌ها
+                                    </button>
+                                    {% else %}
+                                    <button type="button" 
+                                            class="btn btn-primary btn-lg next-btn" 
+                                            onclick="goToNextQuestion()">
+                                        سوال بعدی <i class="bi bi-arrow-left"></i>
+                                    </button>
+                                    {% endif %}
+                                </div>
+                            </div>
+                            {% endfor %}
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+// Save survey_id for localStorage key
+const survey_id = {{ survey.id }};
+let currentQuestionIndex = 0;
+const totalQuestions = {{ total_questions }};
+const questionCards = document.querySelectorAll('.question-card');
+
+// Update progress bar
+function updateProgress() {
+    const progress = ((currentQuestionIndex + 1) / totalQuestions) * 100;
+    document.getElementById('progressBar').style.width = progress + '%';
+    document.getElementById('progressBar').setAttribute('aria-valuenow', progress);
+    document.getElementById('currentQuestionNum').textContent = currentQuestionIndex + 1;
+    document.getElementById('progressPercent').textContent = Math.round(progress) + '%';
+}
+
+// Show specific question
+function showQuestion(index) {
+    if (index < 0 || index >= totalQuestions) return;
+    
+    // Hide all questions
+    questionCards.forEach(card => card.classList.remove('active'));
+    
+    // Show current question
+    questionCards[index].classList.add('active');
+    currentQuestionIndex = index;
+    
+    // Update progress
+    updateProgress();
+    
+    // Update navigation buttons
+    const prevBtn = questionCards[index].querySelector('.prev-btn');
+    const nextBtn = questionCards[index].querySelector('.next-btn');
+    
+    if (prevBtn) {
+        prevBtn.disabled = (index === 0);
+    }
+    
+    // Scroll to top
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+// Go to next question
+function goToNextQuestion() {
+    const currentCard = questionCards[currentQuestionIndex];
+    const questionId = currentCard.getAttribute('data-question-id');
+    
+    // Validate current question if required
+    const requiredFields = currentCard.querySelectorAll('[required]');
+    let isValid = true;
+    
+    for (let field of requiredFields) {
+        if (field.type === 'radio') {
+            const radioGroup = currentCard.querySelectorAll(`input[name="${field.name}"]`);
+            const isChecked = Array.from(radioGroup).some(radio => radio.checked);
+            if (!isChecked) {
+                isValid = false;
+                radioGroup.forEach(radio => {
+                    radio.classList.add('is-invalid');
+                });
+            } else {
+                radioGroup.forEach(radio => {
+                    radio.classList.remove('is-invalid');
+                });
+            }
+        } else if (!field.value) {
+            isValid = false;
+            field.classList.add('is-invalid');
+        } else {
+            field.classList.remove('is-invalid');
+        }
+    }
+    
+    if (!isValid) {
+        alert('لطفاً به این سوال پاسخ دهید');
+        return;
+    }
+    
+    // Move to next question
+    if (currentQuestionIndex < totalQuestions - 1) {
+        showQuestion(currentQuestionIndex + 1);
+    }
+}
+
+// Go to previous question
+function goToPreviousQuestion() {
+    if (currentQuestionIndex > 0) {
+        showQuestion(currentQuestionIndex - 1);
+    }
+}
+
+// Save answers to localStorage
+function saveAnswers() {
+    const answers = {};
+    questionCards.forEach(card => {
+        const questionId = card.getAttribute('data-question-id');
+        const radioInputs = card.querySelectorAll('input[type="radio"]');
+        const textInputs = card.querySelectorAll('textarea, input[type="text"]');
+        const fileInputs = card.querySelectorAll('input[type="file"]');
+        
+        // Save radio button answers
+        radioInputs.forEach(radio => {
+            if (radio.checked) {
+                answers[`question_${questionId}`] = radio.value;
+            }
+        });
+        
+        // Save text answers
+        textInputs.forEach(input => {
+            if (input.value) {
+                answers[`question_${questionId}`] = input.value;
+            }
+        });
+        
+        // Note: File inputs cannot be saved to localStorage
+    });
+    
+    localStorage.setItem(`survey_${survey_id}_answers`, JSON.stringify(answers));
+}
+
+// Load answers from localStorage
+function loadAnswers() {
+    const saved = localStorage.getItem(`survey_${survey_id}_answers`);
+    if (!saved) return;
+    
+    try {
+        const answers = JSON.parse(saved);
+        Object.keys(answers).forEach(key => {
+            const field = document.querySelector(`[name="${key}"]`);
+            if (field) {
+                if (field.type === 'radio') {
+                    const radio = document.querySelector(`[name="${key}"][value="${answers[key]}"]`);
+                    if (radio) radio.checked = true;
+                } else {
+                    field.value = answers[key];
+                }
+            }
+        });
+    } catch (e) {
+        console.error('Error loading saved answers:', e);
+    }
+}
+
+// Clear saved answers after successful submission
+function clearSavedAnswers() {
+    localStorage.removeItem(`survey_${survey_id}_answers`);
+}
+
+// Set custom validation messages in Persian
+document.addEventListener('DOMContentLoaded', function() {
+    const form = document.getElementById('surveyForm');
+    
+    // Load saved answers
+    loadAnswers();
+    
+    // Save answers on any change
+    form.addEventListener('change', saveAnswers);
+    form.addEventListener('input', saveAnswers);
+    
+    // Set custom validation messages for all required fields
+    const requiredFields = form.querySelectorAll('[required]');
+    requiredFields.forEach(field => {
+        field.addEventListener('invalid', function(e) {
+            e.preventDefault();
+            
+            if (field.type === 'radio') {
+                const radioGroup = form.querySelectorAll(`input[name="${field.name}"]`);
+                radioGroup.forEach(radio => {
+                    radio.setCustomValidity('لطفاً یکی از گزینه‌های این سوال را انتخاب کنید');
+                });
+                if (radioGroup.length > 0) {
+                    radioGroup[0].reportValidity();
+                }
+            } else if (field.type === 'file') {
+                field.setCustomValidity('لطفاً فایل مورد نظر را انتخاب کنید');
+                field.reportValidity();
+            } else if (field.tagName === 'TEXTAREA') {
+                field.setCustomValidity('لطفاً پاسخ این سوال را وارد کنید');
+                field.reportValidity();
+            } else {
+                field.setCustomValidity('لطفاً این فیلد را پر کنید');
+                field.reportValidity();
+            }
+        });
+        
+        field.addEventListener('input', function() {
+            if (field.type === 'radio') {
+                const radioGroup = form.querySelectorAll(`input[name="${field.name}"]`);
+                radioGroup.forEach(radio => {
+                    radio.setCustomValidity('');
+                });
+            } else {
+                field.setCustomValidity('');
+            }
+        });
+        
+        if (field.type === 'radio') {
+            field.addEventListener('change', function() {
+                const radioGroup = form.querySelectorAll(`input[name="${field.name}"]`);
+                radioGroup.forEach(radio => {
+                    radio.setCustomValidity('');
+                });
+            });
+        }
+    });
+    
+    // Initialize progress
+    updateProgress();
+    
+    // Keyboard navigation
+    document.addEventListener('keydown', function(e) {
+        if (e.key === 'ArrowRight' && currentQuestionIndex > 0) {
+            e.preventDefault();
+            goToPreviousQuestion();
+        } else if (e.key === 'ArrowLeft' && currentQuestionIndex < totalQuestions - 1) {
+            e.preventDefault();
+            goToNextQuestion();
+        }
+    });
+});
+
+// Form submission validation
+document.getElementById('surveyForm').addEventListener('submit', function(e) {
+    // Validate all questions
+    let isValid = true;
+    const firstInvalidQuestion = [];
+    
+    questionCards.forEach((card, index) => {
+        const requiredFields = card.querySelectorAll('[required]');
+        requiredFields.forEach(field => {
+            if (field.type === 'radio') {
+                const radioGroup = card.querySelectorAll(`input[name="${field.name}"]`);
+                const isChecked = Array.from(radioGroup).some(radio => radio.checked);
+                if (!isChecked) {
+                    isValid = false;
+                    if (firstInvalidQuestion.length === 0) {
+                        firstInvalidQuestion.push(index);
+                    }
+                    radioGroup.forEach(radio => {
+                        radio.classList.add('is-invalid');
+                    });
+                }
+            } else if (!field.value) {
+                isValid = false;
+                if (firstInvalidQuestion.length === 0) {
+                    firstInvalidQuestion.push(index);
+                }
+                field.classList.add('is-invalid');
+            }
+        });
+    });
+    
+    if (!isValid) {
+        e.preventDefault();
+        if (firstInvalidQuestion.length > 0) {
+            showQuestion(firstInvalidQuestion[0]);
+        }
+        alert('لطفاً تمام سوالات الزامی را پاسخ دهید');
+        return false;
+    }
+    
+    // Confirm submission
+    if (!confirm('آیا از ثبت نهایی پاسخ‌های خود اطمینان دارید؟')) {
+        e.preventDefault();
+        return false;
+    }
+    
+    // Clear saved answers on successful submission
+    clearSavedAnswers();
+});
+</script>
+{% endblock %}
+

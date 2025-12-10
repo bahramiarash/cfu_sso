@@ -3,28 +3,134 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate, max-age=0" />
+    <meta http-equiv="Pragma" content="no-cache" />
+    <meta http-equiv="Expires" content="0" />
     <title>{% block title %}سامانه{% endblock %}</title>
 
     <!-- Inside <head> -->
     <link rel="stylesheet" href="{{ url_for('static', filename='bootstrap.rtl.min.css') }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='kamadatepicker.css') }}">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.0/font/bootstrap-icons.css">
 
     <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.7.1/jquery.min.js"></script>
     <script src="{{ url_for('static', filename='bootstrap.bundle.min.js') }}"></script>
     <script src="{{ url_for('static', filename='kamadatepicker.js') }}"></script>
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}" />
-
+    
+    <style>
+        body {
+            font-family: "Vazir", Tahoma, sans-serif;
+            background-color: #f8f9fa;
+            padding: 0;
+        }
+        .navbar-custom {
+            background: #ffffff;
+            border-bottom: 1px solid #e0e0e0;
+            padding: 0.5rem 0;
+        }
+        .navbar-brand-custom {
+            color: #2c3e50 !important;
+            font-weight: bold;
+            font-size: 1.1rem;
+        }
+        .navbar-brand-custom:hover {
+            color: #1a252f !important;
+        }
+        .navbar-toggler {
+            border-color: #dee2e6;
+        }
+        .navbar-toggler-icon {
+            background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 30 30'%3e%3cpath stroke='rgba%2844, 62, 80, 1%29' stroke-linecap='round' stroke-miterlimit='10' stroke-width='2' d='M4 7h22M4 15h22M4 23h22'/%3e%3c/svg%3e");
+        }
+        .logout-btn {
+            color: #2c3e50 !important;
+            border-color: #dee2e6 !important;
+            transition: all 0.3s ease;
+        }
+        .logout-btn:hover {
+            background-color: #f8f9fa !important;
+            border-color: #adb5bd !important;
+            color: #1a252f !important;
+        }
+        .main-content {
+            padding: 2rem 1rem;
+        }
+        .nav-link {
+            color: #2c3e50 !important;
+        }
+        .nav-link:hover {
+            color: #1a252f !important;
+        }
+    </style>
+    
+    {% block extra_css %}{% endblock %}
 
 </head>
-<body class="container py-4 bg-light">
+<body>
 
+<!-- University Header -->
+<div class="university-header" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 1.5rem 0; box-shadow: 0 2px 4px rgba(0,0,0,0.1); margin-bottom: 0;">
+    <div class="container">
+        <div class="d-flex align-items-center justify-content-center gap-3 flex-wrap">
+            <img src="{{ url_for('static', filename='img/university-logo.png') }}" 
+                 alt="لوگوی دانشگاه فرهنگیان" 
+                 class="university-logo"
+                 style="height: 60px; width: auto; object-fit: contain; display: block;"
+                 onerror="this.style.display='none'">
+            <h3 class="mb-0 text-center" style="font-weight: bold; font-size: 1.5rem; color: #2c3e50; background-color: rgba(255, 255, 255, 0.95); padding: 0.75rem 1.5rem; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.15); display: inline-block;">
+                سامانه پایش و رصد اطلاعات دانشگاه فرهنگیان
+            </h3>
+        </div>
+    </div>
+</div>
+
+<!-- Navigation Bar -->
+<nav class="navbar navbar-expand-lg navbar-custom">
+    <div class="container">
+        <a class="navbar-brand navbar-brand-custom" href="{{ url_for('list_tools') }}">
+            <i class="bi bi-house-door"></i> صفحه اصلی
+        </a>
+        <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav" aria-controls="navbarNav" aria-expanded="false" aria-label="Toggle navigation">
+            <span class="navbar-toggler-icon"></span>
+        </button>
+        <div class="collapse navbar-collapse" id="navbarNav">
+            <ul class="navbar-nav me-auto">
+                <li class="nav-item">
+                    <a class="nav-link" href="{{ url_for('dashboard.dashboard_list') }}" style="color: #2c3e50;">
+                        <i class="bi bi-bar-chart"></i> داشبوردها
+                    </a>
+                </li>
+            </ul>
+            <div class="d-flex align-items-center gap-2">
+                {% set nav_name = user_display_name if user_display_name is defined else (user.get('firstname', '') + ' ' + user.get('lastname', '')).strip() if (user is defined and user and (user.get('firstname') or user.get('lastname'))) else (user.get('name') if (user is defined and user) else '') %}
+                {% if nav_name and nav_name != 'کاربر گرامی' %}
+                <span class="me-2" style="color: #2c3e50;">
+                    <i class="bi bi-person-circle"></i>
+                    {{ nav_name }}
+                </span>
+                {% endif %}
+                <a href="{{ url_for('logout') }}" class="btn btn-outline-light btn-sm logout-btn" aria-label="خروج از سیستم">
+                    <i class="bi bi-box-arrow-right"></i> خروج
+                </a>
+            </div>
+        </div>
+    </div>
+</nav>
+
+<div class="container main-content">
     <main>
         {% block content %}{% endblock %}
     </main>
+</div>
 
-    <footer>
-        <p>© دانشگاه فرهنگیان</p>
-    </footer>
+<footer class="text-center py-3" style="background-color: #f8f9fa; border-top: 1px solid #e0e0e0; margin-top: 2rem;">
+    <div class="container">
+        <p class="mb-0 text-muted">© دانشگاه فرهنگیان</p>
+    </div>
+</footer>
+    
+{% block extra_js %}{% endblock %}
 
 </body>
 </html>

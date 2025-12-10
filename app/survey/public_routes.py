@@ -159,12 +159,38 @@ def survey_questions(survey_id):
         display_name = get_user_display_name_from_session()
         
         log_survey_action('view_survey_questions', 'survey', survey_id)
-        return render_template('survey/public/questions.html',
-                             survey=survey,
-                             categories=categories,
-                             questions_by_category=questions_by_category,
-                             questions_without_category=questions_without_category,
-                             user_display_name=display_name)
+        
+        # Check display mode and render appropriate template
+        if survey.display_mode == 'multi_page':
+            # Flatten all questions into a single list with category info
+            all_questions_flat = []
+            for category in categories:
+                for question in questions_by_category.get(category.id, []):
+                    all_questions_flat.append({
+                        'question': question,
+                        'category': category,
+                        'question_index': len(all_questions_flat)
+                    })
+            for question in questions_without_category:
+                all_questions_flat.append({
+                    'question': question,
+                    'category': None,
+                    'question_index': len(all_questions_flat)
+                })
+            
+            return render_template('survey/public/questions_multi_page.html',
+                                 survey=survey,
+                                 all_questions=all_questions_flat,
+                                 total_questions=len(all_questions_flat),
+                                 user_display_name=display_name)
+        else:
+            # Single page mode (existing template)
+            return render_template('survey/public/questions.html',
+                                 survey=survey,
+                                 categories=categories,
+                                 questions_by_category=questions_by_category,
+                                 questions_without_category=questions_without_category,
+                                 user_display_name=display_name)
         
     except Exception as e:
         logger.error(f"Error in survey_questions: {e}", exc_info=True)
