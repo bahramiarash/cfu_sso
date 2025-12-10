@@ -7,6 +7,10 @@
     <div class="d-flex justify-content-between align-items-center mb-4">
         <h1><i class="bi bi-graph-up"></i> گزارش‌های پرسشنامه: {{ survey.title }}</h1>
         <div>
+            <a href="{{ url_for('survey.manager_reports_export_links_excel', survey_id=survey.id) }}" 
+               class="btn btn-info me-2">
+                <i class="bi bi-file-earmark-excel"></i> لینک‌های پرسشنامه (Excel)
+            </a>
             <a href="{{ url_for('survey.manager_reports_export_excel', survey_id=survey.id, date_from=date_from or '', date_to=date_to or '') }}" 
                class="btn btn-success me-2">
                 <i class="bi bi-file-earmark-excel"></i> خروجی Excel
@@ -105,7 +109,15 @@
                             <th style="cursor: pointer;" onclick="sortTable(4, 'participantsTable')">
                                 تاریخ تکمیل <i class="bi bi-arrow-down-up"></i>
                             </th>
+                            {% if survey.access_type == 'anonymous' and survey_parameters %}
+                                {% for param in survey_parameters %}
+                                <th style="cursor: pointer;" onclick="sortTable({{ 5 + loop.index0 }}, 'participantsTable')">
+                                    {{ param.parameter_name }} <i class="bi bi-arrow-down-up"></i>
+                                </th>
+                                {% endfor %}
+                            {% endif %}
                             <th>وضعیت</th>
+                            <th>عملیات</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -128,12 +140,23 @@
                                     -
                                 {% endif %}
                             </td>
+                            {% if survey.access_type == 'anonymous' and survey_parameters %}
+                                {% for param in survey_parameters %}
+                                <td>{{ response_parameters_dict.get(response.id, {}).get(param.parameter_name, '-') }}</td>
+                                {% endfor %}
+                            {% endif %}
                             <td>
                                 {% if response.is_completed %}
                                     <span class="badge bg-success">تکمیل شده</span>
                                 {% else %}
                                     <span class="badge bg-warning">شروع شده</span>
                                 {% endif %}
+                            </td>
+                            <td>
+                                <a href="{{ url_for('survey.manager_reports_response_detail', survey_id=survey.id, response_id=response.id) }}" 
+                                   class="btn btn-sm btn-primary">
+                                    <i class="bi bi-eye"></i> مشاهده پاسخ‌ها
+                                </a>
                             </td>
                         </tr>
                         {% endfor %}
@@ -149,12 +172,30 @@
             <h5><i class="bi bi-bar-chart-fill"></i> نمودار تعداد پاسخ‌های هر سوال</h5>
         </div>
         <div class="card-body">
-            {% for stat in question_stats %}
-            <div class="mb-4">
-                <h6>{{ stat.question.question_text if stat.question else '' }}</h6>
-                <canvas id="questionChart{{ loop.index0 }}" height="60"></canvas>
-            </div>
-            {% endfor %}
+            {% if question_stats_by_category %}
+                {% set question_index = [] %}
+                {% for category_group in question_stats_by_category %}
+                    <div class="mb-5">
+                        <h4 class="mb-3" style="color: #2c3e50; border-bottom: 2px solid #667eea; padding-bottom: 10px;">
+                            <i class="bi bi-folder-fill"></i> {{ category_group.category.title }}
+                        </h4>
+                        {% if category_group.category.description %}
+                            <p class="text-muted mb-3">{{ category_group.category.description }}</p>
+                        {% endif %}
+                        {% for stat in category_group.questions %}
+                            <div class="mb-4" style="margin-right: 20px;">
+                                <h6 style="font-weight: 600; color: #495057;">{{ stat.question.question_text if stat.question else '' }}</h6>
+                                <canvas id="questionChart{{ question_index|length }}" height="60"></canvas>
+                                {% set _ = question_index.append(1) %}
+                            </div>
+                        {% endfor %}
+                    </div>
+                {% endfor %}
+            {% else %}
+                <div class="alert alert-warning text-center">
+                    داده‌ای برای نمایش نمودار پاسخ‌های سوالات یافت نشد.
+                </div>
+            {% endif %}
         </div>
     </div>
 
@@ -183,13 +224,25 @@
                         </tr>
                     </thead>
                     <tbody>
-                        {% for stat in question_stats %}
-                            {% for option, count in stat.option_counts.items() %}
-                            <tr>
-                                <td>{{ stat.question.question_text }}</td>
-                                <td>{{ option }}</td>
-                                <td>{{ count }}</td>
-                            </tr>
+                        {% for category_group in question_stats_by_category %}
+                            {% for stat in category_group.questions %}
+                                {% if stat.option_counts_ordered %}
+                                    {% for item in stat.option_counts_ordered %}
+                                    <tr>
+                                        <td>{{ stat.question.question_text }}</td>
+                                        <td>{{ item.option }}</td>
+                                        <td>{{ item.count }}</td>
+                                    </tr>
+                                    {% endfor %}
+                                {% else %}
+                                    {% for option, count in stat.option_counts.items() %}
+                                    <tr>
+                                        <td>{{ stat.question.question_text }}</td>
+                                        <td>{{ option }}</td>
+                                        <td>{{ count }}</td>
+                                    </tr>
+                                    {% endfor %}
+                                {% endif %}
                             {% endfor %}
                         {% endfor %}
                     </tbody>
@@ -291,47 +344,95 @@ if (ctx && dailyChartData && dailyChartData.length > 0) {
 }
 
 // Question statistics charts
+// Color mapping for consistent colors across all questions
+const optionColorMap = {};
+const colorPalette = [
+    { bg: 'rgba(54, 162, 235, 0.6)', border: 'rgba(54, 162, 235, 1)' },  // Blue
+    { bg: 'rgba(255, 99, 132, 0.6)', border: 'rgba(255, 99, 132, 1)' },  // Red
+    { bg: 'rgba(75, 192, 192, 0.6)', border: 'rgba(75, 192, 192, 1)' },  // Teal
+    { bg: 'rgba(255, 206, 86, 0.6)', border: 'rgba(255, 206, 86, 1)' },  // Yellow
+    { bg: 'rgba(153, 102, 255, 0.6)', border: 'rgba(153, 102, 255, 1)' }, // Purple
+    { bg: 'rgba(255, 159, 64, 0.6)', border: 'rgba(255, 159, 64, 1)' },  // Orange
+    { bg: 'rgba(199, 199, 199, 0.6)', border: 'rgba(199, 199, 199, 1)' }, // Grey
+    { bg: 'rgba(83, 102, 255, 0.6)', border: 'rgba(83, 102, 255, 1)' },  // Indigo
+    { bg: 'rgba(255, 99, 255, 0.6)', border: 'rgba(255, 99, 255, 1)' },  // Pink
+    { bg: 'rgba(99, 255, 132, 0.6)', border: 'rgba(99, 255, 132, 1)' }   // Green
+];
+let colorIndex = 0;
+
+function getColorForOption(option) {
+    if (!optionColorMap[option]) {
+        optionColorMap[option] = colorPalette[colorIndex % colorPalette.length];
+        colorIndex++;
+    }
+    return optionColorMap[option];
+}
+
 const questionStats = {{ question_stats_json | tojson }};
 if (questionStats && questionStats.length > 0) {
     questionStats.forEach((stat, index) => {
         const canvasId = 'questionChart' + index;
-    const canvas = document.getElementById(canvasId);
-    if (canvas) {
-        const ctx = canvas.getContext('2d');
-        const labels = Object.keys(stat.option_counts);
-        const data = Object.values(stat.option_counts);
-        
-        new Chart(ctx, {
-            type: 'bar',
-            data: {
-                labels: labels,
-                datasets: [{
-                    label: 'تعداد پاسخ',
-                    data: data,
-                    backgroundColor: 'rgba(75, 192, 192, 0.6)',
-                    borderColor: 'rgba(75, 192, 192, 1)',
-                    borderWidth: 1
-                }]
-            },
-            options: {
-                responsive: true,
-                maintainAspectRatio: true,
-                scales: {
-                    y: {
-                        beginAtZero: true,
-                        ticks: {
-                            stepSize: 1
+        const canvas = document.getElementById(canvasId);
+        if (canvas) {
+            const ctx = canvas.getContext('2d');
+            
+            // Use ordered data to preserve creation order
+            let labels = [];
+            let data = [];
+            let backgroundColors = [];
+            let borderColors = [];
+            
+            if (stat.option_counts_ordered && stat.option_counts_ordered.length > 0) {
+                // Use ordered list to preserve creation order
+                stat.option_counts_ordered.forEach(item => {
+                    labels.push(item.option);
+                    data.push(item.count);
+                    const color = getColorForOption(item.option);
+                    backgroundColors.push(color.bg);
+                    borderColors.push(color.border);
+                });
+            } else {
+                // Fallback to unordered if ordered data not available
+                labels = Object.keys(stat.option_counts);
+                data = Object.values(stat.option_counts);
+                labels.forEach(option => {
+                    const color = getColorForOption(option);
+                    backgroundColors.push(color.bg);
+                    borderColors.push(color.border);
+                });
+            }
+            
+            new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: 'تعداد پاسخ',
+                        data: data,
+                        backgroundColor: backgroundColors,
+                        borderColor: borderColors,
+                        borderWidth: 1
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: true,
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            ticks: {
+                                stepSize: 1
+                            }
+                        }
+                    },
+                    plugins: {
+                        legend: {
+                            display: true,
+                            position: 'top'
                         }
                     }
-                },
-                plugins: {
-                    legend: {
-                        display: true,
-                        position: 'top'
-                    }
                 }
-            }
-        });
+            });
         }
     });
 }
