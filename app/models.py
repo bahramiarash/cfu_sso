@@ -61,10 +61,25 @@ class User(db.Model, UserMixin):
     email = Column(db.String, unique=True)
     sso_id = Column(db.String, nullable=False)
     
+    # Personal information fields from SSO
+    firstname = Column(db.String, nullable=True)  # نام
+    lastname = Column(db.String, nullable=True)  # نام خانوادگی
+    enfirstname = Column(db.String, nullable=True)  # نام انگلیسی
+    enlastname = Column(db.String, nullable=True)  # نام خانوادگی انگلیسی
+    phone = Column(db.String, nullable=True)  # شماره تلفن
+    gender = Column(db.String, nullable=True)  # جنسیت
+    picture = Column(db.String, nullable=True)  # آدرس تصویر پروفایل
+    
     # Organizational context fields
     province_code = Column(Integer, nullable=True)  # کد استان
     university_code = Column(Integer, nullable=True)  # کد دانشگاه
     faculty_code = Column(Integer, nullable=True)  # کد دانشکده (code_markaz)
+    department = Column(db.String, nullable=True)  # نام دپارتمان/اداره
+    departmentcode = Column(db.String, nullable=True)  # کد دپارتمان
+    usertype = Column(db.String, nullable=True)  # نوع کاربر (staff/student)
+    usertypename = Column(db.String, nullable=True)  # نام نوع کاربر
+    statename = Column(db.String, nullable=True)  # وضعیت (شاغل/بازنشسته)
+    sid = Column(db.String, nullable=True)  # شناسه دانشجویی
 
     # Define relationship to KanbanColumn through association table
     kanban_columns = db.relationship(

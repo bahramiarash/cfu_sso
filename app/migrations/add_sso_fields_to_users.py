@@ -18,27 +18,24 @@ def migrate():
         cursor.execute("PRAGMA table_info(users)")
         columns = [row[1] for row in cursor.fetchall()]
         
-        # List of SSO fields to add
-        sso_fields = [
-            ('sub', 'TEXT'),
-            ('email_verified', 'INTEGER'),  # SQLite doesn't have BOOLEAN, use INTEGER
-            ('preferred_username', 'TEXT'),
-            ('picture', 'TEXT'),
+        # List of new fields to add
+        new_fields = [
             ('firstname', 'TEXT'),
             ('lastname', 'TEXT'),
             ('enfirstname', 'TEXT'),
             ('enlastname', 'TEXT'),
+            ('phone', 'TEXT'),
             ('gender', 'TEXT'),
-            ('statename', 'TEXT'),
-            ('usertype', 'TEXT'),
-            ('usertypename', 'TEXT'),
+            ('picture', 'TEXT'),
             ('department', 'TEXT'),
             ('departmentcode', 'TEXT'),
-            ('phone', 'TEXT'),
+            ('usertype', 'TEXT'),
+            ('usertypename', 'TEXT'),
+            ('statename', 'TEXT'),
             ('sid', 'TEXT')
         ]
         
-        for field_name, field_type in sso_fields:
+        for field_name, field_type in new_fields:
             if field_name not in columns:
                 print(f"Adding {field_name} column...")
                 cursor.execute(f"ALTER TABLE users ADD COLUMN {field_name} {field_type}")
@@ -59,4 +56,3 @@ def migrate():
 if __name__ == "__main__":
     print("Starting migration to add SSO fields to users table...")
     migrate()
-

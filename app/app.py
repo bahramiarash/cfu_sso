@@ -405,10 +405,116 @@ def authorized():
         access_level = userinfo.get("usertype", "").lower()
         session["access_level"] = [access_level]
 
+        # ساخت name از firstname + lastname (چون fullname در userinfo از SSO وجود ندارد)
+        firstname = userinfo.get("firstname", "")
+        lastname = userinfo.get("lastname", "")
+        fullname = f"{firstname} {lastname}".strip() if (firstname or lastname) else userinfo.get("fullname", "Unnamed User")
+        
         user = User.query.filter_by(sso_id=username).first()
         if not user:
-            user = User(sso_id=username, name=userinfo.get("fullname", "Unnamed User"))
+            # ایجاد کاربر جدید با تمام اطلاعات از SSO
+            user = User(
+                sso_id=username,
+                name=fullname,
+                email=userinfo.get("email") or userinfo.get("Email") or None,
+                firstname=firstname or None,
+                lastname=lastname or None,
+                enfirstname=userinfo.get("enfirstname") or None,
+                enlastname=userinfo.get("enlastname") or None,
+                phone=userinfo.get("phone") or None,
+                gender=userinfo.get("gender") or None,
+                picture=userinfo.get("picture") or None,
+                province_code=userinfo.get("province_code") or userinfo.get("provinceCode") or None,
+                university_code=userinfo.get("university_code") or userinfo.get("universityCode") or None,
+                faculty_code=userinfo.get("faculty_code") or userinfo.get("facultyCode") or userinfo.get("code_markaz") or None,
+                department=userinfo.get("department") or None,
+                departmentcode=userinfo.get("departmentcode") or None,
+                usertype=userinfo.get("usertype") or None,
+                usertypename=userinfo.get("usertypename") or None,
+                statename=userinfo.get("statename") or None,
+                sid=userinfo.get("sid") or None
+            )
             db.session.add(user)
+            db.session.commit()
+        else:
+            # به‌روزرسانی اطلاعات کاربر موجود
+            # به‌روزرسانی name
+            if not user.name or user.name == "Unnamed User" or fullname != "Unnamed User":
+                user.name = fullname
+            
+            # به‌روزرسانی فیلدهای شخصی
+            if firstname and (not user.firstname or user.firstname != firstname):
+                user.firstname = firstname
+            if lastname and (not user.lastname or user.lastname != lastname):
+                user.lastname = lastname
+            if userinfo.get("enfirstname") and (not user.enfirstname or user.enfirstname != userinfo.get("enfirstname")):
+                user.enfirstname = userinfo.get("enfirstname")
+            if userinfo.get("enlastname") and (not user.enlastname or user.enlastname != userinfo.get("enlastname")):
+                user.enlastname = userinfo.get("enlastname")
+            
+            # به‌روزرسانی email
+            email_from_sso = userinfo.get("email") or userinfo.get("Email")
+            if email_from_sso and (not user.email or user.email != email_from_sso):
+                user.email = email_from_sso
+            
+            # به‌روزرسانی phone
+            if userinfo.get("phone") and (not user.phone or user.phone != userinfo.get("phone")):
+                user.phone = userinfo.get("phone")
+            
+            # به‌روزرسانی gender
+            if userinfo.get("gender") and (not user.gender or user.gender != userinfo.get("gender")):
+                user.gender = userinfo.get("gender")
+            
+            # به‌روزرسانی picture
+            if userinfo.get("picture") and (not user.picture or user.picture != userinfo.get("picture")):
+                user.picture = userinfo.get("picture")
+            
+            # به‌روزرسانی کدهای سازمانی
+            province_code = userinfo.get("province_code") or userinfo.get("provinceCode")
+            if province_code and (not user.province_code or user.province_code != province_code):
+                try:
+                    user.province_code = int(province_code) if province_code else None
+                except (ValueError, TypeError):
+                    pass
+            
+            university_code = userinfo.get("university_code") or userinfo.get("universityCode")
+            if university_code and (not user.university_code or user.university_code != university_code):
+                try:
+                    user.university_code = int(university_code) if university_code else None
+                except (ValueError, TypeError):
+                    pass
+            
+            faculty_code = userinfo.get("faculty_code") or userinfo.get("facultyCode") or userinfo.get("code_markaz")
+            if faculty_code and (not user.faculty_code or user.faculty_code != faculty_code):
+                try:
+                    user.faculty_code = int(faculty_code) if faculty_code else None
+                except (ValueError, TypeError):
+                    pass
+            
+            # به‌روزرسانی department
+            if userinfo.get("department") and (not user.department or user.department != userinfo.get("department")):
+                user.department = userinfo.get("department")
+            
+            # به‌روزرسانی departmentcode
+            if userinfo.get("departmentcode") and (not user.departmentcode or user.departmentcode != userinfo.get("departmentcode")):
+                user.departmentcode = userinfo.get("departmentcode")
+            
+            # به‌روزرسانی usertype
+            if userinfo.get("usertype") and (not user.usertype or user.usertype != userinfo.get("usertype")):
+                user.usertype = userinfo.get("usertype")
+            
+            # به‌روزرسانی usertypename
+            if userinfo.get("usertypename") and (not user.usertypename or user.usertypename != userinfo.get("usertypename")):
+                user.usertypename = userinfo.get("usertypename")
+            
+            # به‌روزرسانی statename
+            if userinfo.get("statename") and (not user.statename or user.statename != userinfo.get("statename")):
+                user.statename = userinfo.get("statename")
+            
+            # به‌روزرسانی sid
+            if userinfo.get("sid") and (not user.sid or user.sid != userinfo.get("sid")):
+                user.sid = userinfo.get("sid")
+            
             db.session.commit()
         
         # Check if user should have admin access (from database or environment variable)
