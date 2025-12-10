@@ -5,6 +5,7 @@ Routes for users to complete surveys
 from flask import render_template, request, jsonify, redirect, url_for, flash, session, make_response
 from flask_login import current_user
 from auth_utils import requires_auth
+from functools import wraps
 from . import survey_bp
 from .utils import (
     log_survey_action, check_survey_access, check_completion_limit, 
@@ -20,8 +21,63 @@ from datetime import datetime
 from sqlalchemy import desc
 import logging
 import json
+import hashlib
 
 logger = logging.getLogger(__name__)
+
+# Secret key for generating anonymous access hash
+ANONYMOUS_ACCESS_SECRET = "cfu_survey_anonymous_2024"
+
+
+def generate_anonymous_access_hash(survey_id):
+    """
+    Generate a hash for anonymous survey access
+    
+    Args:
+        survey_id: Survey ID
+        
+    Returns:
+        Hash string
+    """
+    data = f"{survey_id}_{ANONYMOUS_ACCESS_SECRET}"
+    return hashlib.sha256(data.encode()).hexdigest()[:16]
+
+
+def verify_anonymous_access_hash(survey_id, hash_value):
+    """
+    Verify if the hash is valid for the survey
+    
+    Args:
+        survey_id: Survey ID
+        hash_value: Hash to verify
+        
+    Returns:
+        True if hash is valid, False otherwise
+    """
+    expected_hash = generate_anonymous_access_hash(survey_id)
+    return hash_value == expected_hash
+
+
+def requires_auth_or_anonymous(f):
+    """
+    Decorator that requires authentication unless survey has anonymous access
+    """
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        # Check if survey_id is in kwargs
+        survey_id = kwargs.get('survey_id')
+        if survey_id:
+            survey = Survey.query.get(survey_id)
+            if survey and survey.access_type == 'anonymous':
+                # Anonymous access - no authentication required
+                return f(*args, **kwargs)
+        
+        # For other cases, require authentication
+        if "sso_token" not in session:
+            logging.info("User not authenticated, redirecting to login")
+            return redirect(url_for("login", next=request.path))
+        return f(*args, **kwargs)
+    return decorated
 
 def get_user_display_name_from_session():
     """Get user display name from session"""
@@ -40,12 +96,94 @@ def get_user_display_name_from_session():
     return user_info.get('name') or user_info.get('username') or "کاربر گرامی"
 
 
+@survey_bp.route('/<int:survey_id>/anonymous/password', methods=['GET', 'POST'])
+def survey_anonymous_password(survey_id):
+    """Password entry page for anonymous surveys with password protection"""
+    try:
+        survey = Survey.query.get_or_404(survey_id)
+        
+        # Check if survey is anonymous and requires password
+        if survey.access_type != 'anonymous' or not survey.anonymous_access_password:
+            flash('این پرسشنامه نیاز به رمز ندارد', 'error')
+            return redirect(url_for('survey'))
+        
+        hash_param = request.args.get('hash')
+        if not hash_param or not verify_anonymous_access_hash(survey_id, hash_param):
+            flash('لینک دسترسی نامعتبر است', 'error')
+            return redirect(url_for('survey'))
+        
+        if request.method == 'POST':
+            entered_password = request.form.get('password', '').strip()
+            if not entered_password:
+                flash('لطفاً رمز را وارد کنید', 'error')
+                return render_template('survey/public/anonymous_password.html', 
+                                     survey=survey, 
+                                     hash=hash_param)
+            
+            # Verify password
+            import hashlib
+            entered_password_hash = hashlib.sha256(entered_password.encode()).hexdigest()
+            
+            if entered_password_hash == survey.anonymous_access_password:
+                # Password is correct - store in session and redirect to survey
+                session[f'anonymous_survey_{survey_id}_password_verified'] = True
+                session[f'anonymous_survey_{survey_id}'] = hash_param
+                return redirect(url_for('survey.survey_start', survey_id=survey_id, hash=hash_param))
+            else:
+                flash('رمز وارد شده اشتباه است', 'error')
+                return render_template('survey/public/anonymous_password.html', 
+                                     survey=survey, 
+                                     hash=hash_param)
+        
+        # GET request - show password entry form
+        return render_template('survey/public/anonymous_password.html', 
+                             survey=survey, 
+                             hash=hash_param)
+    except Exception as e:
+        logger.error(f"Error in survey_anonymous_password: {e}", exc_info=True)
+        return render_template('error.html', error=f"خطا: {str(e)}"), 500
+
+
 @survey_bp.route('/<int:survey_id>/start')
-@requires_auth
+@requires_auth_or_anonymous
 def survey_start(survey_id):
     """Start survey - welcome page with access check"""
     try:
         survey = Survey.query.get_or_404(survey_id)
+        
+        # Check if this is an anonymous access via hash
+        hash_param = request.args.get('hash')
+        is_anonymous_access = False
+        password_verified = False
+        
+        if hash_param and survey.access_type == 'anonymous':
+            if verify_anonymous_access_hash(survey_id, hash_param):
+                # Check if password is required
+                if survey.anonymous_access_password:
+                    # Password is required - check if it's already verified in session
+                    password_verified = session.get(f'anonymous_survey_{survey_id}_password_verified', False)
+                    
+                    if not password_verified:
+                        # Redirect to password entry page
+                        return redirect(url_for('survey.survey_anonymous_password', survey_id=survey_id, hash=hash_param))
+                else:
+                    # No password required
+                    password_verified = True
+                    is_anonymous_access = True
+                    # Store hash in session for subsequent requests
+                    session[f'anonymous_survey_{survey_id}'] = hash_param
+            else:
+                flash('لینک دسترسی نامعتبر است', 'error')
+                return redirect(url_for('survey'))
+        elif survey.access_type == 'anonymous' and not hash_param:
+            # Anonymous survey but no hash - redirect to survey list
+            flash('لینک دسترسی نامعتبر است', 'error')
+            return redirect(url_for('survey'))
+        
+        # If password is verified, set anonymous access
+        if password_verified:
+            is_anonymous_access = True
+            session[f'anonymous_survey_{survey_id}'] = hash_param
         
         # Check if survey is active
         if survey.status != 'active':
@@ -61,8 +199,8 @@ def survey_start(survey_id):
             flash('مهلت تکمیل این پرسشنامه به پایان رسیده است', 'error')
             return redirect(url_for('survey'))
         
-        # Get user info
-        user_info = session.get("user_info")
+        # Get user info (skip for anonymous access)
+        user_info = session.get("user_info") if not is_anonymous_access else None
         username = user_info.get('username', '').lower() if user_info else None
         user = User.query.filter_by(sso_id=username).first() if username else None
         national_id = user_info.get('national_id') if user_info else None
@@ -76,8 +214,8 @@ def survey_start(survey_id):
                 if manager and survey.manager_id == manager.id:
                     is_manager_owner = True
         
-        # Check access (skip for manager owners)
-        if not is_manager_owner:
+        # Check access (skip for manager owners and anonymous access)
+        if not is_manager_owner and not is_anonymous_access:
             has_access, error_msg = check_survey_access(user, survey)
             if not has_access:
                 # For specific_users access type, check national_id
@@ -97,14 +235,20 @@ def survey_start(survey_id):
                     flash(error_msg or 'شما دسترسی به این پرسشنامه ندارید', 'error')
                     return redirect(url_for('survey'))
         
-        # Check completion limit (skip for manager owners - they can test their surveys)
-        if not is_manager_owner:
+        # Check completion limit (skip for manager owners and anonymous access)
+        if not is_manager_owner and not is_anonymous_access:
             can_complete, limit_msg, current_count = check_completion_limit(user, survey, national_id)
             if not can_complete:
                 flash(limit_msg, 'error')
                 return redirect(url_for('survey'))
+        elif is_anonymous_access:
+            # For anonymous access, we can't track by user, so we'll allow completion
+            # but track by IP or session
+            can_complete = True
+            limit_msg = ""
+            current_count = 0
         
-        display_name = get_user_display_name_from_session()
+        display_name = get_user_display_name_from_session() if not is_anonymous_access else "کاربر گرامی"
         
         log_survey_action('view_survey_welcome', 'survey', survey_id)
         return render_template('survey/public/welcome.html', 
@@ -116,26 +260,59 @@ def survey_start(survey_id):
 
 
 @survey_bp.route('/<int:survey_id>/questions', methods=['GET', 'POST'])
-@requires_auth
+@requires_auth_or_anonymous
 def survey_questions(survey_id):
     """Display survey questions and handle submission"""
     try:
         survey = Survey.query.get_or_404(survey_id)
+        
+        # Check if this is an anonymous access via hash (from session or referrer)
+        is_anonymous_access = False
+        if survey.access_type == 'anonymous':
+            # Check if hash is in session (set from survey_start)
+            hash_in_session = session.get(f'anonymous_survey_{survey_id}')
+            hash_param = request.args.get('hash')
+            
+            # Check if password is required and verified
+            password_verified = session.get(f'anonymous_survey_{survey_id}_password_verified', False)
+            
+            if hash_param and verify_anonymous_access_hash(survey_id, hash_param):
+                if survey.anonymous_access_password:
+                    # Password is required - check if verified
+                    if password_verified:
+                        is_anonymous_access = True
+                        session[f'anonymous_survey_{survey_id}'] = hash_param
+                    else:
+                        # Password not verified - redirect to password page
+                        return redirect(url_for('survey.survey_anonymous_password', survey_id=survey_id, hash=hash_param))
+                else:
+                    # No password required
+                    is_anonymous_access = True
+                    session[f'anonymous_survey_{survey_id}'] = hash_param
+            elif hash_in_session and verify_anonymous_access_hash(survey_id, hash_in_session):
+                if survey.anonymous_access_password:
+                    if password_verified:
+                        is_anonymous_access = True
+                    else:
+                        # Need to verify password
+                        return redirect(url_for('survey.survey_anonymous_password', survey_id=survey_id, hash=hash_in_session))
+                else:
+                    is_anonymous_access = True
         
         # Check if survey is active
         if survey.status != 'active':
             flash('این پرسشنامه در حال حاضر فعال نیست', 'error')
             return redirect(url_for('survey'))
         
-        # Get user info
-        user_info = session.get("user_info")
+        # Get user info (skip for anonymous access)
+        user_info = session.get("user_info") if not is_anonymous_access else None
         username = user_info.get('username', '').lower() if user_info else None
         user = User.query.filter_by(sso_id=username).first() if username else None
         national_id = user_info.get('national_id') if user_info else None
         
         if request.method == 'POST':
             # Handle form submission
-            return handle_survey_submission(survey_id, survey, user, national_id)
+            return handle_survey_submission(survey_id, survey, user, national_id, is_anonymous_access)
         
         # GET request - display questions
         # Get all questions ordered by category and order
@@ -156,7 +333,7 @@ def survey_questions(survey_id):
             else:
                 questions_without_category.append(question)
         
-        display_name = get_user_display_name_from_session()
+        display_name = get_user_display_name_from_session() if not is_anonymous_access else "کاربر گرامی"
         
         log_survey_action('view_survey_questions', 'survey', survey_id)
         
@@ -197,16 +374,34 @@ def survey_questions(survey_id):
         return render_template('error.html', error=f"خطا در بارگذاری سوالات: {str(e)}"), 500
 
 
-def handle_survey_submission(survey_id, survey, user, national_id):
+def handle_survey_submission(survey_id, survey, user, national_id, is_anonymous_access=False):
     """Handle survey response submission"""
     try:
-        # Create or get response record
-        response = SurveyResponse.query.filter_by(
-            survey_id=survey_id,
-            user_id=user.id if user else None,
-            national_id=national_id if not user else None,
-            is_completed=False
-        ).order_by(desc(SurveyResponse.started_at)).first()
+        # For anonymous access, we need to track by IP address or session
+        # Since we can't use user_id or national_id, we'll use IP address
+        identifier_field = 'user_id' if user else 'national_id'
+        identifier_value = user.id if user else (national_id if national_id else None)
+        
+        # For anonymous access without user or national_id, use IP address as identifier
+        if is_anonymous_access and not user and not national_id:
+            # Use IP address as a fallback identifier
+            ip_address = request.remote_addr
+            # Query by IP and survey_id for anonymous responses
+            response = SurveyResponse.query.filter_by(
+                survey_id=survey_id,
+                user_id=None,
+                national_id=None,
+                ip_address=ip_address,
+                is_completed=False
+            ).order_by(desc(SurveyResponse.started_at)).first()
+        else:
+            # Normal query for authenticated users
+            response = SurveyResponse.query.filter_by(
+                survey_id=survey_id,
+                user_id=user.id if user else None,
+                national_id=national_id if not user else None,
+                is_completed=False
+            ).order_by(desc(SurveyResponse.started_at)).first()
         
         if not response:
             # Create new response
@@ -214,7 +409,7 @@ def handle_survey_submission(survey_id, survey, user, national_id):
             response = SurveyResponse(
                 survey_id=survey_id,
                 user_id=user.id if user else None,
-                national_id=national_id if not user else None,
+                national_id=national_id if not user and not is_anonymous_access else None,
                 started_at=datetime.utcnow(),
                 ip_address=request.remote_addr,
                 user_agent=request.headers.get('User-Agent'),
@@ -257,17 +452,38 @@ def handle_survey_submission(survey_id, survey, user, national_id):
             elif question.question_type == 'text':
                 answer_text = request.form.get(answer_key, '').strip()
                 if answer_text:
+                    # Validate character count
+                    max_chars = question.max_words or 100  # max_words field stores max characters
+                    char_count = len(answer_text)
+                    if char_count > max_chars:
+                        flash(f'تعداد حروف پاسخ سوال "{question.question_text[:50]}..." نباید بیشتر از {max_chars} باشد. تعداد فعلی: {char_count}', 'error')
+                        return redirect(url_for('survey.survey_questions', survey_id=survey_id))
                     answer_item.answer_text = sanitize_input(answer_text)
             elif question.question_type == 'file_upload':
                 # Handle file upload (if needed)
                 if answer_key in request.files:
                     file = request.files[answer_key]
                     if file and file.filename:
+                        # Validate file size
+                        max_size_mb = question.max_file_size_mb or 25
+                        max_size_bytes = max_size_mb * 1024 * 1024
+                        
+                        # Check file size
+                        file.seek(0, 2)  # Seek to end
+                        file_size = file.tell()
+                        file.seek(0)  # Reset to beginning
+                        
+                        if file_size > max_size_bytes:
+                            flash(f'حجم فایل برای سوال "{question.question_text[:50]}..." نباید بیشتر از {max_size_mb} مگابایت باشد', 'error')
+                            return redirect(url_for('survey.survey_questions', survey_id=survey_id))
+                        
                         from .utils import validate_file_upload
-                        is_valid, error_msg = validate_file_upload(file)
+                        is_valid, error_msg = validate_file_upload(file, max_size_mb=question.max_file_size_mb)
                         if is_valid:
                             import os
-                            upload_dir = os.path.join('app', 'static', 'uploads', 'surveys', 'files')
+                            # Get the app directory (where app.py is located)
+                            BASE_DIR = os.path.abspath(os.path.dirname(os.path.dirname(__file__)))  # app/
+                            upload_dir = os.path.join(BASE_DIR, 'static', 'uploads', 'surveys', 'files')
                             os.makedirs(upload_dir, exist_ok=True)
                             filename = f"response_{response.id}_q{question.id}_{file.filename}"
                             file_path = os.path.join(upload_dir, filename)
@@ -295,7 +511,7 @@ def handle_survey_submission(survey_id, survey, user, national_id):
 
 
 @survey_bp.route('/<int:survey_id>/complete')
-@requires_auth
+@requires_auth_or_anonymous
 def survey_complete(survey_id):
     """Thank you page after completing survey"""
     try:

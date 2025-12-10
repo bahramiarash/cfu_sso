@@ -168,6 +168,16 @@ def manager_surveys_create():
                     logger.warning(f"Error parsing end_date: {e}")
                     pass
             
+            # Handle anonymous access password
+            anonymous_password = None
+            access_type = request.form.get('access_type', 'public')
+            if access_type == 'anonymous':
+                anonymous_password_raw = request.form.get('anonymous_access_password', '').strip()
+                if anonymous_password_raw:
+                    # Hash the password using hashlib
+                    import hashlib
+                    anonymous_password = hashlib.sha256(anonymous_password_raw.encode()).hexdigest()
+            
             # Create survey
             survey = Survey(
                 title=title,
@@ -176,7 +186,8 @@ def manager_surveys_create():
                 start_date=start_date,
                 end_date=end_date,
                 status=request.form.get('status', 'active'),
-                access_type=request.form.get('access_type', 'public'),
+                access_type=access_type,
+                anonymous_access_password=anonymous_password,
                 max_completions_per_user=int(request.form.get('max_completions_per_user', 1)),
                 completion_period_type=request.form.get('completion_period_type', 'yearly'),
                 welcome_message=sanitize_input(request.form.get('welcome_message', '').strip()),
@@ -243,6 +254,21 @@ def manager_surveys_edit(survey_id):
             survey.description = sanitize_input(request.form.get('description', '').strip())
             survey.status = request.form.get('status', 'active')
             survey.access_type = request.form.get('access_type', 'public')
+            
+            # Handle anonymous access password
+            if survey.access_type == 'anonymous':
+                anonymous_password = request.form.get('anonymous_access_password', '').strip()
+                if anonymous_password:
+                    # Hash the password using hashlib
+                    import hashlib
+                    survey.anonymous_access_password = hashlib.sha256(anonymous_password.encode()).hexdigest()
+                else:
+                    # If password is empty, clear it
+                    survey.anonymous_access_password = None
+            else:
+                # Clear password if access type is not anonymous
+                survey.anonymous_access_password = None
+            
             survey.max_completions_per_user = int(request.form.get('max_completions_per_user', 1))
             survey.completion_period_type = request.form.get('completion_period_type', 'yearly')
             survey.welcome_message = sanitize_input(request.form.get('welcome_message', '').strip())
@@ -314,7 +340,19 @@ def manager_surveys_edit(survey_id):
             logger.error(f"Error editing survey: {e}", exc_info=True)
             flash('خطا در به‌روزرسانی پرسشنامه', 'error')
     
-    return render_template('survey/manager/surveys/edit.html', survey=survey)
+    # Generate anonymous access link if access_type is anonymous
+    anonymous_access_link = None
+    if survey.access_type == 'anonymous':
+        # Import hashlib and generate hash directly (same logic as in public_routes)
+        import hashlib
+        ANONYMOUS_ACCESS_SECRET = "cfu_survey_anonymous_2024"
+        data = f"{survey.id}_{ANONYMOUS_ACCESS_SECRET}"
+        hash_value = hashlib.sha256(data.encode()).hexdigest()[:16]
+        anonymous_access_link = url_for('survey.survey_start', survey_id=survey.id, hash=hash_value, _external=True)
+    
+    return render_template('survey/manager/surveys/edit.html', 
+                         survey=survey, 
+                         anonymous_access_link=anonymous_access_link)
 
 
 @survey_bp.route('/manager/surveys/<int:survey_id>/questions')

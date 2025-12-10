@@ -53,7 +53,8 @@ class Survey(db.Model):
     status = Column(String(20), default='active', nullable=False)  # active, inactive
     
     # Access control
-    access_type = Column(String(20), default='public', nullable=False)  # public, user_groups, specific_users
+    access_type = Column(String(20), default='public', nullable=False)  # public, user_groups, specific_users, anonymous
+    anonymous_access_password = Column(String(255), nullable=True)  # Hashed password for anonymous access (optional)
     
     # Completion limits
     max_completions_per_user = Column(Integer, default=1, nullable=False)

@@ -47,11 +47,19 @@
                         
                         <div class="mb-3">
                             <label for="access_type" class="form-label">نوع دسترسی</label>
-                            <select class="form-select" id="access_type" name="access_type">
-                                <option value="public">عمومی</option>
+                            <select class="form-select" id="access_type" name="access_type" onchange="toggleAnonymousPassword()">
+                                <option value="public">ورود از طریق SSO</option>
+                                <option value="anonymous">بدون احراز هویت</option>
                                 <option value="user_groups">گروه‌های کاربری</option>
                                 <option value="specific_users">کاربران مشخص (کد ملی)</option>
                             </select>
+                        </div>
+                        
+                        <div class="mb-3" id="anonymousPasswordContainer" style="display: none;">
+                            <label for="anonymous_access_password" class="form-label">رمز دسترسی (اختیاری)</label>
+                            <input type="password" class="form-control" id="anonymous_access_password" name="anonymous_access_password" 
+                                   placeholder="در صورت خالی بودن، لینک بدون رمز خواهد بود">
+                            <small class="form-text text-muted">اگر رمز وارد شود، کاربران برای دسترسی به پرسشنامه باید این رمز را وارد کنند. در صورت خالی بودن، لینک بدون رمز خواهد بود.</small>
                         </div>
                         
                         <div class="row">
@@ -170,7 +178,34 @@ function checkFileSize(input) {
         }
     }
     initDatePickers();
+    
+    // Initialize anonymous password field visibility
+    toggleAnonymousPassword();
 })();
+
+function toggleAnonymousPassword() {
+    const accessType = document.getElementById('access_type').value;
+    const passwordContainer = document.getElementById('anonymousPasswordContainer');
+    const linkContainer = document.getElementById('anonymousAccessLinkContainer');
+    
+    if (accessType === 'anonymous') {
+        passwordContainer.style.display = 'block';
+        // در صفحه ایجاد، لینک هنوز وجود ندارد
+        if (linkContainer) {
+            linkContainer.style.display = 'none';
+        }
+    } else {
+        passwordContainer.style.display = 'none';
+        if (linkContainer) {
+            linkContainer.style.display = 'none';
+        }
+        // Clear password field when access type changes
+        const passwordInput = document.getElementById('anonymous_access_password');
+        if (passwordInput) {
+            passwordInput.value = '';
+        }
+    }
+}
 </script>
 {% endblock %}
 

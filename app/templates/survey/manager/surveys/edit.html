@@ -53,11 +53,30 @@
                         
                         <div class="mb-3">
                             <label for="access_type" class="form-label">نوع دسترسی</label>
-                            <select class="form-select" id="access_type" name="access_type">
-                                <option value="public" {% if survey.access_type == 'public' %}selected{% endif %}>عمومی</option>
+                            <select class="form-select" id="access_type" name="access_type" onchange="toggleAnonymousPassword()">
+                                <option value="public" {% if survey.access_type == 'public' %}selected{% endif %}>ورود از طریق SSO</option>
+                                <option value="anonymous" {% if survey.access_type == 'anonymous' %}selected{% endif %}>بدون احراز هویت</option>
                                 <option value="user_groups" {% if survey.access_type == 'user_groups' %}selected{% endif %}>گروه‌های کاربری</option>
                                 <option value="specific_users" {% if survey.access_type == 'specific_users' %}selected{% endif %}>کاربران مشخص (کد ملی)</option>
                             </select>
+                        </div>
+                        
+                        <div class="mb-3" id="anonymousPasswordContainer" style="display: {% if survey.access_type == 'anonymous' %}block{% else %}none{% endif %};">
+                            <label for="anonymous_access_password" class="form-label">رمز دسترسی (اختیاری)</label>
+                            <input type="password" class="form-control" id="anonymous_access_password" name="anonymous_access_password" 
+                                   placeholder="در صورت خالی بودن، لینک بدون رمز خواهد بود">
+                            <small class="form-text text-muted">اگر رمز وارد شود، کاربران برای دسترسی به پرسشنامه باید این رمز را وارد کنند. در صورت خالی بودن، لینک بدون رمز خواهد بود.</small>
+                        </div>
+                        
+                        <div class="mb-3" id="anonymousAccessLinkContainer" style="display: {% if survey.access_type == 'anonymous' and anonymous_access_link %}block{% else %}none{% endif %};">
+                            <label class="form-label">لینک دسترسی مستقیم (بدون احراز هویت)</label>
+                            <div class="input-group">
+                                <input type="text" class="form-control" id="anonymousLink" value="{% if anonymous_access_link %}{{ anonymous_access_link }}{% endif %}" readonly>
+                                <button class="btn btn-outline-secondary" type="button" onclick="copyAnonymousLink()">
+                                    <i class="bi bi-clipboard"></i> کپی
+                                </button>
+                            </div>
+                            <small class="form-text text-muted">این لینک را می‌توانید برای دسترسی مستقیم به پرسشنامه بدون نیاز به احراز هویت به اشتراک بگذارید.</small>
                         </div>
                         
                         <div class="row">
@@ -115,6 +134,7 @@
                                 <option value="single_page" {% if survey.display_mode == 'single_page' %}selected{% endif %}>یک صفحه</option>
                             </select>
                         </div>
+                        
                         
                         <div class="d-flex justify-content-between">
                             {% if is_admin %}
@@ -193,6 +213,62 @@ function checkFileSize(input) {
     }
     initDatePickers();
 })();
+
+function toggleAnonymousPassword() {
+    const accessType = document.getElementById('access_type').value;
+    const passwordContainer = document.getElementById('anonymousPasswordContainer');
+    const linkContainer = document.getElementById('anonymousAccessLinkContainer');
+    
+    if (accessType === 'anonymous') {
+        passwordContainer.style.display = 'block';
+        // لینک فقط در صورت وجود مقدار نمایش داده می‌شود
+        if (linkContainer) {
+            const linkInput = document.getElementById('anonymousLink');
+            if (linkInput && linkInput.value && linkInput.value.trim() !== '') {
+                linkContainer.style.display = 'block';
+            } else {
+                linkContainer.style.display = 'none';
+            }
+        }
+    } else {
+        passwordContainer.style.display = 'none';
+        if (linkContainer) {
+            linkContainer.style.display = 'none';
+        }
+        // پاک کردن رمز در صورت تغییر نوع دسترسی
+        const passwordInput = document.getElementById('anonymous_access_password');
+        if (passwordInput) {
+            passwordInput.value = '';
+        }
+    }
+}
+
+// فراخوانی تابع در بارگذاری صفحه
+document.addEventListener('DOMContentLoaded', function() {
+    toggleAnonymousPassword();
+});
+
+function copyAnonymousLink() {
+    const linkInput = document.getElementById('anonymousLink');
+    if (linkInput) {
+        linkInput.select();
+        linkInput.setSelectionRange(0, 99999); // For mobile devices
+        document.execCommand('copy');
+        
+        // Show feedback
+        const button = event.target.closest('button');
+        const originalText = button.innerHTML;
+        button.innerHTML = '<i class="bi bi-check"></i> کپی شد';
+        button.classList.add('btn-success');
+        button.classList.remove('btn-outline-secondary');
+        
+        setTimeout(() => {
+            button.innerHTML = originalText;
+            button.classList.remove('btn-success');
+            button.classList.add('btn-outline-secondary');
+        }, 2000);
+    }
+}
 </script>
 {% endblock %}
 
