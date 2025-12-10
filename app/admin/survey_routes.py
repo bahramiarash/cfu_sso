@@ -366,6 +366,7 @@ def survey_questions_create(survey_id):
         options = data.get('options')  # For Likert scale questions
         option_display_type = data.get('option_display_type', 'radio')  # Default to radio
         text_input_type = data.get('text_input_type', 'multi_line')  # Default to multi_line
+        validation_type = data.get('validation_type')  # Can be None, 'national_id', 'email', 'landline', 'mobile', 'website'
         
         if not question_text:
             return jsonify({'success': False, 'message': 'متن سوال الزامی است'}), 400
@@ -395,6 +396,7 @@ def survey_questions_create(survey_id):
             options=options,
             option_display_type=option_display_type,
             text_input_type=text_input_type,
+            validation_type=validation_type,
             max_words=max_words,
             max_file_size_mb=max_file_size_mb
         )
@@ -466,6 +468,7 @@ def survey_questions_edit(question_id):
         question.options = data.get('options')  # For Likert scale questions
         question.option_display_type = data.get('option_display_type', 'radio')  # Default to radio
         question.text_input_type = data.get('text_input_type', 'multi_line')  # Default to multi_line
+        question.validation_type = data.get('validation_type')  # Can be None, 'national_id', 'email', 'landline', 'mobile', 'website'
         
         # Update max_words and max_file_size_mb based on question type
         if question.question_type == 'text':

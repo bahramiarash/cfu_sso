@@ -74,12 +74,13 @@ def sanitize_input(text: str) -> str:
     return html.escape(text)
 
 
-def validate_file_upload(file) -> tuple[bool, str]:
+def validate_file_upload(file, max_size_mb: int = None) -> tuple[bool, str]:
     """
     Validate uploaded file
     
     Args:
         file: File object from request
+        max_size_mb: Maximum file size in MB (optional, defaults to 2MB for backward compatibility)
         
     Returns:
         Tuple of (is_valid, error_message)
@@ -87,14 +88,15 @@ def validate_file_upload(file) -> tuple[bool, str]:
     if not file:
         return False, "فایل ارسال نشده است"
     
-    # Check file size (max 2MB for logos - reasonable size for web images)
-    MAX_FILE_SIZE = 2 * 1024 * 1024  # 2MB
+    # Check file size (use provided max_size_mb or default to 2MB for backward compatibility)
+    max_size_bytes = (max_size_mb * 1024 * 1024) if max_size_mb else (2 * 1024 * 1024)
     file.seek(0, 2)  # Seek to end
     file_size = file.tell()
     file.seek(0)  # Reset to beginning
     
-    if file_size > MAX_FILE_SIZE:
-        return False, "حجم فایل نباید بیشتر از 2 مگابایت باشد. لطفاً تصویر را فشرده کنید."
+    if file_size > max_size_bytes:
+        max_size_display = max_size_mb if max_size_mb else 2
+        return False, f"حجم فایل نباید بیشتر از {max_size_display} مگابایت باشد."
     
     # Check file extension
     ALLOWED_EXTENSIONS = {'.pdf', '.doc', '.docx', '.jpg', '.jpeg', '.png', '.txt'}
@@ -129,6 +131,10 @@ def check_survey_access(user: User, survey: Survey) -> tuple[bool, str]:
     
     # Check access type
     if survey.access_type == 'public':
+        return True, ""
+    
+    elif survey.access_type == 'anonymous':
+        # Anonymous access - no authentication required
         return True, ""
     
     elif survey.access_type == 'user_groups':
@@ -415,3 +421,225 @@ def get_user_survey_status(user: User, survey_id: int, national_id: str = None) 
     
     return {'status': 'not_started', 'completed_count': 0, 'last_started_at': None, 'last_completed_at': None}
 
+
+def validate_national_id(national_id: str) -> tuple[bool, str]:
+    """
+    Validate Iranian national ID (کد ملی)
+    
+    Args:
+        national_id: National ID string
+        
+    Returns:
+        Tuple of (is_valid, error_message)
+    """
+    if not national_id:
+        return False, "کد ملی نمی‌تواند خالی باشد"
+    
+    # Remove any spaces or dashes
+    national_id = national_id.strip().replace(' ', '').replace('-', '')
+    
+    # Check if it's exactly 10 digits
+    if not national_id.isdigit():
+        return False, "کد ملی باید فقط شامل اعداد باشد"
+    
+    if len(national_id) != 10:
+        return False, "کد ملی باید دقیقاً 10 رقم باشد"
+    
+    # Iranian national ID validation algorithm
+    # Check digit is calculated based on first 9 digits
+    check_digit = int(national_id[9])
+    sum_digits = 0
+    
+    for i in range(9):
+        sum_digits += int(national_id[i]) * (10 - i)
+    
+    remainder = sum_digits % 11
+    
+    # Check digit should be remainder if remainder < 2, otherwise 11 - remainder
+    expected_check = remainder if remainder < 2 else 11 - remainder
+    
+    if check_digit != expected_check:
+        return False, "کد ملی وارد شده معتبر نیست"
+    
+    return True, ""
+
+
+def validate_email(email: str) -> tuple[bool, str]:
+    """
+    Validate email format
+    
+    Args:
+        email: Email string
+        
+    Returns:
+        Tuple of (is_valid, error_message)
+    """
+    if not email:
+        return False, "ایمیل نمی‌تواند خالی باشد"
+    
+    email = email.strip()
+    
+    # Basic email validation regex
+    import re
+    email_pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
+    
+    if not re.match(email_pattern, email):
+        return False, "فرمت ایمیل وارد شده معتبر نیست"
+    
+    return True, ""
+
+
+def validate_landline_phone(phone: str) -> tuple[bool, str]:
+    """
+    Validate Iranian landline phone number (تلفن ثابت)
+    
+    Args:
+        phone: Phone number string
+        
+    Returns:
+        Tuple of (is_valid, error_message)
+    """
+    if not phone:
+        return False, "شماره تلفن ثابت نمی‌تواند خالی باشد"
+    
+    # Remove any spaces, dashes, or parentheses
+    phone = phone.strip().replace(' ', '').replace('-', '').replace('(', '').replace(')', '')
+    
+    # Remove country code if present
+    if phone.startswith('0098'):
+        phone = phone[4:]
+    elif phone.startswith('+98'):
+        phone = phone[3:]
+    elif phone.startswith('098'):
+        phone = phone[3:]
+    elif phone.startswith('98'):
+        phone = phone[2:]
+    
+    # Check if it's all digits
+    if not phone.isdigit():
+        return False, "شماره تلفن ثابت باید فقط شامل اعداد باشد"
+    
+    # Iranian landline numbers are typically 11 digits (with area code) or 8 digits (local)
+    # Area codes are 2-3 digits, local numbers are 7-8 digits
+    # Common format: 0XX-XXXXXXX (11 digits total with leading 0)
+    if phone.startswith('0'):
+        phone = phone[1:]  # Remove leading 0
+    
+    # Check length (should be 10 digits after removing leading 0)
+    if len(phone) < 8 or len(phone) > 10:
+        return False, "شماره تلفن ثابت باید بین 8 تا 10 رقم باشد (بدون کد کشور)"
+    
+    # Check if area code is valid (Iranian area codes are typically 2-3 digits)
+    # This is a basic check - you might want to add more specific validation
+    return True, ""
+
+
+def validate_mobile_phone(phone: str) -> tuple[bool, str]:
+    """
+    Validate Iranian mobile phone number (تلفن همراه)
+    
+    Args:
+        phone: Phone number string
+        
+    Returns:
+        Tuple of (is_valid, error_message)
+    """
+    if not phone:
+        return False, "شماره تلفن همراه نمی‌تواند خالی باشد"
+    
+    # Remove any spaces, dashes, or parentheses
+    phone = phone.strip().replace(' ', '').replace('-', '').replace('(', '').replace(')', '')
+    
+    # Remove country code if present
+    if phone.startswith('0098'):
+        phone = phone[4:]
+    elif phone.startswith('+98'):
+        phone = phone[3:]
+    elif phone.startswith('098'):
+        phone = phone[3:]
+    elif phone.startswith('98'):
+        phone = phone[2:]
+    
+    # Check if it's all digits
+    if not phone.isdigit():
+        return False, "شماره تلفن همراه باید فقط شامل اعداد باشد"
+    
+    # Iranian mobile numbers should start with 09 and be 11 digits total
+    # Or 10 digits without leading 0
+    if phone.startswith('0'):
+        phone = phone[1:]  # Remove leading 0
+    
+    # Check length (should be 10 digits after removing leading 0)
+    if len(phone) != 10:
+        return False, "شماره تلفن همراه باید 10 رقم باشد (بدون کد کشور و صفر ابتدایی)"
+    
+    # Iranian mobile numbers start with 9
+    if not phone.startswith('9'):
+        return False, "شماره تلفن همراه باید با 9 شروع شود"
+    
+    # Check if it's a valid mobile prefix (091x, 092x, 093x, 094x, 095x, 096x, 097x, 098x, 099x)
+    valid_prefixes = ['91', '92', '93', '94', '95', '96', '97', '98', '99']
+    prefix = phone[:2]
+    
+    if prefix not in valid_prefixes:
+        return False, "پیش‌شماره تلفن همراه معتبر نیست"
+    
+    return True, ""
+
+
+def validate_website(url: str) -> tuple[bool, str]:
+    """
+    Validate website URL format
+    
+    Args:
+        url: Website URL string
+        
+    Returns:
+        Tuple of (is_valid, error_message)
+    """
+    if not url:
+        return False, "نشانی وب سایت نمی‌تواند خالی باشد"
+    
+    url = url.strip()
+    
+    # Add http:// if no protocol is specified
+    if not url.startswith(('http://', 'https://', 'www.')):
+        url = 'http://' + url
+    
+    # Basic URL validation
+    import re
+    url_pattern = r'^https?://(?:[-\w.])+(?:\:[0-9]+)?(?:/(?:[\w/_.])*)?(?:\?(?:[\w&=%.])*)?(?:#(?:[\w.])*)?$'
+    
+    if not re.match(url_pattern, url):
+        return False, "فرمت نشانی وب سایت معتبر نیست"
+    
+    return True, ""
+
+
+def validate_answer_by_type(answer_text: str, validation_type: str) -> tuple[bool, str]:
+    """
+    Validate answer text based on validation type
+    
+    Args:
+        answer_text: Answer text to validate
+        validation_type: Type of validation ('none', 'national_id', 'email', 'landline', 'mobile', 'website')
+        
+    Returns:
+        Tuple of (is_valid, error_message)
+    """
+    if not validation_type or validation_type == 'none' or validation_type == '':
+        return True, ""  # No validation required
+    
+    if validation_type == 'national_id':
+        return validate_national_id(answer_text)
+    elif validation_type == 'email':
+        return validate_email(answer_text)
+    elif validation_type == 'landline':
+        return validate_landline_phone(answer_text)
+    elif validation_type == 'mobile':
+        return validate_mobile_phone(answer_text)
+    elif validation_type == 'website':
+        return validate_website(answer_text)
+    else:
+        # Unknown validation type - allow it
+        return True, ""

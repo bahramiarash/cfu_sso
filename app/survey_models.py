@@ -79,6 +79,7 @@ class Survey(db.Model):
     access_groups = relationship('SurveyAccessGroup', back_populates='survey', cascade='all, delete-orphan')
     allowed_users = relationship('SurveyAllowedUser', back_populates='survey', cascade='all, delete-orphan')
     responses = relationship('SurveyResponse', back_populates='survey', cascade='all, delete-orphan')
+    parameters = relationship('SurveyParameter', back_populates='survey', cascade='all, delete-orphan', order_by='SurveyParameter.order')
     
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary"""
@@ -207,6 +208,9 @@ class SurveyQuestion(db.Model):
     # Input type for text questions: 'single_line' (input) or 'multi_line' (textarea)
     text_input_type = Column(String(20), default='multi_line', nullable=False)
     
+    # Validation type for single-line text questions: 'none', 'national_id', 'email', 'landline', 'mobile', 'website'
+    validation_type = Column(String(20), nullable=True)
+    
     # Limits for text and file questions
     max_words = Column(Integer, nullable=True)  # Maximum words for text questions (default: 100)
     max_file_size_mb = Column(Integer, nullable=True)  # Maximum file size in MB for file_upload questions (default: 25)
@@ -257,6 +261,7 @@ class SurveyResponse(db.Model):
     survey = relationship('Survey', back_populates='responses')
     user = relationship('User', backref='survey_responses')
     answer_items = relationship('SurveyAnswerItem', back_populates='response', cascade='all, delete-orphan')
+    parameters = relationship('SurveyResponseParameter', back_populates='response', cascade='all, delete-orphan')
     
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary"""
@@ -350,5 +355,74 @@ class SurveyLog(db.Model):
             'details': self.details or {},
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'created_at_jalali': jdate.strftime('%Y/%m/%d %H:%M:%S') if jdate else None,
+        }
+
+
+class SurveyParameter(db.Model):
+    """Parameters for anonymous surveys - can be passed via URL GET parameters"""
+    __tablename__ = 'survey_parameters'
+    
+    id = Column(Integer, primary_key=True)
+    survey_id = Column(Integer, ForeignKey('surveys.id'), nullable=False)
+    
+    # Parameter definition
+    parameter_name = Column(String(100), nullable=False)  # e.g., "center", "type"
+    parameter_values = Column(JSON, nullable=False)  # List of possible values, e.g., ["مرکز1", "مرکز2", "مرکز3"]
+    order = Column(Integer, default=0, nullable=False)  # Order of parameter (1-5)
+    
+    # Metadata
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+    
+    # Relationships
+    survey = relationship('Survey', back_populates='parameters')
+    response_parameters = relationship('SurveyResponseParameter', back_populates='parameter', cascade='all, delete-orphan')
+    
+    # Unique constraint: one parameter name per survey
+    __table_args__ = (
+        db.UniqueConstraint('survey_id', 'parameter_name', name='_survey_parameter_name_uc'),
+    )
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary"""
+        return {
+            'id': self.id,
+            'survey_id': self.survey_id,
+            'parameter_name': self.parameter_name,
+            'parameter_values': self.parameter_values,
+            'order': self.order,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'updated_at': self.updated_at.isoformat() if self.updated_at else None,
+        }
+
+
+class SurveyResponseParameter(db.Model):
+    """Parameter values for each survey response"""
+    __tablename__ = 'survey_response_parameters'
+    
+    id = Column(Integer, primary_key=True)
+    response_id = Column(Integer, ForeignKey('survey_responses.id'), nullable=False)
+    parameter_id = Column(Integer, ForeignKey('survey_parameters.id'), nullable=False)
+    
+    # Parameter value
+    parameter_value = Column(String(500), nullable=False)  # The actual value from URL
+    
+    # Relationships
+    response = relationship('SurveyResponse', back_populates='parameters')
+    parameter = relationship('SurveyParameter', back_populates='response_parameters')
+    
+    # Unique constraint: one value per parameter per response
+    __table_args__ = (
+        db.UniqueConstraint('response_id', 'parameter_id', name='_response_parameter_uc'),
+    )
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary"""
+        return {
+            'id': self.id,
+            'response_id': self.response_id,
+            'parameter_id': self.parameter_id,
+            'parameter_name': self.parameter.parameter_name if self.parameter else None,
+            'parameter_value': self.parameter_value,
         }
 

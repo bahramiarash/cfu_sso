@@ -9,7 +9,8 @@ from .utils import log_survey_action, sanitize_input, is_survey_manager
 from models import User
 from survey_models import (
     SurveyManager, Survey, SurveyCategory, SurveyQuestion,
-    SurveyAccessGroup, SurveyAllowedUser, SurveyResponse, SurveyAnswerItem
+    SurveyAccessGroup, SurveyAllowedUser, SurveyResponse, SurveyAnswerItem,
+    SurveyParameter, SurveyResponseParameter
 )
 from extensions import db
 from sqlalchemy import desc, func, cast, Date
@@ -213,6 +214,57 @@ def manager_surveys_create():
                         logo_file.save(logo_path)
                         survey.logo_path = f"/static/uploads/surveys/logos/{logo_filename}"
             
+            # Handle survey parameters (only for anonymous surveys)
+            if survey.access_type == 'anonymous':
+                # Get existing parameter IDs to track which ones to keep
+                parameter_names = request.form.getlist('parameter_name[]')
+                parameter_values_list = request.form.getlist('parameter_values[]')
+                parameter_ids = request.form.getlist('parameter_id[]')
+                
+                # Delete parameters that are not in the form (for edit mode)
+                existing_params = {p.id: p for p in SurveyParameter.query.filter_by(survey_id=survey.id).all()}
+                submitted_param_ids = [int(pid) for pid in parameter_ids if pid and pid.strip()]
+                
+                for param_id, param in existing_params.items():
+                    if param_id not in submitted_param_ids:
+                        db.session.delete(param)
+                
+                # Add or update parameters
+                for idx, (param_name, param_values_str) in enumerate(zip(parameter_names, parameter_values_list)):
+                    if not param_name or not param_values_str:
+                        continue
+                    
+                    param_name = param_name.strip()
+                    param_values = [v.strip() for v in param_values_str.split(',') if v.strip()]
+                    
+                    if not param_name or not param_values:
+                        continue
+                    
+                    param_id = parameter_ids[idx] if idx < len(parameter_ids) and parameter_ids[idx] else None
+                    
+                    if param_id and param_id.strip():
+                        # Update existing parameter
+                        try:
+                            param = SurveyParameter.query.get(int(param_id))
+                            if param and param.survey_id == survey.id:
+                                param.parameter_name = param_name
+                                param.parameter_values = param_values
+                                param.order = idx + 1
+                        except (ValueError, AttributeError):
+                            pass
+                    else:
+                        # Create new parameter
+                        param = SurveyParameter(
+                            survey_id=survey.id,
+                            parameter_name=param_name,
+                            parameter_values=param_values,
+                            order=idx + 1
+                        )
+                        db.session.add(param)
+            else:
+                # Delete all parameters if access type is not anonymous
+                SurveyParameter.query.filter_by(survey_id=survey.id).delete()
+            
             db.session.commit()
             
             log_survey_action('create_survey', 'survey', survey.id, {
@@ -329,6 +381,57 @@ def manager_surveys_edit(survey_id):
                         logo_file.save(logo_path)
                         survey.logo_path = f"/static/uploads/surveys/logos/{logo_filename}"
             
+            # Handle survey parameters (only for anonymous surveys)
+            if survey.access_type == 'anonymous':
+                # Get existing parameter IDs to track which ones to keep
+                parameter_names = request.form.getlist('parameter_name[]')
+                parameter_values_list = request.form.getlist('parameter_values[]')
+                parameter_ids = request.form.getlist('parameter_id[]')
+                
+                # Delete parameters that are not in the form
+                existing_params = {p.id: p for p in SurveyParameter.query.filter_by(survey_id=survey.id).all()}
+                submitted_param_ids = [int(pid) for pid in parameter_ids if pid and pid.strip()]
+                
+                for param_id, param in existing_params.items():
+                    if param_id not in submitted_param_ids:
+                        db.session.delete(param)
+                
+                # Add or update parameters
+                for idx, (param_name, param_values_str) in enumerate(zip(parameter_names, parameter_values_list)):
+                    if not param_name or not param_values_str:
+                        continue
+                    
+                    param_name = param_name.strip()
+                    param_values = [v.strip() for v in param_values_str.split(',') if v.strip()]
+                    
+                    if not param_name or not param_values:
+                        continue
+                    
+                    param_id = parameter_ids[idx] if idx < len(parameter_ids) and parameter_ids[idx] else None
+                    
+                    if param_id and param_id.strip():
+                        # Update existing parameter
+                        try:
+                            param = SurveyParameter.query.get(int(param_id))
+                            if param and param.survey_id == survey.id:
+                                param.parameter_name = param_name
+                                param.parameter_values = param_values
+                                param.order = idx + 1
+                        except (ValueError, AttributeError):
+                            pass
+                    else:
+                        # Create new parameter
+                        param = SurveyParameter(
+                            survey_id=survey.id,
+                            parameter_name=param_name,
+                            parameter_values=param_values,
+                            order=idx + 1
+                        )
+                        db.session.add(param)
+            else:
+                # Delete all parameters if access type is not anonymous
+                SurveyParameter.query.filter_by(survey_id=survey.id).delete()
+            
             db.session.commit()
             
             log_survey_action('edit_survey', 'survey', survey_id)
@@ -350,9 +453,13 @@ def manager_surveys_edit(survey_id):
         hash_value = hashlib.sha256(data.encode()).hexdigest()[:16]
         anonymous_access_link = url_for('survey.survey_start', survey_id=survey.id, hash=hash_value, _external=True)
     
+    # Get survey parameters
+    survey_parameters = SurveyParameter.query.filter_by(survey_id=survey.id).order_by(SurveyParameter.order).all()
+    
     return render_template('survey/manager/surveys/edit.html', 
                          survey=survey, 
-                         anonymous_access_link=anonymous_access_link)
+                         anonymous_access_link=anonymous_access_link,
+                         survey_parameters=survey_parameters)
 
 
 @survey_bp.route('/manager/surveys/<int:survey_id>/questions')
@@ -415,6 +522,7 @@ def manager_questions_create(survey_id):
         options = data.get('options')  # For Likert scale questions
         option_display_type = data.get('option_display_type', 'radio')  # Default to radio
         text_input_type = data.get('text_input_type', 'multi_line')  # Default to multi_line
+        validation_type = data.get('validation_type')  # Can be None, 'national_id', 'email', 'landline', 'mobile', 'website'
         
         if not question_text:
             return jsonify({'success': False, 'message': 'متن سوال الزامی است'}), 400
@@ -443,6 +551,7 @@ def manager_questions_create(survey_id):
             options=options,
             option_display_type=option_display_type,
             text_input_type=text_input_type,
+            validation_type=validation_type,
             max_words=max_words,
             max_file_size_mb=max_file_size_mb
         )
@@ -525,6 +634,7 @@ def manager_questions_edit(question_id):
         question.options = data.get('options')  # For Likert scale questions
         question.option_display_type = data.get('option_display_type', 'radio')  # Default to radio
         question.text_input_type = data.get('text_input_type', 'multi_line')  # Default to multi_line
+        question.validation_type = data.get('validation_type')  # Can be None, 'national_id', 'email', 'landline', 'mobile', 'website'
         
         # Update max_words and max_file_size_mb based on question type
         if question.question_type == 'text':
@@ -757,6 +867,17 @@ def manager_reports_overview(survey_id):
             desc(SurveyResponse.started_at)
         ).all()
         
+        # Get parameters for each response
+        response_parameters_dict = {}
+        if survey.access_type == 'anonymous':
+            for response in all_responses:
+                response_params = SurveyResponseParameter.query.filter_by(response_id=response.id).all()
+                params_dict = {}
+                for rp in response_params:
+                    if rp.parameter:
+                        params_dict[rp.parameter.parameter_name] = rp.parameter_value
+                response_parameters_dict[response.id] = params_dict
+        
         # Get question statistics (answers per question) grouped by category
         from survey_models import SurveyQuestion, SurveyAnswerItem
         question_stats_by_category = []
@@ -977,6 +1098,9 @@ def manager_reports_overview(survey_id):
             question_stats_by_category = []
             question_stats_json = []
         
+        # Get survey parameters for display
+        survey_parameters = SurveyParameter.query.filter_by(survey_id=survey_id).order_by(SurveyParameter.order).all()
+        
         log_survey_action('view_survey_reports', 'survey', survey_id)
         return render_template('survey/manager/reports/overview.html',
                              survey=survey,
@@ -988,7 +1112,9 @@ def manager_reports_overview(survey_id):
                              daily_chart_data=daily_chart_data,
                              all_responses=all_responses,
                              question_stats_by_category=question_stats_by_category,
-                             question_stats_json=question_stats_json)
+                             question_stats_json=question_stats_json,
+                             survey_parameters=survey_parameters,
+                             response_parameters_dict=response_parameters_dict)
     except Exception as e:
         logger.error(f"Error viewing reports: {e}", exc_info=True)
         flash('خطا در نمایش گزارش‌ها', 'error')
@@ -1188,13 +1314,116 @@ def manager_reports_export_excel(survey_id):
             
             log_survey_action('export_survey_reports_excel', 'survey', survey_id)
             return response
-        except Exception as e:
-            logger.error(f"Error creating Excel file: {e}", exc_info=True)
-            raise
+        except Exception as excel_error:
+            logger.error(f"Error creating Excel file in export_excel: {excel_error}", exc_info=True)
+            db.session.rollback()
+            flash(f'خطا در تولید فایل Excel: {str(excel_error)}', 'error')
+            return redirect(url_for('survey.manager_reports_overview', survey_id=survey_id))
         
     except Exception as e:
         logger.error(f"Error exporting Excel: {e}", exc_info=True)
-        flash('خطا در خروجی Excel', 'error')
+        db.session.rollback()
+        flash(f'خطا در خروجی Excel: {str(e)}', 'error')
+        return redirect(url_for('survey.manager_reports_overview', survey_id=survey_id))
+
+
+@survey_bp.route('/manager/surveys/<int:survey_id>/reports/links/excel')
+@login_required
+@manager_required
+def manager_reports_export_links_excel(survey_id):
+    """Export all possible survey links with parameter combinations to Excel"""
+    try:
+        manager = SurveyManager.query.filter_by(user_id=current_user.id, is_active=True).first()
+        if not manager:
+            flash('شما به عنوان مسئول نظرسنجی تعریف نشده‌اید', 'error')
+            return redirect(url_for('list_tools'))
+        
+        survey = Survey.query.get_or_404(survey_id)
+        if survey.manager_id != manager.id:
+            flash('شما دسترسی به این پرسشنامه ندارید', 'error')
+            return redirect(url_for('survey.manager_surveys_list'))
+        
+        if survey.access_type != 'anonymous':
+            flash('این قابلیت فقط برای پرسشنامه‌های بدون احراز هویت در دسترس است', 'error')
+            return redirect(url_for('survey.manager_reports_overview', survey_id=survey_id))
+        
+        if not PANDAS_AVAILABLE:
+            flash('کتابخانه pandas برای خروجی Excel نیاز است', 'error')
+            return redirect(url_for('survey.manager_reports_overview', survey_id=survey_id))
+        
+        # Get all parameters
+        parameters = SurveyParameter.query.filter_by(survey_id=survey_id).order_by(SurveyParameter.order).all()
+        
+        if not parameters:
+            flash('هیچ پارامتری برای این پرسشنامه تعریف نشده است', 'error')
+            return redirect(url_for('survey.manager_reports_overview', survey_id=survey_id))
+        
+        # Generate anonymous access hash
+        import hashlib
+        ANONYMOUS_ACCESS_SECRET = "cfu_survey_anonymous_2024"
+        data = f"{survey.id}_{ANONYMOUS_ACCESS_SECRET}"
+        hash_value = hashlib.sha256(data.encode()).hexdigest()[:16]
+        base_url = url_for('survey.survey_start', survey_id=survey_id, hash=hash_value, _external=True)
+        
+        # Generate all combinations using itertools.product
+        import itertools
+        from urllib.parse import urlencode, quote
+        
+        param_names = [p.parameter_name for p in parameters]
+        param_values_lists = [p.parameter_values for p in parameters]
+        
+        # Generate all combinations
+        combinations = list(itertools.product(*param_values_lists))
+        
+        # Create data for Excel
+        links_data = []
+        for combo in combinations:
+            # Build URL with parameters using urlencode for proper encoding
+            params_dict = {param_names[i]: combo[i] for i in range(len(combo))}
+            # Use quote for each value to handle Persian characters properly
+            url_params = '&'.join([f"{name}={quote(str(value), safe='')}" for name, value in params_dict.items()])
+            full_url = f"{base_url}&{url_params}"
+            
+            # Create row data
+            row = {}
+            for i, param_name in enumerate(param_names):
+                row[param_name] = combo[i]
+            row['لینک دسترسی'] = full_url
+            
+            links_data.append(row)
+        
+        # Create DataFrame
+        if not links_data:
+            flash('هیچ ترکیبی برای تولید لینک وجود ندارد', 'error')
+            return redirect(url_for('survey.manager_reports_overview', survey_id=survey_id))
+        
+        df = pd.DataFrame(links_data)
+        
+        # Create Excel file in memory
+        output = io.BytesIO()
+        try:
+            with pd.ExcelWriter(output, engine='openpyxl') as writer:
+                # Use a safe sheet name (Excel has limitations on sheet names)
+                sheet_name = 'Links'  # Simple English name to avoid issues
+                df.to_excel(writer, sheet_name=sheet_name, index=False)
+            
+            output.seek(0)
+            
+            # Create response
+            response = make_response(output.read())
+            response.headers['Content-Type'] = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+            response.headers['Content-Disposition'] = f'attachment; filename=survey_{survey_id}_links.xlsx'
+            
+            log_survey_action('export_survey_links_excel', 'survey', survey_id)
+            return response
+        except Exception as excel_error:
+            logger.error(f"Error creating Excel file in export_links: {excel_error}", exc_info=True)
+            raise
+        
+    except Exception as e:
+        logger.error(f"Error exporting links Excel: {e}", exc_info=True)
+        db.session.rollback()
+        flash(f'خطا در تولید فایل Excel: {str(e)}', 'error')
         return redirect(url_for('survey.manager_reports_overview', survey_id=survey_id))
 
 

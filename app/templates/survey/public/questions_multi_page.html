@@ -282,12 +282,18 @@
                                                    class="form-control"
                                                    {% if question.is_required %}required{% endif %}
                                                    data-max-words="{{ question.max_words or 100 }}"
+                                                   data-validation-type="{{ question.validation_type or '' }}"
                                                    placeholder="پاسخ خود را وارد کنید..."
                                                    maxlength="{{ question.max_words or 2000 }}">
                                             <small class="text-muted d-block mt-2">
                                                 حداکثر {{ question.max_words or 100 }} حرف
                                                 <span id="charCount_{{ question.id }}" class="text-info"></span>
                                             </small>
+                                            {% if question.validation_type %}
+                                            <small class="text-muted d-block mt-1">
+                                                <span id="validationError_{{ question.id }}" class="text-danger" style="display: none;"></span>
+                                            </small>
+                                            {% endif %}
                                         {% else %}
                                             <textarea name="question_{{ question.id }}" 
                                                       class="form-control" 
@@ -367,6 +373,162 @@ let currentQuestionIndex = 0;
 const totalQuestions = {{ total_questions }};
 const questionCards = document.querySelectorAll('.question-card');
 
+// Validation functions (must be in global scope to be accessible from goToNextQuestion)
+function validateNationalId(nationalId) {
+    if (!nationalId) return { valid: false, message: "کد ملی نمی‌تواند خالی باشد" };
+    
+    // Remove spaces and dashes
+    nationalId = nationalId.trim().replace(/[\s-]/g, '');
+    
+    // Check if it's exactly 10 digits
+    if (!/^\d+$/.test(nationalId)) {
+        return { valid: false, message: "کد ملی باید فقط شامل اعداد باشد" };
+    }
+    
+    if (nationalId.length !== 10) {
+        return { valid: false, message: "کد ملی باید دقیقاً 10 رقم باشد" };
+    }
+    
+    // Iranian national ID validation algorithm
+    const checkDigit = parseInt(nationalId[9]);
+    let sumDigits = 0;
+    
+    for (let i = 0; i < 9; i++) {
+        sumDigits += parseInt(nationalId[i]) * (10 - i);
+    }
+    
+    const remainder = sumDigits % 11;
+    const expectedCheck = remainder < 2 ? remainder : 11 - remainder;
+    
+    if (checkDigit !== expectedCheck) {
+        return { valid: false, message: "کد ملی وارد شده معتبر نیست" };
+    }
+    
+    return { valid: true, message: "" };
+}
+
+function validateEmail(email) {
+    if (!email) return { valid: false, message: "ایمیل نمی‌تواند خالی باشد" };
+    
+    email = email.trim();
+    const emailPattern = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
+    
+    if (!emailPattern.test(email)) {
+        return { valid: false, message: "فرمت ایمیل وارد شده معتبر نیست" };
+    }
+    
+    return { valid: true, message: "" };
+}
+
+function validateLandlinePhone(phone) {
+    if (!phone) return { valid: false, message: "شماره تلفن ثابت نمی‌تواند خالی باشد" };
+    
+    // Remove spaces, dashes, parentheses
+    phone = phone.trim().replace(/[\s\-()]/g, '');
+    
+    // Remove country code if present
+    if (phone.startsWith('0098')) phone = phone.substring(4);
+    else if (phone.startsWith('+98')) phone = phone.substring(3);
+    else if (phone.startsWith('098')) phone = phone.substring(3);
+    else if (phone.startsWith('98')) phone = phone.substring(2);
+    
+    // Check if it's all digits
+    if (!/^\d+$/.test(phone)) {
+        return { valid: false, message: "شماره تلفن ثابت باید فقط شامل اعداد باشد" };
+    }
+    
+    // Remove leading 0
+    if (phone.startsWith('0')) phone = phone.substring(1);
+    
+    // Check length
+    if (phone.length < 8 || phone.length > 10) {
+        return { valid: false, message: "شماره تلفن ثابت باید بین 8 تا 10 رقم باشد (بدون کد کشور)" };
+    }
+    
+    return { valid: true, message: "" };
+}
+
+function validateMobilePhone(phone) {
+    if (!phone) return { valid: false, message: "شماره تلفن همراه نمی‌تواند خالی باشد" };
+    
+    // Remove spaces, dashes, parentheses
+    phone = phone.trim().replace(/[\s\-()]/g, '');
+    
+    // Remove country code if present
+    if (phone.startsWith('0098')) phone = phone.substring(4);
+    else if (phone.startsWith('+98')) phone = phone.substring(3);
+    else if (phone.startsWith('098')) phone = phone.substring(3);
+    else if (phone.startsWith('98')) phone = phone.substring(2);
+    
+    // Check if it's all digits
+    if (!/^\d+$/.test(phone)) {
+        return { valid: false, message: "شماره تلفن همراه باید فقط شامل اعداد باشد" };
+    }
+    
+    // Remove leading 0
+    if (phone.startsWith('0')) phone = phone.substring(1);
+    
+    // Check length
+    if (phone.length !== 10) {
+        return { valid: false, message: "شماره تلفن همراه باید 10 رقم باشد (بدون کد کشور و صفر ابتدایی)" };
+    }
+    
+    // Check if starts with 9
+    if (!phone.startsWith('9')) {
+        return { valid: false, message: "شماره تلفن همراه باید با 9 شروع شود" };
+    }
+    
+    // Check valid prefixes
+    const validPrefixes = ['91', '92', '93', '94', '95', '96', '97', '98', '99'];
+    const prefix = phone.substring(0, 2);
+    
+    if (!validPrefixes.includes(prefix)) {
+        return { valid: false, message: "پیش‌شماره تلفن همراه معتبر نیست" };
+    }
+    
+    return { valid: true, message: "" };
+}
+
+function validateWebsite(url) {
+    if (!url) return { valid: false, message: "نشانی وب سایت نمی‌تواند خالی باشد" };
+    
+    url = url.trim();
+    
+    // Add http:// if no protocol is specified
+    if (!url.match(/^(https?:\/\/|www\.)/i)) {
+        url = 'http://' + url;
+    }
+    
+    // Basic URL validation
+    const urlPattern = /^https?:\/\/(?:[-\w.])+(?::[0-9]+)?(?:\/(?:[\w\/_.])*)?(?:\?(?:[\w&=%.])*)?(?:#(?:[\w.])*)?$/;
+    
+    if (!urlPattern.test(url)) {
+        return { valid: false, message: "فرمت نشانی وب سایت معتبر نیست" };
+    }
+    
+    return { valid: true, message: "" };
+}
+
+function validateAnswerByType(answerText, validationType) {
+    if (!validationType || validationType === 'none' || validationType === '') {
+        return { valid: true, message: "" };
+    }
+    
+    if (validationType === 'national_id') {
+        return validateNationalId(answerText);
+    } else if (validationType === 'email') {
+        return validateEmail(answerText);
+    } else if (validationType === 'landline') {
+        return validateLandlinePhone(answerText);
+    } else if (validationType === 'mobile') {
+        return validateMobilePhone(answerText);
+    } else if (validationType === 'website') {
+        return validateWebsite(answerText);
+    }
+    
+    return { valid: true, message: "" };
+}
+
 // Update progress bar
 function updateProgress() {
     const progress = ((currentQuestionIndex + 1) / totalQuestions) * 100;
@@ -407,8 +569,15 @@ function goToNextQuestion() {
     const currentCard = questionCards[currentQuestionIndex];
     const questionId = currentCard.getAttribute('data-question-id');
     
-    // Validate current question if required
+    // Validate current question - check both required and non-required fields with validation_type
     const requiredFields = currentCard.querySelectorAll('[required]');
+    const textFieldsWithValidation = currentCard.querySelectorAll('input[type="text"][data-validation-type]');
+    
+    // Combine all fields that need validation
+    const allFieldsToValidate = new Set();
+    requiredFields.forEach(f => allFieldsToValidate.add(f));
+    textFieldsWithValidation.forEach(f => allFieldsToValidate.add(f));
+    
     let isValid = true;
     
     // Helper function to count characters
@@ -419,7 +588,7 @@ function goToNextQuestion() {
     
     let errorMessage = '';
     
-    for (let field of requiredFields) {
+    for (let field of allFieldsToValidate) {
         if (field.type === 'radio') {
             const radioGroup = currentCard.querySelectorAll(`input[name="${field.name}"]`);
             const isChecked = Array.from(radioGroup).some(radio => radio.checked);
@@ -465,6 +634,62 @@ function goToNextQuestion() {
             } else {
                 field.classList.remove('is-invalid');
                 field.setCustomValidity('');
+            }
+        } else if (field.type === 'text' && field.hasAttribute('data-max-words')) {
+            // Validate character count and validation type for text inputs
+            const maxChars = parseInt(field.getAttribute('data-max-words')) || 100;
+            const charCount = countChars(field.value);
+            const validationType = field.getAttribute('data-validation-type') || '';
+            const questionId = field.name.replace('question_', '');
+            const validationErrorSpan = document.getElementById(`validationError_${questionId}`);
+            const isRequired = field.hasAttribute('required');
+            
+            // If field is empty and required
+            if (!field.value || !field.value.trim()) {
+                if (isRequired) {
+                    isValid = false;
+                    if (!errorMessage) {
+                        errorMessage = 'لطفاً به این سوال پاسخ دهید';
+                    }
+                    field.classList.add('is-invalid');
+                } else {
+                    // Non-required field can be empty
+                    field.classList.remove('is-invalid');
+                    if (validationErrorSpan) {
+                        validationErrorSpan.style.display = 'none';
+                    }
+                }
+            } else if (charCount > maxChars) {
+                // Character count validation
+                isValid = false;
+                field.classList.add('is-invalid');
+                errorMessage = `متن وارد شده باید کمتر از ${maxChars} حرف باشد. تعداد فعلی: ${charCount} حرف`;
+                if (validationErrorSpan) {
+                    validationErrorSpan.style.display = 'none';
+                }
+            } else if (validationType && field.value.trim()) {
+                // Validation type check (national_id, email, etc.)
+                const validation = validateAnswerByType(field.value, validationType);
+                if (!validation.valid) {
+                    isValid = false;
+                    field.classList.add('is-invalid');
+                    errorMessage = validation.message;
+                    if (validationErrorSpan) {
+                        validationErrorSpan.textContent = validation.message;
+                        validationErrorSpan.style.display = 'block';
+                    }
+                } else {
+                    field.classList.remove('is-invalid');
+                    if (validationErrorSpan) {
+                        validationErrorSpan.style.display = 'none';
+                    }
+                }
+            } else {
+                // No validation needed
+                field.classList.remove('is-invalid');
+                if (validationErrorSpan) {
+                    validationErrorSpan.style.display = 'none';
+                }
             }
         } else if (field.type === 'file' && field.hasAttribute('data-max-size-mb')) {
             // File size validation is handled in change event, but check if file is selected
@@ -658,6 +883,8 @@ document.addEventListener('DOMContentLoaded', function() {
         const maxChars = parseInt(textField.getAttribute('data-max-words')) || 100;
         const questionId = textField.name.replace('question_', '');
         const charCountSpan = document.getElementById(`charCount_${questionId}`);
+        const validationType = textField.getAttribute('data-validation-type') || '';
+        const validationErrorSpan = document.getElementById(`validationError_${questionId}`);
         
         textField.addEventListener('input', function() {
             const charCount = countChars(this.value);
@@ -670,11 +897,53 @@ document.addEventListener('DOMContentLoaded', function() {
                 }
             }
             
-            // Set custom validation
+            // Validate character count
             if (charCount > maxChars) {
                 this.setCustomValidity(`تعداد حروف نباید بیشتر از ${maxChars} باشد. تعداد فعلی: ${charCount}`);
+                if (validationErrorSpan) {
+                    validationErrorSpan.style.display = 'none';
+                }
             } else {
-                this.setCustomValidity('');
+                // Validate by type if validation_type is set
+                if (validationType && this.value.trim()) {
+                    const validation = validateAnswerByType(this.value, validationType);
+                    if (!validation.valid) {
+                        this.setCustomValidity(validation.message);
+                        if (validationErrorSpan) {
+                            validationErrorSpan.textContent = validation.message;
+                            validationErrorSpan.style.display = 'block';
+                        }
+                    } else {
+                        this.setCustomValidity('');
+                        if (validationErrorSpan) {
+                            validationErrorSpan.style.display = 'none';
+                        }
+                    }
+                } else {
+                    this.setCustomValidity('');
+                    if (validationErrorSpan) {
+                        validationErrorSpan.style.display = 'none';
+                    }
+                }
+            }
+        });
+        
+        // Also validate on blur
+        textField.addEventListener('blur', function() {
+            if (validationType && this.value.trim()) {
+                const validation = validateAnswerByType(this.value, validationType);
+                if (!validation.valid) {
+                    this.setCustomValidity(validation.message);
+                    if (validationErrorSpan) {
+                        validationErrorSpan.textContent = validation.message;
+                        validationErrorSpan.style.display = 'block';
+                    }
+                } else {
+                    this.setCustomValidity('');
+                    if (validationErrorSpan) {
+                        validationErrorSpan.style.display = 'none';
+                    }
+                }
             }
         });
     });
@@ -838,6 +1107,50 @@ document.getElementById('surveyForm').addEventListener('submit', function(e) {
                     field.classList.add('is-invalid');
                 } else {
                     field.classList.remove('is-invalid');
+                }
+            } else if (field.type === 'text' && field.hasAttribute('data-max-words')) {
+                // Validate character count and validation type for text inputs
+                const maxChars = parseInt(field.getAttribute('data-max-words')) || 100;
+                const charCount = field.value ? field.value.length : 0;
+                const validationType = field.getAttribute('data-validation-type') || '';
+                const questionId = field.name.replace('question_', '');
+                const validationErrorSpan = document.getElementById(`validationError_${questionId}`);
+                
+                if (!field.value) {
+                    isValid = false;
+                    if (firstInvalidQuestion.length === 0) {
+                        firstInvalidQuestion.push(index);
+                    }
+                    field.classList.add('is-invalid');
+                } else if (charCount > maxChars) {
+                    isValid = false;
+                    if (firstInvalidQuestion.length === 0) {
+                        firstInvalidQuestion.push(index);
+                    }
+                    field.classList.add('is-invalid');
+                } else if (validationType && field.value.trim()) {
+                    const validation = validateAnswerByType(field.value, validationType);
+                    if (!validation.valid) {
+                        isValid = false;
+                        if (firstInvalidQuestion.length === 0) {
+                            firstInvalidQuestion.push(index);
+                        }
+                        field.classList.add('is-invalid');
+                        if (validationErrorSpan) {
+                            validationErrorSpan.textContent = validation.message;
+                            validationErrorSpan.style.display = 'block';
+                        }
+                    } else {
+                        field.classList.remove('is-invalid');
+                        if (validationErrorSpan) {
+                            validationErrorSpan.style.display = 'none';
+                        }
+                    }
+                } else {
+                    field.classList.remove('is-invalid');
+                    if (validationErrorSpan) {
+                        validationErrorSpan.style.display = 'none';
+                    }
                 }
             } else if (field.type === 'file' && field.hasAttribute('data-max-size-mb')) {
                 // File size validation is handled in change event

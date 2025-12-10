@@ -9,12 +9,13 @@ from functools import wraps
 from . import survey_bp
 from .utils import (
     log_survey_action, check_survey_access, check_completion_limit, 
-    sanitize_input, get_completion_period_key
+    sanitize_input, get_completion_period_key, validate_answer_by_type
 )
 from models import User
 from survey_models import (
     Survey, SurveyResponse, SurveyAnswerItem, SurveyQuestion, 
-    SurveyCategory, SurveyAllowedUser, SurveyManager
+    SurveyCategory, SurveyAllowedUser, SurveyManager,
+    SurveyParameter, SurveyResponseParameter
 )
 from extensions import db
 from datetime import datetime
@@ -184,6 +185,23 @@ def survey_start(survey_id):
         if password_verified:
             is_anonymous_access = True
             session[f'anonymous_survey_{survey_id}'] = hash_param
+            
+            # Store URL parameters in session for anonymous surveys
+            if survey.access_type == 'anonymous':
+                # Get all defined parameters for this survey
+                survey_parameters = SurveyParameter.query.filter_by(survey_id=survey_id).all()
+                parameter_dict = {}
+                
+                for param in survey_parameters:
+                    param_value = request.args.get(param.parameter_name)
+                    if param_value:
+                        # Validate that the value is in the allowed list
+                        if param_value in param.parameter_values:
+                            parameter_dict[param.parameter_name] = param_value
+                
+                # Store parameters in session
+                if parameter_dict:
+                    session[f'anonymous_survey_{survey_id}_parameters'] = parameter_dict
         
         # Check if survey is active
         if survey.status != 'active':
@@ -298,6 +316,23 @@ def survey_questions(survey_id):
                         return redirect(url_for('survey.survey_anonymous_password', survey_id=survey_id, hash=hash_in_session))
                 else:
                     is_anonymous_access = True
+            
+            # Store URL parameters in session for anonymous surveys
+            if is_anonymous_access and survey.access_type == 'anonymous':
+                # Get all defined parameters for this survey
+                survey_parameters = SurveyParameter.query.filter_by(survey_id=survey_id).all()
+                parameter_dict = {}
+                
+                for param in survey_parameters:
+                    param_value = request.args.get(param.parameter_name)
+                    if param_value:
+                        # Validate that the value is in the allowed list
+                        if param_value in param.parameter_values:
+                            parameter_dict[param.parameter_name] = param_value
+                
+                # Store parameters in session (update if already exists)
+                if parameter_dict:
+                    session[f'anonymous_survey_{survey_id}_parameters'] = parameter_dict
         
         # Check if survey is active
         if survey.status != 'active':
@@ -458,6 +493,14 @@ def handle_survey_submission(survey_id, survey, user, national_id, is_anonymous_
                     if char_count > max_chars:
                         flash(f'تعداد حروف پاسخ سوال "{question.question_text[:50]}..." نباید بیشتر از {max_chars} باشد. تعداد فعلی: {char_count}', 'error')
                         return redirect(url_for('survey.survey_questions', survey_id=survey_id))
+                    
+                    # Apply validation if question has validation_type and is single_line
+                    if question.text_input_type == 'single_line' and question.validation_type:
+                        is_valid, error_msg = validate_answer_by_type(answer_text, question.validation_type)
+                        if not is_valid:
+                            flash(f'خطا در پاسخ سوال "{question.question_text[:50]}...": {error_msg}', 'error')
+                            return redirect(url_for('survey.survey_questions', survey_id=survey_id))
+                    
                     answer_item.answer_text = sanitize_input(answer_text)
             elif question.question_type == 'file_upload':
                 # Handle file upload (if needed)
@@ -489,6 +532,37 @@ def handle_survey_submission(survey_id, survey, user, national_id, is_anonymous_
                             file_path = os.path.join(upload_dir, filename)
                             file.save(file_path)
                             answer_item.file_path = f"/static/uploads/surveys/files/{filename}"
+        
+        # Save survey parameters (for anonymous surveys)
+        if is_anonymous_access and survey.access_type == 'anonymous':
+            # Get parameters from session
+            parameters_dict = session.get(f'anonymous_survey_{survey_id}_parameters', {})
+            
+            if parameters_dict:
+                # Get all survey parameters
+                survey_parameters = SurveyParameter.query.filter_by(survey_id=survey_id).all()
+                param_name_to_id = {p.parameter_name: p.id for p in survey_parameters}
+                
+                # Save each parameter value
+                for param_name, param_value in parameters_dict.items():
+                    if param_name in param_name_to_id:
+                        param_id = param_name_to_id[param_name]
+                        
+                        # Check if parameter response already exists
+                        existing_param_response = SurveyResponseParameter.query.filter_by(
+                            response_id=response.id,
+                            parameter_id=param_id
+                        ).first()
+                        
+                        if existing_param_response:
+                            existing_param_response.parameter_value = param_value
+                        else:
+                            param_response = SurveyResponseParameter(
+                                response_id=response.id,
+                                parameter_id=param_id,
+                                parameter_value=param_value
+                            )
+                            db.session.add(param_response)
         
         # Mark as completed
         response.is_completed = True

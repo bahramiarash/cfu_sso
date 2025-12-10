@@ -230,11 +230,23 @@
                     </div>
                     <div class="mb-3" id="maxWordsContainer" style="display: none;">
                         <label for="text_input_type" class="form-label">نوع فیلد ورودی</label>
-                        <select class="form-select" id="text_input_type">
+                        <select class="form-select" id="text_input_type" onchange="updateValidationOptions()">
                             <option value="multi_line">چند خطی (Textarea)</option>
                             <option value="single_line">یک خطی (Input)</option>
                         </select>
                         <small class="form-text text-muted">نوع فیلد ورودی برای پاسخ تشریحی</small>
+                    </div>
+                    <div class="mb-3" id="validationContainer" style="display: none;">
+                        <label for="validation_type" class="form-label">اعتبارسنجی</label>
+                        <select class="form-select" id="validation_type">
+                            <option value="">بدون شرط</option>
+                            <option value="national_id">کدملی</option>
+                            <option value="email">ایمیل</option>
+                            <option value="landline">تلفن ثابت</option>
+                            <option value="mobile">تلفن همراه</option>
+                            <option value="website">وب سایت</option>
+                        </select>
+                        <small class="form-text text-muted">نوع اعتبارسنجی برای فیلد یک خطی</small>
                     </div>
                     <div class="mb-3" id="maxWordsLimitContainer" style="display: none;">
                         <label for="max_words" class="form-label">حداکثر تعداد حروف</label>
@@ -277,6 +289,7 @@ const lastQuestionData = {% if last_question %}{
     options: {{ last_question.options | tojson if last_question.options else 'null' }},
     is_required: {{ 'true' if last_question.is_required else 'false' }},
     text_input_type: '{{ last_question.text_input_type|default("multi_line") }}',
+    validation_type: '{{ last_question.validation_type if last_question.validation_type else "" }}',
     max_words: {{ last_question.max_words if last_question.max_words else 'null' }},
     max_file_size_mb: {{ last_question.max_file_size_mb if last_question.max_file_size_mb else 'null' }},
     option_display_type: '{{ last_question.option_display_type|default("radio") }}'
@@ -305,6 +318,15 @@ document.getElementById('questionModal').addEventListener('show.bs.modal', funct
                     const textInputTypeSelect = document.getElementById('text_input_type');
                     if (textInputTypeSelect) {
                         textInputTypeSelect.value = lastQuestionData.text_input_type || 'multi_line';
+                        // Trigger updateValidationOptions to show/hide validation dropdown
+                        updateValidationOptions();
+                    }
+                    // Fill validation_type if available
+                    if (lastQuestionData.validation_type) {
+                        const validationTypeSelect = document.getElementById('validation_type');
+                        if (validationTypeSelect) {
+                            validationTypeSelect.value = lastQuestionData.validation_type;
+                        }
                     }
                 } else if (lastQuestionData.question_type === 'file_upload') {
                     const maxFileSizeInput = document.getElementById('max_file_size_mb');
@@ -347,8 +369,10 @@ document.getElementById('questionModal').addEventListener('hidden.bs.modal', fun
     document.getElementById('optionsList').innerHTML = '';
     document.getElementById('maxWordsContainer').style.display = 'none';
     document.getElementById('maxFileSizeContainer').style.display = 'none';
+    document.getElementById('validationContainer').style.display = 'none';
     document.getElementById('max_words').value = '100';
     document.getElementById('max_file_size_mb').value = '25';
+    document.getElementById('validation_type').value = '';
     document.getElementById('editing_question_id').value = '';
     document.getElementById('questionModalTitle').textContent = 'ایجاد سوال جدید';
     document.getElementById('questionSubmitBtn').textContent = 'ایجاد';
@@ -369,6 +393,7 @@ function updateQuestionOptions() {
     maxWordsContainer.style.display = 'none';
     maxFileSizeContainer.style.display = 'none';
     document.getElementById('optionDisplayTypeContainer').style.display = 'none';
+    document.getElementById('validationContainer').style.display = 'none';
     
     if (!questionType) {
         return; // No question type selected
@@ -407,12 +432,27 @@ function updateQuestionOptions() {
         if (maxWordsInput && (!maxWordsInput.value || maxWordsInput.value === '0')) {
             maxWordsInput.value = '100';
         }
+        // Check if single_line is selected to show validation dropdown
+        updateValidationOptions();
     } else if (questionType === 'file_upload') {
         maxFileSizeContainer.style.display = 'block';
         // Set default value if input is empty
         if (maxFileSizeInput && (!maxFileSizeInput.value || maxFileSizeInput.value === '0')) {
             maxFileSizeInput.value = '25';
         }
+    }
+}
+
+function updateValidationOptions() {
+    const questionType = document.getElementById('question_type').value;
+    const textInputType = document.getElementById('text_input_type').value;
+    const validationContainer = document.getElementById('validationContainer');
+    
+    // Show validation dropdown only if question type is 'text' and input type is 'single_line'
+    if (questionType === 'text' && textInputType === 'single_line') {
+        validationContainer.style.display = 'block';
+    } else {
+        validationContainer.style.display = 'none';
     }
 }
 
@@ -466,9 +506,10 @@ const questionsData = {
         is_required: {{ 'true' if question.is_required else 'false' }},
         options: {{ question.options | tojson if question.options else 'null' }},
         option_display_type: '{{ question.option_display_type if question.option_display_type else "radio" }}',
-        text_input_type: '{{ question.text_input_type|default("multi_line") }}',
-        max_words: {{ question.max_words if question.max_words else 'null' }},
-        max_file_size_mb: {{ question.max_file_size_mb if question.max_file_size_mb else 'null' }}
+    text_input_type: '{{ question.text_input_type|default("multi_line") }}',
+    max_words: {{ question.max_words if question.max_words else 'null' }},
+    max_file_size_mb: {{ question.max_file_size_mb if question.max_file_size_mb else 'null' }},
+    validation_type: '{{ question.validation_type if question.validation_type else "" }}'
     }{% if not loop.last %},{% endif %}
     {% endfor %}
 };
@@ -516,6 +557,15 @@ function editQuestion(questionId) {
             const textInputTypeSelect = document.getElementById('text_input_type');
             if (textInputTypeSelect) {
                 textInputTypeSelect.value = question.text_input_type || 'multi_line';
+                // Trigger updateValidationOptions to show/hide validation dropdown
+                updateValidationOptions();
+            }
+            // Fill validation_type if available
+            if (question.validation_type) {
+                const validationTypeSelect = document.getElementById('validation_type');
+                if (validationTypeSelect) {
+                    validationTypeSelect.value = question.validation_type;
+                }
             }
         }
         
@@ -609,15 +659,23 @@ function createQuestion() {
         }
     }
     
-    // Get max_words, text_input_type and max_file_size_mb
+    // Get max_words, text_input_type, validation_type and max_file_size_mb
     let maxWords = null;
     let textInputType = 'multi_line'; // Default
+    let validationType = null;
     let maxFileSizeMb = null;
     if (questionType === 'text') {
         maxWords = parseInt(document.getElementById('max_words').value) || 100;
         const textInputTypeSelect = document.getElementById('text_input_type');
         if (textInputTypeSelect) {
             textInputType = textInputTypeSelect.value || 'multi_line';
+        }
+        // Get validation_type only if text_input_type is single_line
+        if (textInputType === 'single_line') {
+            const validationTypeSelect = document.getElementById('validation_type');
+            if (validationTypeSelect && validationTypeSelect.value) {
+                validationType = validationTypeSelect.value;
+            }
         }
     } else if (questionType === 'file_upload') {
         maxFileSizeMb = parseInt(document.getElementById('max_file_size_mb').value) || 25;
@@ -641,6 +699,7 @@ function createQuestion() {
             options: options,
             option_display_type: optionDisplayType,
             text_input_type: textInputType,
+            validation_type: validationType,
             max_words: maxWords,
             max_file_size_mb: maxFileSizeMb,
             order: 0
@@ -689,15 +748,23 @@ function saveQuestion() {
         }
     }
     
-    // Get max_words, text_input_type and max_file_size_mb
+    // Get max_words, text_input_type, validation_type and max_file_size_mb
     let maxWords = null;
     let textInputType = 'multi_line'; // Default
+    let validationType = null;
     let maxFileSizeMb = null;
     if (questionType === 'text') {
         maxWords = parseInt(document.getElementById('max_words').value) || 100;
         const textInputTypeSelect = document.getElementById('text_input_type');
         if (textInputTypeSelect) {
             textInputType = textInputTypeSelect.value || 'multi_line';
+        }
+        // Get validation_type only if text_input_type is single_line
+        if (textInputType === 'single_line') {
+            const validationTypeSelect = document.getElementById('validation_type');
+            if (validationTypeSelect && validationTypeSelect.value) {
+                validationType = validationTypeSelect.value;
+            }
         }
     } else if (questionType === 'file_upload') {
         maxFileSizeMb = parseInt(document.getElementById('max_file_size_mb').value) || 25;
@@ -716,6 +783,7 @@ function saveQuestion() {
             question_type: questionType,
             option_display_type: optionDisplayType,
             text_input_type: textInputType,
+            validation_type: validationType,
             question_text: questionText,
             description: description,
             category_id: categoryId || null,
