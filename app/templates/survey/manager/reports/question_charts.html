@@ -36,6 +36,28 @@
         </div>
     </div>
 
+    <!-- Parameter Charts (for anonymous surveys) -->
+    {% if survey.access_type == 'anonymous' and parameter_charts_data %}
+    <div class="card mb-4">
+        <div class="card-header">
+            <h5><i class="bi bi-link-45deg"></i> نمودارهای پارامترهای URL</h5>
+        </div>
+        <div class="card-body">
+            {% for param_chart in parameter_charts_data %}
+            <div class="mb-5">
+                <h4 class="mb-3" style="color: #2c3e50; border-bottom: 2px solid #667eea; padding-bottom: 10px;">
+                    <i class="bi bi-bar-chart"></i> پارامتر: {{ param_chart.parameter_name }}
+                </h4>
+                <p class="text-muted mb-3">تعداد کل پاسخ‌های تکمیل شده: {{ param_chart.total }}</p>
+                <div class="question-chart-container">
+                    <canvas id="parameterChart{{ param_chart.parameter_id }}"></canvas>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+    {% endif %}
+
     <!-- Question Statistics Charts -->
     <div class="card mb-4">
         <div class="card-header">
@@ -133,6 +155,82 @@ function getColorForOption(option) {
     return optionColorMap[option];
 }
 
+// Parameter charts (for anonymous surveys)
+const parameterChartsData = {{ parameter_charts_data | tojson }};
+if (parameterChartsData && parameterChartsData.length > 0) {
+    parameterChartsData.forEach((paramChart) => {
+        const canvasId = 'parameterChart' + paramChart.parameter_id;
+        const canvas = document.getElementById(canvasId);
+        if (canvas) {
+            // Set fixed dimensions
+            canvas.style.width = '100%';
+            canvas.style.height = '300px';
+            canvas.width = canvas.offsetWidth;
+            canvas.height = 300;
+            
+            const ctx = canvas.getContext('2d');
+            
+            const labels = paramChart.values.map(v => v.value);
+            const data = paramChart.values.map(v => v.count);
+            const backgroundColors = [];
+            const borderColors = [];
+            
+            labels.forEach(label => {
+                const color = getColorForOption(label);
+                backgroundColors.push(color.bg);
+                borderColors.push(color.border);
+            });
+            
+            const parameterChart = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: 'تعداد استفاده',
+                        data: data,
+                        backgroundColor: backgroundColors,
+                        borderColor: borderColors,
+                        borderWidth: 1
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    aspectRatio: undefined,
+                    layout: {
+                        padding: {
+                            top: 10,
+                            bottom: 10,
+                            left: 10,
+                            right: 10
+                        }
+                    },
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            ticks: {
+                                stepSize: 1
+                            }
+                        }
+                    },
+                    plugins: {
+                        legend: {
+                            display: true,
+                            position: 'top'
+                        }
+                    }
+                }
+            });
+            
+            // Force resize to maintain fixed height
+            setTimeout(() => {
+                parameterChart.resize();
+            }, 100);
+        }
+    });
+}
+
+// Question statistics charts
 const questionStats = {{ question_stats_json | tojson }};
 if (questionStats && questionStats.length > 0) {
     questionStats.forEach((stat, index) => {

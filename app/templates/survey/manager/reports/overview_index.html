@@ -124,6 +124,28 @@
                 </div>
             </div>
         </div>
+        
+        {% if survey.access_type == 'anonymous' and survey_parameters %}
+        <div class="col-md-6 mb-4">
+            <div class="card h-100">
+                <div class="card-body text-center">
+                    <i class="bi bi-link-45deg" style="font-size: 3rem; color: #17a2b8; margin-bottom: 1rem;"></i>
+                    <h5 class="card-title">تولید لینک ها و QR Code</h5>
+                    <p class="card-text text-muted">دانلود فایل Excel و ZIP حاوی QR Code برای تمام ترکیبات لینک‌های پرسشنامه</p>
+                    <div class="d-flex gap-2 justify-content-center">
+                        <a href="{{ url_for('survey.manager_reports_export_links_excel', survey_id=survey.id) }}" 
+                           class="btn btn-info">
+                            <i class="bi bi-file-earmark-excel"></i> دانلود Excel
+                        </a>
+                        <a href="{{ url_for('survey.manager_reports_export_links_qr_zip', survey_id=survey.id) }}" 
+                           class="btn btn-primary">
+                            <i class="bi bi-qr-code"></i> دانلود ZIP (QR Code)
+                        </a>
+                    </div>
+                </div>
+            </div>
+        </div>
+        {% endif %}
     </div>
 </div>
 

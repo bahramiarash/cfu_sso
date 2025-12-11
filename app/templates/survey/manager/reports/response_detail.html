@@ -65,6 +65,24 @@
         </div>
     </div>
 
+    <!-- URL Parameters (for anonymous surveys) -->
+    {% if survey.access_type == 'anonymous' and response_parameters %}
+    <div class="card mb-4">
+        <div class="card-header">
+            <h5><i class="bi bi-link-45deg"></i> پارامترهای URL</h5>
+        </div>
+        <div class="card-body">
+            <div class="row">
+                {% for param_name, param_value in response_parameters.items() %}
+                <div class="col-md-6 mb-2">
+                    <p><strong>{{ param_name }}:</strong> {{ param_value }}</p>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+    {% endif %}
+
     <!-- Questions and Answers -->
     <div class="card">
         <div class="card-header">
