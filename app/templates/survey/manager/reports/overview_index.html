@@ -1,0 +1,181 @@
+{% extends "survey/manager/base.html" %}
+
+{% block title %}گزارش‌های پرسشنامه{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h1><i class="bi bi-graph-up"></i> گزارش‌های پرسشنامه: {{ survey.title }}</h1>
+        <div>
+            <a href="{{ url_for('survey.manager_reports_export_excel', survey_id=survey.id, date_from=date_from or '', date_to=date_to or '') }}" 
+               class="btn btn-success me-2">
+                <i class="bi bi-file-earmark-excel"></i> خروجی Excel
+            </a>
+            <a href="{{ url_for('survey.manager_surveys_list') }}" class="btn btn-secondary">
+                <i class="bi bi-arrow-right"></i> بازگشت
+            </a>
+        </div>
+    </div>
+
+    <!-- Date Range Filter -->
+    <div class="card mb-4">
+        <div class="card-body">
+            <form method="GET" class="row g-3">
+                <div class="col-md-4">
+                    <label for="date_from" class="form-label">از تاریخ (هجری شمسی)</label>
+                    <input type="text" class="form-control" id="date_from" name="date_from" 
+                           value="{{ date_from or '' }}" placeholder="1403/01/01" autocomplete="off">
+                </div>
+                <div class="col-md-4">
+                    <label for="date_to" class="form-label">تا تاریخ (هجری شمسی)</label>
+                    <input type="text" class="form-control" id="date_to" name="date_to" 
+                           value="{{ date_to or '' }}" placeholder="1403/12/29" autocomplete="off">
+                </div>
+                <div class="col-md-4 d-flex align-items-end">
+                    <button type="submit" class="btn btn-primary me-2">فیلتر</button>
+                    <a href="{{ url_for('survey.manager_reports_overview', survey_id=survey.id) }}" class="btn btn-secondary">پاک کردن</a>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Statistics -->
+    <div class="row mb-4">
+        <div class="col-md-4">
+            <div class="card stat-card">
+                <div class="card-body">
+                    <h5 class="card-title">کل پاسخ‌ها</h5>
+                    <h2 class="text-info">{{ total_responses }}</h2>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-4">
+            <div class="card stat-card">
+                <div class="card-body">
+                    <h5 class="card-title">تکمیل شده</h5>
+                    <h2 class="text-success">{{ completed_responses }}</h2>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-4">
+            <div class="card stat-card">
+                <div class="card-body">
+                    <h5 class="card-title">شروع شده (ناتمام)</h5>
+                    <h2 class="text-warning">{{ attempted_responses }}</h2>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Report Sections -->
+    <div class="row">
+        <div class="col-md-6 mb-4">
+            <div class="card h-100">
+                <div class="card-body text-center">
+                    <i class="bi bi-bar-chart" style="font-size: 3rem; color: #007bff; margin-bottom: 1rem;"></i>
+                    <h5 class="card-title">نمودار تعداد پرسشنامه تکمیل شده در هر روز</h5>
+                    <p class="card-text text-muted">نمایش نمودار آماری تکمیل پرسشنامه‌ها به تفکیک روز</p>
+                    <a href="{{ url_for('survey.manager_reports_daily_chart', survey_id=survey.id) }}{% if date_from or date_to %}?{% if date_from %}date_from={{ date_from }}&{% endif %}{% if date_to %}date_to={{ date_to }}{% endif %}{% endif %}" 
+                       class="btn btn-primary">
+                        <i class="bi bi-arrow-left"></i> مشاهده نمودار
+                    </a>
+                </div>
+            </div>
+        </div>
+        
+        <div class="col-md-6 mb-4">
+            <div class="card h-100">
+                <div class="card-body text-center">
+                    <i class="bi bi-table" style="font-size: 3rem; color: #28a745; margin-bottom: 1rem;"></i>
+                    <h5 class="card-title">جدول شرکت کنندگان</h5>
+                    <p class="card-text text-muted">لیست کامل شرکت کنندگان در پرسشنامه با جزئیات</p>
+                    <a href="{{ url_for('survey.manager_reports_participants', survey_id=survey.id) }}{% if date_from or date_to %}?{% if date_from %}date_from={{ date_from }}&{% endif %}{% if date_to %}date_to={{ date_to }}{% endif %}{% endif %}" 
+                       class="btn btn-success">
+                        <i class="bi bi-arrow-left"></i> مشاهده جدول
+                    </a>
+                </div>
+            </div>
+        </div>
+        
+        <div class="col-md-6 mb-4">
+            <div class="card h-100">
+                <div class="card-body text-center">
+                    <i class="bi bi-bar-chart-fill" style="font-size: 3rem; color: #ffc107; margin-bottom: 1rem;"></i>
+                    <h5 class="card-title">نمودار تعداد پاسخ‌های هر سوال</h5>
+                    <p class="card-text text-muted">نمایش نمودارهای آماری پاسخ‌های هر سوال</p>
+                    <a href="{{ url_for('survey.manager_reports_question_charts', survey_id=survey.id) }}{% if date_from or date_to %}?{% if date_from %}date_from={{ date_from }}&{% endif %}{% if date_to %}date_to={{ date_to }}{% endif %}{% endif %}" 
+                       class="btn btn-warning">
+                        <i class="bi bi-arrow-left"></i> مشاهده نمودارها
+                    </a>
+                </div>
+            </div>
+        </div>
+        
+        <div class="col-md-6 mb-4">
+            <div class="card h-100">
+                <div class="card-body text-center">
+                    <i class="bi bi-table" style="font-size: 3rem; color: #dc3545; margin-bottom: 1rem;"></i>
+                    <h5 class="card-title">جدول آمار پاسخ‌های هر سوال</h5>
+                    <p class="card-text text-muted">جدول کامل آمار و تعداد پاسخ‌های هر سوال</p>
+                    <a href="{{ url_for('survey.manager_reports_question_stats', survey_id=survey.id) }}{% if date_from or date_to %}?{% if date_from %}date_from={{ date_from }}&{% endif %}{% if date_to %}date_to={{ date_to }}{% endif %}{% endif %}" 
+                       class="btn btn-danger">
+                        <i class="bi bi-arrow-left"></i> مشاهده جدول
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+// Initialize date pickers
+(function() {
+    function initDatePickers() {
+        if (typeof kamaDatepicker !== 'undefined') {
+            try {
+                kamaDatepicker('date_from', {
+                    forceFarsiDigits: true,
+                    markToday: true,
+                    markHolidays: true,
+                    gotoToday: true,
+                    highlightSelectedDay: true,
+                    format: 'YYYY/MM/DD'
+                });
+                
+                kamaDatepicker('date_to', {
+                    forceFarsiDigits: true,
+                    markToday: true,
+                    markHolidays: true,
+                    gotoToday: true,
+                    highlightSelectedDay: true,
+                    format: 'YYYY/MM/DD'
+                });
+            } catch (error) {
+                console.error('Error initializing KamaDatepicker:', error);
+                setTimeout(initDatePickers, 500);
+            }
+        } else {
+            setTimeout(initDatePickers, 500);
+        }
+    }
+    initDatePickers();
+})();
+</script>
+
+<style>
+.stat-card {
+    border-left: 4px solid #007bff;
+}
+.stat-card .card-title {
+    font-size: 0.9rem;
+    color: #6c757d;
+    margin-bottom: 0.5rem;
+}
+.stat-card h2 {
+    font-size: 2rem;
+    font-weight: bold;
+    margin: 0;
+}
+</style>
+{% endblock %}
+

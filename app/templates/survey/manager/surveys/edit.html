@@ -79,6 +79,40 @@
                             <small class="form-text text-muted">این لینک را می‌توانید برای دسترسی مستقیم به پرسشنامه بدون نیاز به احراز هویت به اشتراک بگذارید.</small>
                         </div>
                         
+                        <div class="mb-3" id="surveyParametersContainer" style="display: {% if survey.access_type == 'anonymous' %}block{% else %}none{% endif %};">
+                            <label class="form-label">پارامترهای URL (حداکثر 5 پارامتر)</label>
+                            <small class="form-text text-muted d-block mb-2">می‌توانید تا 5 پارامتر تعریف کنید که از طریق URL به پرسشنامه ارسال شوند. برای مثال: center و type</small>
+                            <div id="parametersList">
+                                {% if survey_parameters %}
+                                    {% for param in survey_parameters %}
+                                    <div class="parameter-item mb-3 p-3 border rounded" data-parameter-id="{{ param.id }}">
+                                        <div class="row">
+                                            <div class="col-md-4">
+                                                <label class="form-label">نام پارامتر</label>
+                                                <input type="text" class="form-control parameter-name" name="parameter_name[]" value="{{ param.parameter_name }}" placeholder="مثال: center" required>
+                                            </div>
+                                            <div class="col-md-6">
+                                                <label class="form-label">مقادیر ممکن (با کاما جدا کنید)</label>
+                                                <input type="text" class="form-control parameter-values" name="parameter_values[]" value="{{ param.parameter_values|join(', ') }}" placeholder="مثال: مرکز1, مرکز2, مرکز3" required>
+                                            </div>
+                                            <div class="col-md-2">
+                                                <label class="form-label">&nbsp;</label>
+                                                <button type="button" class="btn btn-danger w-100 remove-parameter" onclick="removeParameter(this)">
+                                                    <i class="bi bi-trash"></i> حذف
+                                                </button>
+                                            </div>
+                                        </div>
+                                        <input type="hidden" name="parameter_id[]" value="{{ param.id }}">
+                                    </div>
+                                    {% endfor %}
+                                {% endif %}
+                            </div>
+                            <button type="button" class="btn btn-success" id="addParameterBtn" onclick="addParameter()">
+                                <i class="bi bi-plus-circle"></i> افزودن پارامتر
+                            </button>
+                            <small class="form-text text-muted d-block mt-2">مثال: اگر پارامتر "center" با مقادیر "مرکز1, مرکز2" تعریف شود، لینک به صورت <code>?hash=...&center=مرکز1</code> خواهد بود.</small>
+                        </div>
+                        
                         <div class="row">
                             <div class="col-md-6">
                                 <div class="mb-3">
@@ -114,9 +148,15 @@
                         {% if survey.logo_path %}
                         <div class="mb-3">
                             <label class="form-label">لوگوی فعلی</label>
-                            <div>
-                                <img src="{{ survey.logo_path }}" alt="Logo" style="max-height: 100px;">
+                            <div class="d-flex align-items-center gap-3">
+                                <img src="{{ survey.logo_path }}" alt="Logo" style="max-height: 100px; border: 1px solid #ddd; border-radius: 4px; padding: 5px;">
+                                <div>
+                                    <button type="button" class="btn btn-danger btn-sm" onclick="deleteLogo()">
+                                        <i class="bi bi-trash"></i> حذف لوگو
+                                    </button>
+                                </div>
                             </div>
+                            <input type="hidden" id="delete_logo" name="delete_logo" value="0">
                         </div>
                         {% endif %}
                         
@@ -218,9 +258,13 @@ function toggleAnonymousPassword() {
     const accessType = document.getElementById('access_type').value;
     const passwordContainer = document.getElementById('anonymousPasswordContainer');
     const linkContainer = document.getElementById('anonymousAccessLinkContainer');
+    const parametersContainer = document.getElementById('surveyParametersContainer');
     
     if (accessType === 'anonymous') {
         passwordContainer.style.display = 'block';
+        if (parametersContainer) {
+            parametersContainer.style.display = 'block';
+        }
         // لینک فقط در صورت وجود مقدار نمایش داده می‌شود
         if (linkContainer) {
             const linkInput = document.getElementById('anonymousLink');
@@ -235,12 +279,57 @@ function toggleAnonymousPassword() {
         if (linkContainer) {
             linkContainer.style.display = 'none';
         }
+        if (parametersContainer) {
+            parametersContainer.style.display = 'none';
+        }
         // پاک کردن رمز در صورت تغییر نوع دسترسی
         const passwordInput = document.getElementById('anonymous_access_password');
         if (passwordInput) {
             passwordInput.value = '';
         }
     }
+}
+
+let parameterCounter = 0;
+
+function addParameter() {
+    const parametersList = document.getElementById('parametersList');
+    const existingParameters = parametersList.querySelectorAll('.parameter-item').length;
+    
+    if (existingParameters >= 5) {
+        alert('حداکثر 5 پارامتر می‌توانید تعریف کنید.');
+        return;
+    }
+    
+    parameterCounter++;
+    const parameterHtml = `
+        <div class="parameter-item mb-3 p-3 border rounded" data-parameter-counter="${parameterCounter}">
+            <div class="row">
+                <div class="col-md-4">
+                    <label class="form-label">نام پارامتر</label>
+                    <input type="text" class="form-control parameter-name" name="parameter_name[]" placeholder="مثال: center" required>
+                </div>
+                <div class="col-md-6">
+                    <label class="form-label">مقادیر ممکن (با کاما جدا کنید)</label>
+                    <input type="text" class="form-control parameter-values" name="parameter_values[]" placeholder="مثال: مرکز1, مرکز2, مرکز3" required>
+                </div>
+                <div class="col-md-2">
+                    <label class="form-label">&nbsp;</label>
+                    <button type="button" class="btn btn-danger w-100 remove-parameter" onclick="removeParameter(this)">
+                        <i class="bi bi-trash"></i> حذف
+                    </button>
+                </div>
+            </div>
+            <input type="hidden" name="parameter_id[]" value="">
+        </div>
+    `;
+    
+    parametersList.insertAdjacentHTML('beforeend', parameterHtml);
+}
+
+function removeParameter(button) {
+    const parameterItem = button.closest('.parameter-item');
+    parameterItem.remove();
 }
 
 // فراخوانی تابع در بارگذاری صفحه
@@ -267,6 +356,32 @@ function copyAnonymousLink() {
             button.classList.remove('btn-success');
             button.classList.add('btn-outline-secondary');
         }, 2000);
+    }
+}
+
+function deleteLogo() {
+    if (confirm('آیا از حذف لوگوی فعلی اطمینان دارید؟')) {
+        const deleteLogoInput = document.getElementById('delete_logo');
+        if (deleteLogoInput) {
+            deleteLogoInput.value = '1';
+        }
+        
+        // Hide the logo display section
+        const logoSection = event.target.closest('.mb-3');
+        if (logoSection) {
+            const logoImg = logoSection.querySelector('img');
+            const deleteBtn = logoSection.querySelector('button');
+            if (logoImg) {
+                logoImg.style.opacity = '0.5';
+                logoImg.style.textDecoration = 'line-through';
+            }
+            if (deleteBtn) {
+                deleteBtn.innerHTML = '<i class="bi bi-check"></i> لوگو حذف خواهد شد';
+                deleteBtn.classList.remove('btn-danger');
+                deleteBtn.classList.add('btn-warning');
+                deleteBtn.disabled = true;
+            }
+        }
     }
 }
 </script>

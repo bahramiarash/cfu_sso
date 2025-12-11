@@ -1,0 +1,179 @@
+{% extends "survey/manager/base.html" %}
+
+{% block title %}نمودار تکمیل روزانه - {{ survey.title }}{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h1><i class="bi bi-bar-chart"></i> نمودار تعداد پرسشنامه تکمیل شده در هر روز</h1>
+        <div>
+            <a href="{{ url_for('survey.manager_reports_overview', survey_id=survey.id, date_from=date_from or '', date_to=date_to or '') }}" 
+               class="btn btn-secondary">
+                <i class="bi bi-arrow-right"></i> بازگشت به صفحه اصلی گزارش‌ها
+            </a>
+        </div>
+    </div>
+
+    <!-- Date Range Filter -->
+    <div class="card mb-4">
+        <div class="card-body">
+            <form method="GET" class="row g-3">
+                <div class="col-md-4">
+                    <label for="date_from" class="form-label">از تاریخ (هجری شمسی)</label>
+                    <input type="text" class="form-control" id="date_from" name="date_from" 
+                           value="{{ date_from or '' }}" placeholder="1403/01/01" autocomplete="off">
+                </div>
+                <div class="col-md-4">
+                    <label for="date_to" class="form-label">تا تاریخ (هجری شمسی)</label>
+                    <input type="text" class="form-control" id="date_to" name="date_to" 
+                           value="{{ date_to or '' }}" placeholder="1403/12/29" autocomplete="off">
+                </div>
+                <div class="col-md-4 d-flex align-items-end">
+                    <button type="submit" class="btn btn-primary me-2">فیلتر</button>
+                    <a href="{{ url_for('survey.manager_reports_daily_chart', survey_id=survey.id) }}" class="btn btn-secondary">پاک کردن</a>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Daily Completion Chart -->
+    <div class="card mb-4">
+        <div class="card-header">
+            <h5><i class="bi bi-bar-chart"></i> نمودار تعداد پرسشنامه تکمیل شده در هر روز</h5>
+        </div>
+        <div class="card-body">
+            <div class="chart-container">
+                <canvas id="dailyChart"></canvas>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Chart.js -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js@3.9.1/dist/chart.min.js"></script>
+
+<script>
+// Initialize date pickers
+(function() {
+    function initDatePickers() {
+        if (typeof kamaDatepicker !== 'undefined') {
+            try {
+                kamaDatepicker('date_from', {
+                    forceFarsiDigits: true,
+                    markToday: true,
+                    markHolidays: true,
+                    gotoToday: true,
+                    highlightSelectedDay: true,
+                    format: 'YYYY/MM/DD'
+                });
+                
+                kamaDatepicker('date_to', {
+                    forceFarsiDigits: true,
+                    markToday: true,
+                    markHolidays: true,
+                    gotoToday: true,
+                    highlightSelectedDay: true,
+                    format: 'YYYY/MM/DD'
+                });
+            } catch (error) {
+                console.error('Error initializing KamaDatepicker:', error);
+                setTimeout(initDatePickers, 500);
+            }
+        } else {
+            setTimeout(initDatePickers, 500);
+        }
+    }
+    initDatePickers();
+})();
+
+// Daily completion chart
+const dailyChartData = {{ daily_chart_data | tojson }};
+const dailyChartCanvas = document.getElementById('dailyChart');
+if (dailyChartCanvas && dailyChartData && dailyChartData.length > 0) {
+    // Set fixed dimensions
+    dailyChartCanvas.style.width = '100%';
+    dailyChartCanvas.style.height = '400px';
+    dailyChartCanvas.width = dailyChartCanvas.offsetWidth;
+    dailyChartCanvas.height = 400;
+    
+    const ctx = dailyChartCanvas.getContext('2d');
+    const dailyChart = new Chart(ctx, {
+        type: 'bar',
+        data: {
+            labels: dailyChartData.map(d => d.date),
+            datasets: [{
+                label: 'تعداد تکمیل شده',
+                data: dailyChartData.map(d => d.count),
+                backgroundColor: 'rgba(54, 162, 235, 0.6)',
+                borderColor: 'rgba(54, 162, 235, 1)',
+                borderWidth: 1
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            aspectRatio: undefined,
+            layout: {
+                padding: {
+                    top: 10,
+                    bottom: 10,
+                    left: 10,
+                    right: 10
+                }
+            },
+            scales: {
+                y: {
+                    beginAtZero: true,
+                    ticks: {
+                        stepSize: 1,
+                        precision: 0
+                    }
+                },
+                x: {
+                    ticks: {
+                        maxRotation: 45,
+                        minRotation: 45
+                    }
+                }
+            },
+            plugins: {
+                legend: {
+                    display: true,
+                    position: 'top'
+                },
+                tooltip: {
+                    callbacks: {
+                        label: function(context) {
+                            return 'تعداد: ' + context.parsed.y;
+                        }
+                    }
+                }
+            }
+        }
+    });
+    
+    // Force resize to maintain fixed height
+    setTimeout(() => {
+        dailyChart.resize();
+    }, 100);
+} else if (dailyChartCanvas) {
+    // Show message if no data
+    dailyChartCanvas.parentElement.innerHTML = '<p class="text-muted text-center p-4">داده‌ای برای نمایش وجود ندارد</p>';
+}
+</script>
+
+<style>
+.chart-container {
+    height: 400px;
+    position: relative;
+    width: 100%;
+}
+
+#dailyChart {
+    max-height: 400px !important;
+    height: 400px !important;
+    width: 100% !important;
+}
+</style>
+{% endblock %}
+

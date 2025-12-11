@@ -7,10 +7,6 @@
     <div class="d-flex justify-content-between align-items-center mb-4">
         <h1><i class="bi bi-graph-up"></i> گزارش‌های پرسشنامه: {{ survey.title }}</h1>
         <div>
-            <a href="{{ url_for('survey.manager_reports_export_links_excel', survey_id=survey.id) }}" 
-               class="btn btn-info me-2">
-                <i class="bi bi-file-earmark-excel"></i> لینک‌های پرسشنامه (Excel)
-            </a>
             <a href="{{ url_for('survey.manager_reports_export_excel', survey_id=survey.id, date_from=date_from or '', date_to=date_to or '') }}" 
                class="btn btn-success me-2">
                 <i class="bi bi-file-earmark-excel"></i> خروجی Excel
@@ -77,7 +73,9 @@
             <h5><i class="bi bi-bar-chart"></i> نمودار تعداد پرسشنامه تکمیل شده در هر روز</h5>
         </div>
         <div class="card-body">
-            <canvas id="dailyChart" height="80"></canvas>
+            <div class="chart-container">
+                <canvas id="dailyChart"></canvas>
+            </div>
         </div>
     </div>
 
@@ -109,13 +107,6 @@
                             <th style="cursor: pointer;" onclick="sortTable(4, 'participantsTable')">
                                 تاریخ تکمیل <i class="bi bi-arrow-down-up"></i>
                             </th>
-                            {% if survey.access_type == 'anonymous' and survey_parameters %}
-                                {% for param in survey_parameters %}
-                                <th style="cursor: pointer;" onclick="sortTable({{ 5 + loop.index0 }}, 'participantsTable')">
-                                    {{ param.parameter_name }} <i class="bi bi-arrow-down-up"></i>
-                                </th>
-                                {% endfor %}
-                            {% endif %}
                             <th>وضعیت</th>
                             <th>عملیات</th>
                         </tr>
@@ -140,11 +131,6 @@
                                     -
                                 {% endif %}
                             </td>
-                            {% if survey.access_type == 'anonymous' and survey_parameters %}
-                                {% for param in survey_parameters %}
-                                <td>{{ response_parameters_dict.get(response.id, {}).get(param.parameter_name, '-') }}</td>
-                                {% endfor %}
-                            {% endif %}
                             <td>
                                 {% if response.is_completed %}
                                     <span class="badge bg-success">تکمیل شده</span>
@@ -185,7 +171,9 @@
                         {% for stat in category_group.questions %}
                             <div class="mb-4" style="margin-right: 20px;">
                                 <h6 style="font-weight: 600; color: #495057;">{{ stat.question.question_text if stat.question else '' }}</h6>
-                                <canvas id="questionChart{{ question_index|length }}" height="60"></canvas>
+                                <div class="question-chart-container">
+                                    <canvas id="questionChart{{ question_index|length }}"></canvas>
+                                </div>
                                 {% set _ = question_index.append(1) %}
                             </div>
                         {% endfor %}
@@ -291,9 +279,16 @@
 
 // Daily completion chart
 const dailyChartData = {{ daily_chart_data | tojson }};
-const ctx = document.getElementById('dailyChart');
-if (ctx && dailyChartData && dailyChartData.length > 0) {
-    new Chart(ctx.getContext('2d'), {
+const dailyChartCanvas = document.getElementById('dailyChart');
+if (dailyChartCanvas && dailyChartData && dailyChartData.length > 0) {
+    // Set fixed dimensions
+    dailyChartCanvas.style.width = '100%';
+    dailyChartCanvas.style.height = '400px';
+    dailyChartCanvas.width = dailyChartCanvas.offsetWidth;
+    dailyChartCanvas.height = 400;
+    
+    const ctx = dailyChartCanvas.getContext('2d');
+    const dailyChart = new Chart(ctx, {
         type: 'bar',
         data: {
             labels: dailyChartData.map(d => d.date),
@@ -307,7 +302,16 @@ if (ctx && dailyChartData && dailyChartData.length > 0) {
         },
         options: {
             responsive: true,
-            maintainAspectRatio: true,
+            maintainAspectRatio: false,
+            aspectRatio: undefined,
+            layout: {
+                padding: {
+                    top: 10,
+                    bottom: 10,
+                    left: 10,
+                    right: 10
+                }
+            },
             scales: {
                 y: {
                     beginAtZero: true,
@@ -338,9 +342,14 @@ if (ctx && dailyChartData && dailyChartData.length > 0) {
             }
         }
     });
-} else if (ctx) {
+    
+    // Force resize to maintain fixed height
+    setTimeout(() => {
+        dailyChart.resize();
+    }, 100);
+} else if (dailyChartCanvas) {
     // Show message if no data
-    ctx.parentElement.innerHTML = '<p class="text-muted text-center p-4">داده‌ای برای نمایش وجود ندارد</p>';
+    dailyChartCanvas.parentElement.innerHTML = '<p class="text-muted text-center p-4">داده‌ای برای نمایش وجود ندارد</p>';
 }
 
 // Question statistics charts
@@ -374,6 +383,12 @@ if (questionStats && questionStats.length > 0) {
         const canvasId = 'questionChart' + index;
         const canvas = document.getElementById(canvasId);
         if (canvas) {
+            // Set fixed dimensions
+            canvas.style.width = '100%';
+            canvas.style.height = '300px';
+            canvas.width = canvas.offsetWidth;
+            canvas.height = 300;
+            
             const ctx = canvas.getContext('2d');
             
             // Use ordered data to preserve creation order
@@ -402,7 +417,7 @@ if (questionStats && questionStats.length > 0) {
                 });
             }
             
-            new Chart(ctx, {
+            const questionChart = new Chart(ctx, {
                 type: 'bar',
                 data: {
                     labels: labels,
@@ -416,7 +431,16 @@ if (questionStats && questionStats.length > 0) {
                 },
                 options: {
                     responsive: true,
-                    maintainAspectRatio: true,
+                    maintainAspectRatio: false,
+                    aspectRatio: undefined,
+                    layout: {
+                        padding: {
+                            top: 10,
+                            bottom: 10,
+                            left: 10,
+                            right: 10
+                        }
+                    },
                     scales: {
                         y: {
                             beginAtZero: true,
@@ -433,6 +457,11 @@ if (questionStats && questionStats.length > 0) {
                     }
                 }
             });
+            
+            // Force resize to maintain fixed height
+            setTimeout(() => {
+                questionChart.resize();
+            }, 100);
         }
     });
 }
@@ -501,6 +530,32 @@ function filterTable(tableId, searchText) {
     font-size: 2rem;
     font-weight: bold;
     margin: 0;
+}
+
+/* Chart container styles - fixed height */
+#dailyChart {
+    max-height: 400px !important;
+    height: 400px !important;
+    width: 100% !important;
+}
+
+canvas[id^="questionChart"] {
+    max-height: 300px !important;
+    height: 300px !important;
+    width: 100% !important;
+}
+
+/* Ensure chart containers maintain fixed height */
+.chart-container {
+    height: 400px;
+    position: relative;
+    width: 100%;
+}
+
+.question-chart-container {
+    height: 300px;
+    position: relative;
+    width: 100%;
 }
 </style>
 {% endblock %}

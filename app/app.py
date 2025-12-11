@@ -65,7 +65,7 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(me
 logger = logging.getLogger(__name__)
 
 # Initialize Flask app
-app = Flask(__name__, template_folder="templates")
+app = Flask(__name__, template_folder="templates", static_folder="static")
 # SECRET_KEY must be set as environment variable for security
 secret_key = os.environ.get("SECRET_KEY")
 if not secret_key:
@@ -74,6 +74,10 @@ if not secret_key:
         "Please set it in your .env file or environment variables."
     )
 app.secret_key = secret_key
+
+# Set maximum content length for file uploads (50MB to support survey file uploads)
+# Note: This should match or be less than nginx's client_max_body_size
+app.config['MAX_CONTENT_LENGTH'] = 50 * 1024 * 1024  # 50MB in bytes
 
 # Configure Jinja2 for template auto-reload in development
 # In production, templates are cached for performance, but we want to detect file changes
@@ -409,7 +413,7 @@ def authorized():
         firstname = userinfo.get("firstname", "")
         lastname = userinfo.get("lastname", "")
         fullname = f"{firstname} {lastname}".strip() if (firstname or lastname) else userinfo.get("fullname", "Unnamed User")
-        
+
         user = User.query.filter_by(sso_id=username).first()
         if not user:
             # ایجاد کاربر جدید با تمام اطلاعات از SSO

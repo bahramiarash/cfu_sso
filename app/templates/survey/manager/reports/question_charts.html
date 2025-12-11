@@ -1,0 +1,237 @@
+{% extends "survey/manager/base.html" %}
+
+{% block title %}نمودارهای پاسخ سوالات - {{ survey.title }}{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h1><i class="bi bi-bar-chart-fill"></i> نمودار تعداد پاسخ‌های هر سوال</h1>
+        <div>
+            <a href="{{ url_for('survey.manager_reports_overview', survey_id=survey.id, date_from=date_from or '', date_to=date_to or '') }}" 
+               class="btn btn-secondary">
+                <i class="bi bi-arrow-right"></i> بازگشت به صفحه اصلی گزارش‌ها
+            </a>
+        </div>
+    </div>
+
+    <!-- Date Range Filter -->
+    <div class="card mb-4">
+        <div class="card-body">
+            <form method="GET" class="row g-3">
+                <div class="col-md-4">
+                    <label for="date_from" class="form-label">از تاریخ (هجری شمسی)</label>
+                    <input type="text" class="form-control" id="date_from" name="date_from" 
+                           value="{{ date_from or '' }}" placeholder="1403/01/01" autocomplete="off">
+                </div>
+                <div class="col-md-4">
+                    <label for="date_to" class="form-label">تا تاریخ (هجری شمسی)</label>
+                    <input type="text" class="form-control" id="date_to" name="date_to" 
+                           value="{{ date_to or '' }}" placeholder="1403/12/29" autocomplete="off">
+                </div>
+                <div class="col-md-4 d-flex align-items-end">
+                    <button type="submit" class="btn btn-primary me-2">فیلتر</button>
+                    <a href="{{ url_for('survey.manager_reports_question_charts', survey_id=survey.id) }}" class="btn btn-secondary">پاک کردن</a>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Question Statistics Charts -->
+    <div class="card mb-4">
+        <div class="card-header">
+            <h5><i class="bi bi-bar-chart-fill"></i> نمودار تعداد پاسخ‌های هر سوال</h5>
+        </div>
+        <div class="card-body">
+            {% if question_stats_by_category %}
+                {% set question_index = [] %}
+                {% for category_group in question_stats_by_category %}
+                    <div class="mb-5">
+                        <h4 class="mb-3" style="color: #2c3e50; border-bottom: 2px solid #667eea; padding-bottom: 10px;">
+                            <i class="bi bi-folder-fill"></i> {{ category_group.category.title }}
+                        </h4>
+                        {% if category_group.category.description %}
+                            <p class="text-muted mb-3">{{ category_group.category.description }}</p>
+                        {% endif %}
+                        {% for stat in category_group.questions %}
+                            <div class="mb-4" style="margin-right: 20px;">
+                                <h6 style="font-weight: 600; color: #495057;">{{ stat.question.question_text if stat.question else '' }}</h6>
+                                <div class="question-chart-container">
+                                    <canvas id="questionChart{{ question_index|length }}"></canvas>
+                                </div>
+                                {% set _ = question_index.append(1) %}
+                            </div>
+                        {% endfor %}
+                    </div>
+                {% endfor %}
+            {% else %}
+                <div class="alert alert-warning text-center">
+                    داده‌ای برای نمایش نمودار پاسخ‌های سوالات یافت نشد.
+                </div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+
+<!-- Chart.js -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js@3.9.1/dist/chart.min.js"></script>
+
+<script>
+// Initialize date pickers
+(function() {
+    function initDatePickers() {
+        if (typeof kamaDatepicker !== 'undefined') {
+            try {
+                kamaDatepicker('date_from', {
+                    forceFarsiDigits: true,
+                    markToday: true,
+                    markHolidays: true,
+                    gotoToday: true,
+                    highlightSelectedDay: true,
+                    format: 'YYYY/MM/DD'
+                });
+                
+                kamaDatepicker('date_to', {
+                    forceFarsiDigits: true,
+                    markToday: true,
+                    markHolidays: true,
+                    gotoToday: true,
+                    highlightSelectedDay: true,
+                    format: 'YYYY/MM/DD'
+                });
+            } catch (error) {
+                console.error('Error initializing KamaDatepicker:', error);
+                setTimeout(initDatePickers, 500);
+            }
+        } else {
+            setTimeout(initDatePickers, 500);
+        }
+    }
+    initDatePickers();
+})();
+
+// Question statistics charts
+const optionColorMap = {};
+const colorPalette = [
+    { bg: 'rgba(54, 162, 235, 0.6)', border: 'rgba(54, 162, 235, 1)' },
+    { bg: 'rgba(255, 99, 132, 0.6)', border: 'rgba(255, 99, 132, 1)' },
+    { bg: 'rgba(75, 192, 192, 0.6)', border: 'rgba(75, 192, 192, 1)' },
+    { bg: 'rgba(255, 206, 86, 0.6)', border: 'rgba(255, 206, 86, 1)' },
+    { bg: 'rgba(153, 102, 255, 0.6)', border: 'rgba(153, 102, 255, 1)' },
+    { bg: 'rgba(255, 159, 64, 0.6)', border: 'rgba(255, 159, 64, 1)' },
+    { bg: 'rgba(199, 199, 199, 0.6)', border: 'rgba(199, 199, 199, 1)' },
+    { bg: 'rgba(83, 102, 255, 0.6)', border: 'rgba(83, 102, 255, 1)' },
+    { bg: 'rgba(255, 99, 255, 0.6)', border: 'rgba(255, 99, 255, 1)' },
+    { bg: 'rgba(99, 255, 132, 0.6)', border: 'rgba(99, 255, 132, 1)' }
+];
+let colorIndex = 0;
+
+function getColorForOption(option) {
+    if (!optionColorMap[option]) {
+        optionColorMap[option] = colorPalette[colorIndex % colorPalette.length];
+        colorIndex++;
+    }
+    return optionColorMap[option];
+}
+
+const questionStats = {{ question_stats_json | tojson }};
+if (questionStats && questionStats.length > 0) {
+    questionStats.forEach((stat, index) => {
+        const canvasId = 'questionChart' + index;
+        const canvas = document.getElementById(canvasId);
+        if (canvas) {
+            // Set fixed dimensions
+            canvas.style.width = '100%';
+            canvas.style.height = '300px';
+            canvas.width = canvas.offsetWidth;
+            canvas.height = 300;
+            
+            const ctx = canvas.getContext('2d');
+            
+            let labels = [];
+            let data = [];
+            let backgroundColors = [];
+            let borderColors = [];
+            
+            if (stat.option_counts_ordered && stat.option_counts_ordered.length > 0) {
+                stat.option_counts_ordered.forEach(item => {
+                    labels.push(item.option);
+                    data.push(item.count);
+                    const color = getColorForOption(item.option);
+                    backgroundColors.push(color.bg);
+                    borderColors.push(color.border);
+                });
+            } else {
+                labels = Object.keys(stat.option_counts);
+                data = Object.values(stat.option_counts);
+                labels.forEach(option => {
+                    const color = getColorForOption(option);
+                    backgroundColors.push(color.bg);
+                    borderColors.push(color.border);
+                });
+            }
+            
+            const questionChart = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: 'تعداد پاسخ',
+                        data: data,
+                        backgroundColor: backgroundColors,
+                        borderColor: borderColors,
+                        borderWidth: 1
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    aspectRatio: undefined,
+                    layout: {
+                        padding: {
+                            top: 10,
+                            bottom: 10,
+                            left: 10,
+                            right: 10
+                        }
+                    },
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            ticks: {
+                                stepSize: 1
+                            }
+                        }
+                    },
+                    plugins: {
+                        legend: {
+                            display: true,
+                            position: 'top'
+                        }
+                    }
+                }
+            });
+            
+            // Force resize to maintain fixed height
+            setTimeout(() => {
+                questionChart.resize();
+            }, 100);
+        }
+    });
+}
+</script>
+
+<style>
+.question-chart-container {
+    height: 300px;
+    position: relative;
+    width: 100%;
+}
+
+canvas[id^="questionChart"] {
+    max-height: 300px !important;
+    height: 300px !important;
+    width: 100% !important;
+}
+</style>
+{% endblock %}
+

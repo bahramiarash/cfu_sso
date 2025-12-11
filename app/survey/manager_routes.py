@@ -360,6 +360,19 @@ def manager_surveys_edit(survey_id):
             else:
                 survey.end_date = None
             
+            # Handle logo deletion
+            delete_logo = request.form.get('delete_logo', '0')
+            if delete_logo == '1':
+                # Delete existing logo
+                if survey.logo_path:
+                    old_path = os.path.join('app', 'static', survey.logo_path.lstrip('/'))
+                    if os.path.exists(old_path):
+                        try:
+                            os.remove(old_path)
+                        except Exception as e:
+                            logger.warning(f"Error deleting old logo: {e}")
+                    survey.logo_path = None
+            
             # Handle logo upload
             if 'logo' in request.files:
                 logo_file = request.files['logo']
@@ -371,7 +384,10 @@ def manager_surveys_edit(survey_id):
                         if survey.logo_path:
                             old_path = os.path.join('app', 'static', survey.logo_path.lstrip('/'))
                             if os.path.exists(old_path):
-                                os.remove(old_path)
+                                try:
+                                    os.remove(old_path)
+                                except Exception as e:
+                                    logger.warning(f"Error deleting old logo: {e}")
                         
                         # Save new logo
                         upload_dir = os.path.join('app', 'static', 'uploads', 'surveys', 'logos')
@@ -708,11 +724,35 @@ def manager_questions_reorder(survey_id):
         return jsonify({'success': False, 'message': 'خطا در به‌روزرسانی ترتیب'}), 500
 
 
+def _get_filtered_responses_query(survey_id, date_from=None, date_to=None):
+    """Helper function to get filtered responses query"""
+    query = SurveyResponse.query.filter_by(survey_id=survey_id)
+    
+    # Filter by date range if provided
+    if date_from:
+        try:
+            jdate_from = jdatetime.strptime(date_from, '%Y/%m/%d')
+            date_from_greg = jdate_from.togregorian()
+            query = query.filter(SurveyResponse.started_at >= date_from_greg)
+        except:
+            pass
+    
+    if date_to:
+        try:
+            jdate_to = jdatetime.strptime(date_to, '%Y/%m/%d')
+            date_to_greg = jdate_to.togregorian()
+            date_to_greg = datetime.combine(date_to_greg.date(), datetime.max.time())
+            query = query.filter(SurveyResponse.started_at <= date_to_greg)
+        except:
+            pass
+    
+    return query
+
 @survey_bp.route('/manager/surveys/<int:survey_id>/reports/overview')
 @login_required
 @manager_required
 def manager_reports_overview(survey_id):
-    """Survey reports overview"""
+    """Survey reports overview - Main page with links to different report sections"""
     try:
         manager = SurveyManager.query.filter_by(user_id=current_user.id, is_active=True).first()
         if not manager:
@@ -728,37 +768,32 @@ def manager_reports_overview(survey_id):
         date_from = request.args.get('date_from')
         date_to = request.args.get('date_to')
         
-        # Get all responses
-        query = SurveyResponse.query.filter_by(survey_id=survey_id)
-        
-        # Filter by date range if provided
-        if date_from:
-            try:
-                # Parse Jalali date
-                jdate_from = jdatetime.strptime(date_from, '%Y/%m/%d')
-                date_from_greg = jdate_from.togregorian()
-                query = query.filter(SurveyResponse.started_at >= date_from_greg)
-            except:
-                pass
-        
-        if date_to:
-            try:
-                jdate_to = jdatetime.strptime(date_to, '%Y/%m/%d')
-                date_to_greg = jdate_to.togregorian()
-                # Add one day to include the entire end date
-                date_to_greg = datetime.combine(date_to_greg.date(), datetime.max.time())
-                query = query.filter(SurveyResponse.started_at <= date_to_greg)
-            except:
-                pass
+        # Get basic statistics only
+        query = _get_filtered_responses_query(survey_id, date_from, date_to)
         
         total_responses = query.count()
         completed_responses = query.filter_by(is_completed=True).count()
         attempted_responses = query.filter_by(is_completed=False).count()
         
-        # Get daily completion statistics (for bar chart)
-        daily_chart_data = []
-        try:
-            # Determine date range
+        log_survey_action('view_survey_reports', 'survey', survey_id)
+        return render_template('survey/manager/reports/overview_index.html',
+                             survey=survey,
+                             total_responses=total_responses,
+                             completed_responses=completed_responses,
+                             attempted_responses=attempted_responses,
+                             date_from=date_from,
+                             date_to=date_to)
+    except Exception as e:
+        logger.error(f"Error viewing reports: {e}", exc_info=True)
+        flash('خطا در نمایش گزارش‌ها', 'error')
+        return redirect(url_for('survey.manager_surveys_list'))
+
+
+def _get_daily_chart_data(survey_id, survey, date_from=None, date_to=None):
+    """Helper function to get daily completion chart data"""
+    daily_chart_data = []
+    try:
+        # Determine date range
             chart_start_date = None
             chart_end_date = None
             
@@ -856,12 +891,66 @@ def manager_reports_overview(survey_id):
                 
                 current_date += timedelta(days=1)
                 
-        except Exception as e:
-            logger.error(f"Error getting daily stats: {e}", exc_info=True)
-            daily_chart_data = []
+    except Exception as e:
+        logger.error(f"Error getting daily stats: {e}", exc_info=True)
+        daily_chart_data = []
+    
+    return daily_chart_data
+
+
+@survey_bp.route('/manager/surveys/<int:survey_id>/reports/daily-chart')
+@login_required
+@manager_required
+def manager_reports_daily_chart(survey_id):
+    """Daily completion chart page"""
+    try:
+        manager = SurveyManager.query.filter_by(user_id=current_user.id, is_active=True).first()
+        if not manager:
+            flash('شما به عنوان مسئول نظرسنجی تعریف نشده‌اید', 'error')
+            return redirect(url_for('list_tools'))
         
-        # Get all responses for table
-        # Handle NULL values in ordering - order by completed_at if available, otherwise started_at
+        survey = Survey.query.get_or_404(survey_id)
+        if survey.manager_id != manager.id:
+            flash('شما دسترسی به این پرسشنامه ندارید', 'error')
+            return redirect(url_for('survey.manager_surveys_list'))
+        
+        date_from = request.args.get('date_from')
+        date_to = request.args.get('date_to')
+        
+        daily_chart_data = _get_daily_chart_data(survey_id, survey, date_from, date_to)
+        
+        log_survey_action('view_daily_chart', 'survey', survey_id)
+        return render_template('survey/manager/reports/daily_chart.html',
+                             survey=survey,
+                             daily_chart_data=daily_chart_data,
+                             date_from=date_from,
+                             date_to=date_to)
+    except Exception as e:
+        logger.error(f"Error viewing daily chart: {e}", exc_info=True)
+        flash('خطا در نمایش نمودار', 'error')
+        return redirect(url_for('survey.manager_reports_overview', survey_id=survey_id))
+
+
+@survey_bp.route('/manager/surveys/<int:survey_id>/reports/participants')
+@login_required
+@manager_required
+def manager_reports_participants(survey_id):
+    """Participants table page"""
+    try:
+        manager = SurveyManager.query.filter_by(user_id=current_user.id, is_active=True).first()
+        if not manager:
+            flash('شما به عنوان مسئول نظرسنجی تعریف نشده‌اید', 'error')
+            return redirect(url_for('list_tools'))
+        
+        survey = Survey.query.get_or_404(survey_id)
+        if survey.manager_id != manager.id:
+            flash('شما دسترسی به این پرسشنامه ندارید', 'error')
+            return redirect(url_for('survey.manager_surveys_list'))
+        
+        date_from = request.args.get('date_from')
+        date_to = request.args.get('date_to')
+        
+        query = _get_filtered_responses_query(survey_id, date_from, date_to)
         all_responses = query.order_by(
             desc(SurveyResponse.completed_at),
             desc(SurveyResponse.started_at)
@@ -878,247 +967,297 @@ def manager_reports_overview(survey_id):
                         params_dict[rp.parameter.parameter_name] = rp.parameter_value
                 response_parameters_dict[response.id] = params_dict
         
-        # Get question statistics (answers per question) grouped by category
-        from survey_models import SurveyQuestion, SurveyAnswerItem
-        question_stats_by_category = []
-        question_stats_json = []
+        log_survey_action('view_participants', 'survey', survey_id)
+        return render_template('survey/manager/reports/participants.html',
+                             survey=survey,
+                             all_responses=all_responses,
+                             response_parameters_dict=response_parameters_dict,
+                             date_from=date_from,
+                             date_to=date_to)
+    except Exception as e:
+        logger.error(f"Error viewing participants: {e}", exc_info=True)
+        flash('خطا در نمایش جدول شرکت کنندگان', 'error')
+        return redirect(url_for('survey.manager_reports_overview', survey_id=survey_id))
+
+
+def _get_question_stats(survey_id, date_from=None, date_to=None):
+    """Helper function to get question statistics grouped by category"""
+    from survey_models import SurveyQuestion, SurveyAnswerItem
+    question_stats_by_category = []
+    question_stats_json = []
+    
+    try:
+        # Get all categories for this survey, ordered by order field
+        categories = SurveyCategory.query.filter_by(survey_id=survey_id).order_by(SurveyCategory.order).all()
         
-        try:
-            # Get all categories for this survey, ordered by order field
-            categories = SurveyCategory.query.filter_by(survey_id=survey_id).order_by(SurveyCategory.order).all()
-            
-            # Process questions for each category
-            for category in categories:
-                category_questions = SurveyQuestion.query.filter_by(
-                    survey_id=survey_id,
-                    category_id=category.id
-                ).order_by(SurveyQuestion.order).all()
-                
-                category_question_stats = []
-                
-                for question in category_questions:
-                    try:
-                        # Get all answers for this question
-                        answers_query = db.session.query(SurveyAnswerItem).join(
-                            SurveyResponse
-                        ).filter(
-                            SurveyAnswerItem.question_id == question.id,
-                            SurveyResponse.survey_id == survey_id,
-                            SurveyResponse.is_completed == True
-                        )
-                        
-                        if date_from:
-                            try:
-                                jdate_from = jdatetime.strptime(date_from, '%Y/%m/%d')
-                                date_from_greg = jdate_from.togregorian()
-                                answers_query = answers_query.filter(SurveyResponse.completed_at >= date_from_greg)
-                            except Exception as e:
-                                logger.warning(f"Error parsing date_from for question stats: {e}")
-                        
-                        if date_to:
-                            try:
-                                jdate_to = jdatetime.strptime(date_to, '%Y/%m/%d')
-                                date_to_greg = jdate_to.togregorian()
-                                date_to_greg = datetime.combine(date_to_greg.date(), datetime.max.time())
-                                answers_query = answers_query.filter(SurveyResponse.completed_at <= date_to_greg)
-                            except Exception as e:
-                                logger.warning(f"Error parsing date_to for question stats: {e}")
-                        
-                        answers = answers_query.all()
-                        
-                        # Count answers by option/value
-                        # Use OrderedDict or list of tuples to preserve order
-                        option_counts_ordered = []
-                        options_list = []
-                        
-                        if question.question_type.startswith('likert'):
-                            # Likert scale question
-                            # Handle both dict format {'options': [...]} and list format [...]
-                            if question.options:
-                                if isinstance(question.options, dict):
-                                    options_list = question.options.get('options', [])
-                                elif isinstance(question.options, list):
-                                    options_list = question.options
-                                else:
-                                    options_list = []
-                            else:
-                                options_list = []
-                            
-                            # Preserve order and count answers
-                            for i, option in enumerate(options_list):
-                                count = sum(1 for a in answers if a.answer_value == i)
-                                option_counts_ordered.append({
-                                    'option': option,
-                                    'count': count,
-                                    'index': i
-                                })
-                        else:
-                            # Text or other types
-                            option_counts_ordered.append({
-                                'option': 'پاسخ داده شده',
-                                'count': len(answers),
-                                'index': 0
-                            })
-                        
-                        # Convert to dict for backward compatibility
-                        option_counts = {item['option']: item['count'] for item in option_counts_ordered}
-                        
-                        question_stat = {
-                            'question': question,
-                            'total_answers': len(answers),
-                            'option_counts': option_counts,
-                            'option_counts_ordered': option_counts_ordered
-                        }
-                        category_question_stats.append(question_stat)
-                        
-                        question_stats_json.append({
-                            'question_id': question.id,
-                            'question_text': question.question_text,
-                            'total_answers': len(answers),
-                            'option_counts': option_counts,
-                            'option_counts_ordered': option_counts_ordered
-                        })
-                    except Exception as e:
-                        logger.error(f"Error processing question {question.id}: {e}", exc_info=True)
-                        # Continue with next question
-                        continue
-                
-                # Only add category if it has questions
-                if category_question_stats:
-                    question_stats_by_category.append({
-                        'category': category,
-                        'questions': category_question_stats
-                    })
-            
-            # Process questions without category (category_id is None)
-            questions_without_category = SurveyQuestion.query.filter_by(
-                survey_id=survey_id
-            ).filter(
-                SurveyQuestion.category_id.is_(None)
+        # Process questions for each category
+        for category in categories:
+            category_questions = SurveyQuestion.query.filter_by(
+                survey_id=survey_id,
+                category_id=category.id
             ).order_by(SurveyQuestion.order).all()
             
-            if questions_without_category:
-                uncategorized_question_stats = []
-                
-                for question in questions_without_category:
-                    try:
-                        # Get all answers for this question
-                        answers_query = db.session.query(SurveyAnswerItem).join(
-                            SurveyResponse
-                        ).filter(
-                            SurveyAnswerItem.question_id == question.id,
-                            SurveyResponse.survey_id == survey_id,
-                            SurveyResponse.is_completed == True
-                        )
-                        
-                        if date_from:
-                            try:
-                                jdate_from = jdatetime.strptime(date_from, '%Y/%m/%d')
-                                date_from_greg = jdate_from.togregorian()
-                                answers_query = answers_query.filter(SurveyResponse.completed_at >= date_from_greg)
-                            except Exception as e:
-                                logger.warning(f"Error parsing date_from for question stats: {e}")
-                        
-                        if date_to:
-                            try:
-                                jdate_to = jdatetime.strptime(date_to, '%Y/%m/%d')
-                                date_to_greg = jdate_to.togregorian()
-                                date_to_greg = datetime.combine(date_to_greg.date(), datetime.max.time())
-                                answers_query = answers_query.filter(SurveyResponse.completed_at <= date_to_greg)
-                            except Exception as e:
-                                logger.warning(f"Error parsing date_to for question stats: {e}")
-                        
-                        answers = answers_query.all()
-                        
-                        # Count answers by option/value
-                        option_counts_ordered = []
-                        options_list = []
-                        
-                        if question.question_type.startswith('likert'):
-                            if question.options:
-                                if isinstance(question.options, dict):
-                                    options_list = question.options.get('options', [])
-                                elif isinstance(question.options, list):
-                                    options_list = question.options
-                                else:
-                                    options_list = []
+            category_question_stats = []
+            
+            for question in category_questions:
+                try:
+                    # Get all answers for this question
+                    answers_query = db.session.query(SurveyAnswerItem).join(
+                        SurveyResponse
+                    ).filter(
+                        SurveyAnswerItem.question_id == question.id,
+                        SurveyResponse.survey_id == survey_id,
+                        SurveyResponse.is_completed == True
+                    )
+                    
+                    if date_from:
+                        try:
+                            jdate_from = jdatetime.strptime(date_from, '%Y/%m/%d')
+                            date_from_greg = jdate_from.togregorian()
+                            answers_query = answers_query.filter(SurveyResponse.completed_at >= date_from_greg)
+                        except Exception as e:
+                            logger.warning(f"Error parsing date_from for question stats: {e}")
+                    
+                    if date_to:
+                        try:
+                            jdate_to = jdatetime.strptime(date_to, '%Y/%m/%d')
+                            date_to_greg = jdate_to.togregorian()
+                            date_to_greg = datetime.combine(date_to_greg.date(), datetime.max.time())
+                            answers_query = answers_query.filter(SurveyResponse.completed_at <= date_to_greg)
+                        except Exception as e:
+                            logger.warning(f"Error parsing date_to for question stats: {e}")
+                    
+                    answers = answers_query.all()
+                    
+                    # Count answers by option/value
+                    option_counts_ordered = []
+                    options_list = []
+                    
+                    if question.question_type.startswith('likert'):
+                        if question.options:
+                            if isinstance(question.options, dict):
+                                options_list = question.options.get('options', [])
+                            elif isinstance(question.options, list):
+                                options_list = question.options
                             else:
                                 options_list = []
-                            
-                            for i, option in enumerate(options_list):
-                                count = sum(1 for a in answers if a.answer_value == i)
-                                option_counts_ordered.append({
-                                    'option': option,
-                                    'count': count,
-                                    'index': i
-                                })
                         else:
+                            options_list = []
+                        
+                        for i, option in enumerate(options_list):
+                            count = sum(1 for a in answers if a.answer_value == i)
                             option_counts_ordered.append({
-                                'option': 'پاسخ داده شده',
-                                'count': len(answers),
-                                'index': 0
+                                'option': option,
+                                'count': count,
+                                'index': i
                             })
-                        
-                        option_counts = {item['option']: item['count'] for item in option_counts_ordered}
-                        
-                        question_stat = {
-                            'question': question,
-                            'total_answers': len(answers),
-                            'option_counts': option_counts,
-                            'option_counts_ordered': option_counts_ordered
-                        }
-                        uncategorized_question_stats.append(question_stat)
-                        
-                        question_stats_json.append({
-                            'question_id': question.id,
-                            'question_text': question.question_text,
-                            'total_answers': len(answers),
-                            'option_counts': option_counts,
-                            'option_counts_ordered': option_counts_ordered
+                    else:
+                        option_counts_ordered.append({
+                            'option': 'پاسخ داده شده',
+                            'count': len(answers),
+                            'index': 0
                         })
-                    except Exception as e:
-                        logger.error(f"Error processing question {question.id}: {e}", exc_info=True)
-                        continue
-                
-                if uncategorized_question_stats:
-                    # Create a dummy category object for uncategorized questions
-                    from types import SimpleNamespace
-                    uncategorized_category = SimpleNamespace(
-                        id=None,
-                        title='سوالات بدون دسته',
-                        description=None,
-                        order=9999  # Put at the end
-                    )
-                    question_stats_by_category.append({
-                        'category': uncategorized_category,
-                        'questions': uncategorized_question_stats
+                    
+                    option_counts = {item['option']: item['count'] for item in option_counts_ordered}
+                    
+                    question_stat = {
+                        'question': question,
+                        'total_answers': len(answers),
+                        'option_counts': option_counts,
+                        'option_counts_ordered': option_counts_ordered
+                    }
+                    category_question_stats.append(question_stat)
+                    
+                    question_stats_json.append({
+                        'question_id': question.id,
+                        'question_text': question.question_text,
+                        'total_answers': len(answers),
+                        'option_counts': option_counts,
+                        'option_counts_ordered': option_counts_ordered
                     })
-        except Exception as e:
-            logger.error(f"Error getting question stats: {e}", exc_info=True)
-            question_stats_by_category = []
-            question_stats_json = []
+                except Exception as e:
+                    logger.error(f"Error processing question {question.id}: {e}", exc_info=True)
+                    continue
+            
+            if category_question_stats:
+                question_stats_by_category.append({
+                    'category': category,
+                    'questions': category_question_stats
+                })
         
-        # Get survey parameters for display
-        survey_parameters = SurveyParameter.query.filter_by(survey_id=survey_id).order_by(SurveyParameter.order).all()
+        # Process questions without category
+        questions_without_category = SurveyQuestion.query.filter_by(
+            survey_id=survey_id
+        ).filter(
+            SurveyQuestion.category_id.is_(None)
+        ).order_by(SurveyQuestion.order).all()
         
-        log_survey_action('view_survey_reports', 'survey', survey_id)
-        return render_template('survey/manager/reports/overview.html',
+        if questions_without_category:
+            uncategorized_question_stats = []
+            
+            for question in questions_without_category:
+                try:
+                    answers_query = db.session.query(SurveyAnswerItem).join(
+                        SurveyResponse
+                    ).filter(
+                        SurveyAnswerItem.question_id == question.id,
+                        SurveyResponse.survey_id == survey_id,
+                        SurveyResponse.is_completed == True
+                    )
+                    
+                    if date_from:
+                        try:
+                            jdate_from = jdatetime.strptime(date_from, '%Y/%m/%d')
+                            date_from_greg = jdate_from.togregorian()
+                            answers_query = answers_query.filter(SurveyResponse.completed_at >= date_from_greg)
+                        except Exception as e:
+                            logger.warning(f"Error parsing date_from for question stats: {e}")
+                    
+                    if date_to:
+                        try:
+                            jdate_to = jdatetime.strptime(date_to, '%Y/%m/%d')
+                            date_to_greg = jdate_to.togregorian()
+                            date_to_greg = datetime.combine(date_to_greg.date(), datetime.max.time())
+                            answers_query = answers_query.filter(SurveyResponse.completed_at <= date_to_greg)
+                        except Exception as e:
+                            logger.warning(f"Error parsing date_to for question stats: {e}")
+                    
+                    answers = answers_query.all()
+                    
+                    option_counts_ordered = []
+                    options_list = []
+                    
+                    if question.question_type.startswith('likert'):
+                        if question.options:
+                            if isinstance(question.options, dict):
+                                options_list = question.options.get('options', [])
+                            elif isinstance(question.options, list):
+                                options_list = question.options
+                            else:
+                                options_list = []
+                        else:
+                            options_list = []
+                        
+                        for i, option in enumerate(options_list):
+                            count = sum(1 for a in answers if a.answer_value == i)
+                            option_counts_ordered.append({
+                                'option': option,
+                                'count': count,
+                                'index': i
+                            })
+                    else:
+                        option_counts_ordered.append({
+                            'option': 'پاسخ داده شده',
+                            'count': len(answers),
+                            'index': 0
+                        })
+                    
+                    option_counts = {item['option']: item['count'] for item in option_counts_ordered}
+                    
+                    question_stat = {
+                        'question': question,
+                        'total_answers': len(answers),
+                        'option_counts': option_counts,
+                        'option_counts_ordered': option_counts_ordered
+                    }
+                    uncategorized_question_stats.append(question_stat)
+                    
+                    question_stats_json.append({
+                        'question_id': question.id,
+                        'question_text': question.question_text,
+                        'total_answers': len(answers),
+                        'option_counts': option_counts,
+                        'option_counts_ordered': option_counts_ordered
+                    })
+                except Exception as e:
+                    logger.error(f"Error processing question {question.id}: {e}", exc_info=True)
+                    continue
+            
+            if uncategorized_question_stats:
+                from types import SimpleNamespace
+                uncategorized_category = SimpleNamespace(
+                    id=None,
+                    title='سوالات بدون دسته',
+                    description=None,
+                    order=9999
+                )
+                question_stats_by_category.append({
+                    'category': uncategorized_category,
+                    'questions': uncategorized_question_stats
+                })
+    except Exception as e:
+        logger.error(f"Error getting question stats: {e}", exc_info=True)
+        question_stats_by_category = []
+        question_stats_json = []
+    
+    return question_stats_by_category, question_stats_json
+
+
+@survey_bp.route('/manager/surveys/<int:survey_id>/reports/question-charts')
+@login_required
+@manager_required
+def manager_reports_question_charts(survey_id):
+    """Question statistics charts page"""
+    try:
+        manager = SurveyManager.query.filter_by(user_id=current_user.id, is_active=True).first()
+        if not manager:
+            flash('شما به عنوان مسئول نظرسنجی تعریف نشده‌اید', 'error')
+            return redirect(url_for('list_tools'))
+        
+        survey = Survey.query.get_or_404(survey_id)
+        if survey.manager_id != manager.id:
+            flash('شما دسترسی به این پرسشنامه ندارید', 'error')
+            return redirect(url_for('survey.manager_surveys_list'))
+        
+        date_from = request.args.get('date_from')
+        date_to = request.args.get('date_to')
+        
+        question_stats_by_category, question_stats_json = _get_question_stats(survey_id, date_from, date_to)
+        
+        log_survey_action('view_question_charts', 'survey', survey_id)
+        return render_template('survey/manager/reports/question_charts.html',
                              survey=survey,
-                             total_responses=total_responses,
-                             completed_responses=completed_responses,
-                             attempted_responses=attempted_responses,
-                             date_from=date_from,
-                             date_to=date_to,
-                             daily_chart_data=daily_chart_data,
-                             all_responses=all_responses,
                              question_stats_by_category=question_stats_by_category,
                              question_stats_json=question_stats_json,
-                             survey_parameters=survey_parameters,
-                             response_parameters_dict=response_parameters_dict)
+                             date_from=date_from,
+                             date_to=date_to)
     except Exception as e:
-        logger.error(f"Error viewing reports: {e}", exc_info=True)
-        flash('خطا در نمایش گزارش‌ها', 'error')
-        return redirect(url_for('survey.manager_surveys_list'))
+        logger.error(f"Error viewing question charts: {e}", exc_info=True)
+        flash('خطا در نمایش نمودارها', 'error')
+        return redirect(url_for('survey.manager_reports_overview', survey_id=survey_id))
+
+
+@survey_bp.route('/manager/surveys/<int:survey_id>/reports/question-stats')
+@login_required
+@manager_required
+def manager_reports_question_stats(survey_id):
+    """Question statistics table page"""
+    try:
+        manager = SurveyManager.query.filter_by(user_id=current_user.id, is_active=True).first()
+        if not manager:
+            flash('شما به عنوان مسئول نظرسنجی تعریف نشده‌اید', 'error')
+            return redirect(url_for('list_tools'))
+        
+        survey = Survey.query.get_or_404(survey_id)
+        if survey.manager_id != manager.id:
+            flash('شما دسترسی به این پرسشنامه ندارید', 'error')
+            return redirect(url_for('survey.manager_surveys_list'))
+        
+        date_from = request.args.get('date_from')
+        date_to = request.args.get('date_to')
+        
+        question_stats_by_category, _ = _get_question_stats(survey_id, date_from, date_to)
+        
+        log_survey_action('view_question_stats', 'survey', survey_id)
+        return render_template('survey/manager/reports/question_stats.html',
+                             survey=survey,
+                             question_stats_by_category=question_stats_by_category,
+                             date_from=date_from,
+                             date_to=date_to)
+    except Exception as e:
+        logger.error(f"Error viewing question stats: {e}", exc_info=True)
+        flash('خطا در نمایش جدول آمار', 'error')
+        return redirect(url_for('survey.manager_reports_overview', survey_id=survey_id))
 
 
 @survey_bp.route('/manager/surveys/<int:survey_id>/reports/export/excel')

@@ -274,8 +274,21 @@ def survey_surveys_edit(survey_id):
                 else:
                     survey.end_date = None
                 
-                # Handle logo upload
+                # Handle logo deletion
                 import os
+                delete_logo = request.form.get('delete_logo', '0')
+                if delete_logo == '1':
+                    # Delete existing logo
+                    if survey.logo_path:
+                        old_path = os.path.join('app', 'static', survey.logo_path.lstrip('/'))
+                        if os.path.exists(old_path):
+                            try:
+                                os.remove(old_path)
+                            except Exception as e:
+                                logger.warning(f"Error deleting old logo: {e}")
+                        survey.logo_path = None
+                
+                # Handle logo upload
                 if 'logo' in request.files:
                     logo_file = request.files['logo']
                     if logo_file and logo_file.filename:
@@ -286,7 +299,10 @@ def survey_surveys_edit(survey_id):
                             if survey.logo_path:
                                 old_path = os.path.join('app', 'static', survey.logo_path.lstrip('/'))
                                 if os.path.exists(old_path):
-                                    os.remove(old_path)
+                                    try:
+                                        os.remove(old_path)
+                                    except Exception as e:
+                                        logger.warning(f"Error deleting old logo: {e}")
                             
                             # Save new logo
                             upload_dir = os.path.join('app', 'static', 'uploads', 'surveys', 'logos')
