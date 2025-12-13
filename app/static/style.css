@@ -352,3 +352,9 @@ footer{
 
   }  
 }
+
+/* Main content and sidebar margin */
+.main-content,
+.sidebar {
+    margin-top: 15px;
+}

@@ -6,6 +6,7 @@ from typing import Dict, List, Optional, Any
 from collections import defaultdict
 from datetime import datetime
 import requests
+import logging
 from .base import DataProvider
 from dashboards.config import DashboardConfig
 from dashboards.context import UserContext
@@ -201,12 +202,20 @@ class LMSDataProvider(DataProvider):
                         response = requests.get(
                             DashboardConfig.METRICS_SERVICE_URL,
                             params={"host": hostname},
-                            timeout=5
+                            timeout=2  # Reduced timeout to fail faster if service is unavailable
                         )
                         if response.status_code == 200:
                             latest_zone_resources[url] = response.json()
+                    except (requests.exceptions.RequestException, requests.exceptions.Timeout) as e:
+                        # Silently continue if metrics service is unavailable
+                        # This allows dashboard to render even if metrics service is down
+                        logger = logging.getLogger(__name__)
+                        logger.debug(f"Metrics service unavailable for {hostname}: {e}")
+                        pass
                     except Exception as e:
-                        print(f"Error fetching metrics for {hostname}: {e}")
+                        # Log other errors but continue
+                        logger = logging.getLogger(__name__)
+                        logger.debug(f"Error fetching metrics for {hostname}: {e}")
                 
                 for key, data in keys.items():
                     datasets.append({

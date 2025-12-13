@@ -2,7 +2,7 @@ import os
 import sys
 import logging
 import socket
-from flask import Flask, render_template, request, redirect, url_for, Response
+from flask import Flask, render_template, request, redirect, url_for, Response, jsonify
 from dotenv import load_dotenv
 
 # Add shared directory to path
@@ -398,6 +398,174 @@ def survey_proxy(path):
         logger.error(f"Full traceback: {error_traceback}")
         return f"Error connecting to survey service: {str(e)}", 500
 
+@app.route("/charts-data", methods=['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS', 'HEAD'])
+def charts_data_proxy():
+    """Proxy charts-data requests to monolithic app"""
+    import requests
+    
+    token = get_auth_token()
+    if not token:
+        redirect_uri = request.url_root.rstrip('/')
+        return redirect(f"/auth/login?redirect_uri={redirect_uri}")
+    
+    # Build target URL
+    target_url = f"{MONOLITHIC_APP_URL}/charts-data"
+    
+    # Add query string if present
+    if request.query_string:
+        target_url += f"?{request.query_string.decode()}"
+    
+    logger.info(f"Proxying charts-data request to: {target_url}")
+    
+    try:
+        # Forward request with cookies and headers
+        headers = {
+            "Authorization": f"Bearer {token}",
+        }
+        
+        if token:
+            headers["X-Auth-Token"] = token
+        
+        # Create a session to maintain cookies
+        session_obj = requests.Session()
+        
+        # Forward all cookies from the original request
+        for name, value in request.cookies.items():
+            session_obj.cookies.set(name, value, path='/')
+        
+        if token:
+            session_obj.cookies.set("auth_token", token, path='/')
+        
+        # Forward the request
+        request_kwargs = {
+            'headers': headers,
+            'allow_redirects': False,
+            'timeout': 120
+        }
+        
+        if request.method == "GET":
+            resp = session_obj.get(target_url, **request_kwargs)
+        elif request.method == "POST":
+            if request.is_json:
+                request_kwargs['json'] = request.json
+            else:
+                request_kwargs['data'] = request.form
+            resp = session_obj.post(target_url, **request_kwargs)
+        else:
+            resp = session_obj.request(request.method, target_url, **request_kwargs)
+        
+        # Return response
+        from flask import Response
+        response = Response(resp.content, status=resp.status_code)
+        
+        # Copy response headers
+        for key, value in resp.headers.items():
+            if key.lower() not in ['content-encoding', 'transfer-encoding', 'connection']:
+                response.headers[key] = value
+        
+        # Copy cookies
+        for cookie in session_obj.cookies:
+            response.set_cookie(
+                cookie.name,
+                cookie.value,
+                domain=None,
+                path=cookie.path if cookie.path else '/',
+                secure=False,
+                httponly=True,
+                samesite='Lax'
+            )
+        
+        return response
+    except Exception as e:
+        logger.error(f"Error proxying charts-data request: {e}", exc_info=True)
+        return jsonify({"error": str(e)}), 500
+
+@app.route("/api/dashboards", defaults={"path": ""}, methods=['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS', 'HEAD'])
+@app.route("/api/dashboards/", defaults={"path": ""}, methods=['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS', 'HEAD'])
+@app.route("/api/dashboards/<path:path>", methods=['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS', 'HEAD'])
+def dashboard_api_proxy(path):
+    """Proxy dashboard API requests to monolithic app"""
+    import requests
+    
+    token = get_auth_token()
+    if not token:
+        return jsonify({"error": "Unauthorized"}), 401
+    
+    # Build target URL
+    if path:
+        target_url = f"{MONOLITHIC_APP_URL}/api/dashboards/{path}"
+    else:
+        target_url = f"{MONOLITHIC_APP_URL}/api/dashboards"
+    
+    # Add query string if present
+    if request.query_string:
+        target_url += f"?{request.query_string.decode()}"
+    
+    logger.info(f"Proxying dashboard API request to: {target_url}")
+    
+    try:
+        # Forward request with cookies and headers
+        headers = {
+            "Authorization": f"Bearer {token}",
+        }
+        
+        if token:
+            headers["X-Auth-Token"] = token
+        
+        # Create a session to maintain cookies
+        session_obj = requests.Session()
+        
+        # Forward all cookies from the original request
+        for name, value in request.cookies.items():
+            session_obj.cookies.set(name, value, path='/')
+        
+        if token:
+            session_obj.cookies.set("auth_token", token, path='/')
+        
+        # Forward the request
+        request_kwargs = {
+            'headers': headers,
+            'allow_redirects': False,
+            'timeout': 30
+        }
+        
+        if request.method == "GET":
+            resp = session_obj.get(target_url, **request_kwargs)
+        elif request.method == "POST":
+            if request.is_json:
+                request_kwargs['json'] = request.json
+            else:
+                request_kwargs['data'] = request.form
+            resp = session_obj.post(target_url, **request_kwargs)
+        else:
+            resp = session_obj.request(request.method, target_url, **request_kwargs)
+        
+        # Return response
+        from flask import Response, jsonify
+        response = Response(resp.content, status=resp.status_code)
+        
+        # Copy response headers
+        for key, value in resp.headers.items():
+            if key.lower() not in ['content-encoding', 'transfer-encoding', 'connection']:
+                response.headers[key] = value
+        
+        # Copy cookies
+        for cookie in session_obj.cookies:
+            response.set_cookie(
+                cookie.name,
+                cookie.value,
+                domain=None,
+                path=cookie.path if cookie.path else '/',
+                secure=False,
+                httponly=True,
+                samesite='Lax'
+            )
+        
+        return response
+    except Exception as e:
+        logger.error(f"Error proxying dashboard API request: {e}", exc_info=True)
+        return jsonify({"error": str(e)}), 500
+
 @app.route("/dashboard", defaults={"path": ""}, methods=['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS', 'HEAD'])
 @app.route("/dashboard/", defaults={"path": ""}, methods=['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS', 'HEAD'])
 @app.route("/dashboard/<path:path>", methods=['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS', 'HEAD'])
@@ -418,14 +586,19 @@ def dashboard_proxy(path):
     # MONOLITHIC_APP_URL is set at module level
     
     # Build target URL (monolithic app uses /dashboards prefix)
+    # CRITICAL: Always use trailing slash for /dashboards to prevent redirect loops
+    # Flask redirects /dashboards to /dashboards/, so we should always use /dashboards/
     if path:
         target_url = f"{MONOLITHIC_APP_URL}/dashboards/{path}"
     else:
-        target_url = f"{MONOLITHIC_APP_URL}/dashboards"
+        # Always add trailing slash to prevent redirect loops
+        target_url = f"{MONOLITHIC_APP_URL}/dashboards/"
     
     # Add query string if present
     if request.query_string:
         target_url += f"?{request.query_string.decode()}"
+    
+    logger.info(f"Proxying dashboard request to: {target_url}")
     
     try:
         # Forward request with cookies and headers
@@ -452,10 +625,13 @@ def dashboard_proxy(path):
         
         # Forward the request (don't follow redirects automatically)
         # Handle different HTTP methods
+        # CRITICAL: Increase timeout for dashboard requests, especially d8 (LMS monitoring)
+        # which may take longer to process due to data fetching and visualization generation
+        # Dashboard d8 processes large amounts of data and may need more time
         request_kwargs = {
             'headers': headers,
             'allow_redirects': False,
-            'timeout': 30
+            'timeout': 120  # Increased from 30 to 120 seconds for dashboard requests
         }
         
         if request.method == "GET":
@@ -492,6 +668,50 @@ def dashboard_proxy(path):
             # Ensure location is a string
             if location is None:
                 location = ''
+            
+            # CRITICAL: Check if this is a redirect loop
+            # If monolithic app redirects to /dashboards/ and we're already requesting /dashboards/,
+            # this is a redirect loop - return the response directly instead of redirecting
+            if location and ('/dashboards/' in location or location.endswith('/dashboards')):
+                # Check if we're in a redirect loop
+                if request.path in ['/dashboard', '/dashboard/', '/dashboards', '/dashboards/']:
+                    # This is likely a redirect loop - try to get the actual response
+                    # by following the redirect once more, but this time return the content directly
+                    logger.warning(f"Potential redirect loop detected: {location}, request path: {request.path}")
+                    # Build the target URL for the redirect
+                    if location.startswith('http'):
+                        redirect_url = location
+                    elif location.startswith('/'):
+                        redirect_url = f"{MONOLITHIC_APP_URL}{location}"
+                    else:
+                        redirect_url = f"{MONOLITHIC_APP_URL}/dashboards/{location}"
+                    
+                    # Try to get the final response by following redirects
+                    try:
+                        final_resp = session_obj.get(redirect_url, headers=headers, allow_redirects=True, timeout=30)
+                        if final_resp.status_code == 200:
+                            # Return the final response directly
+                            from flask import Response
+                            response = Response(final_resp.content, status=final_resp.status_code)
+                            for key, value in final_resp.headers.items():
+                                if key.lower() not in ['content-encoding', 'transfer-encoding', 'connection', 'location']:
+                                    response.headers[key] = value
+                            # Copy cookies
+                            for cookie in session_obj.cookies:
+                                response.set_cookie(
+                                    cookie.name,
+                                    cookie.value,
+                                    domain=None,
+                                    path=cookie.path if cookie.path else '/',
+                                    secure=False,
+                                    httponly=True,
+                                    samesite='Lax'
+                                )
+                            logger.info(f"Returning final response directly to break redirect loop")
+                            return response
+                    except Exception as e:
+                        logger.error(f"Error following redirect: {e}")
+                        # Fall through to normal redirect handling
             
             # Parse the location URL
             from urllib.parse import urlparse, urlunparse
@@ -531,6 +751,17 @@ def dashboard_proxy(path):
             # Ensure new_path is set and is a string
             if new_path is None:
                 new_path = '/'
+            
+            # CRITICAL: Handle /dashboards redirects correctly to prevent redirect loops
+            # If monolithic app redirects to /dashboards/, keep it as /dashboards/ (not /dashboard/)
+            # This prevents redirect loops when Flask redirects /dashboards to /dashboards/
+            if new_path == '/dashboards' or new_path == '/dashboards/':
+                # Keep as /dashboards/ to match the route
+                new_path = '/dashboards/'
+                logger.info(f"Keeping /dashboards/ redirect as is: {new_path}")
+            elif new_path.startswith('/dashboards/'):
+                # Keep /dashboards/ prefix for dashboard routes
+                logger.info(f"Keeping /dashboards/ prefix: {new_path}")
             
             # Convert /login to /auth/login (gateway auth route)
             if new_path == '/login' or (new_path and new_path.startswith('/login?')):
