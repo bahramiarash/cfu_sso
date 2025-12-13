@@ -62,6 +62,18 @@
                             <small class="form-text text-muted">اگر رمز وارد شود، کاربران برای دسترسی به پرسشنامه باید این رمز را وارد کنند. در صورت خالی بودن، لینک بدون رمز خواهد بود.</small>
                         </div>
                         
+                        <div class="mb-3" id="surveyParametersContainer" style="display: none;">
+                            <label class="form-label">پارامترهای URL (حداکثر 5 پارامتر)</label>
+                            <small class="form-text text-muted d-block mb-2">می‌توانید تا 5 پارامتر تعریف کنید که از طریق URL به پرسشنامه ارسال شوند. برای مثال: center و type</small>
+                            <div id="parametersList">
+                                <!-- Parameters will be added here dynamically -->
+                            </div>
+                            <button type="button" class="btn btn-success" id="addParameterBtn" onclick="addParameter()">
+                                <i class="bi bi-plus-circle"></i> افزودن پارامتر
+                            </button>
+                            <small class="form-text text-muted d-block mt-2">مثال: اگر پارامتر "center" با مقادیر "مرکز1, مرکز2" تعریف شود، لینک به صورت <code>?hash=...&center=مرکز1</code> خواهد بود.</small>
+                        </div>
+                        
                         <div class="row">
                             <div class="col-md-6">
                                 <div class="mb-3">
@@ -183,13 +195,19 @@ function checkFileSize(input) {
     toggleAnonymousPassword();
 })();
 
+let parameterCounter = 0;
+
 function toggleAnonymousPassword() {
     const accessType = document.getElementById('access_type').value;
     const passwordContainer = document.getElementById('anonymousPasswordContainer');
     const linkContainer = document.getElementById('anonymousAccessLinkContainer');
+    const parametersContainer = document.getElementById('surveyParametersContainer');
     
     if (accessType === 'anonymous') {
         passwordContainer.style.display = 'block';
+        if (parametersContainer) {
+            parametersContainer.style.display = 'block';
+        }
         // در صفحه ایجاد، لینک هنوز وجود ندارد
         if (linkContainer) {
             linkContainer.style.display = 'none';
@@ -199,12 +217,55 @@ function toggleAnonymousPassword() {
         if (linkContainer) {
             linkContainer.style.display = 'none';
         }
+        if (parametersContainer) {
+            parametersContainer.style.display = 'none';
+        }
         // Clear password field when access type changes
         const passwordInput = document.getElementById('anonymous_access_password');
         if (passwordInput) {
             passwordInput.value = '';
         }
     }
+}
+
+function addParameter() {
+    const parametersList = document.getElementById('parametersList');
+    const existingParameters = parametersList.querySelectorAll('.parameter-item').length;
+    
+    if (existingParameters >= 5) {
+        alert('حداکثر 5 پارامتر می‌توانید تعریف کنید.');
+        return;
+    }
+    
+    parameterCounter++;
+    const parameterHtml = `
+        <div class="parameter-item mb-3 p-3 border rounded" data-parameter-counter="${parameterCounter}">
+            <div class="row">
+                <div class="col-md-4">
+                    <label class="form-label">نام پارامتر</label>
+                    <input type="text" class="form-control parameter-name" name="parameter_name[]" placeholder="مثال: center" required>
+                </div>
+                <div class="col-md-6">
+                    <label class="form-label">مقادیر ممکن (با کاما جدا کنید)</label>
+                    <textarea class="form-control parameter-values" name="parameter_values[]" rows="3" placeholder="مثال: مرکز1, مرکز2, مرکز3" required></textarea>
+                </div>
+                <div class="col-md-2">
+                    <label class="form-label">&nbsp;</label>
+                    <button type="button" class="btn btn-danger w-100 remove-parameter" onclick="removeParameter(this)">
+                        <i class="bi bi-trash"></i> حذف
+                    </button>
+                </div>
+            </div>
+            <input type="hidden" name="parameter_id[]" value="">
+        </div>
+    `;
+    
+    parametersList.insertAdjacentHTML('beforeend', parameterHtml);
+}
+
+function removeParameter(button) {
+    const parameterItem = button.closest('.parameter-item');
+    parameterItem.remove();
 }
 </script>
 {% endblock %}

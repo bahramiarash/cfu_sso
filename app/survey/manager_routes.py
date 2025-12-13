@@ -553,7 +553,17 @@ def manager_surveys_edit(survey_id):
         ANONYMOUS_ACCESS_SECRET = "cfu_survey_anonymous_2024"
         data = f"{survey.id}_{ANONYMOUS_ACCESS_SECRET}"
         hash_value = hashlib.sha256(data.encode()).hexdigest()[:16]
-        anonymous_access_link = url_for('survey.survey_start', survey_id=survey.id, hash=hash_value, _external=True)
+        # Build URL with correct host (bi.cfu.ac.ir instead of localhost:5006)
+        # Get host from request or use default
+        host = request.host
+        scheme = request.scheme
+        
+        # Replace localhost with bi.cfu.ac.ir
+        if 'localhost' in host or '127.0.0.1' in host:
+            host = 'bi.cfu.ac.ir'
+            scheme = 'https'  # Use HTTPS for production
+        
+        anonymous_access_link = f"{scheme}://{host}{url_for('survey.survey_start', survey_id=survey.id, hash=hash_value)}"
     
     # Get survey parameters
     survey_parameters = SurveyParameter.query.filter_by(survey_id=survey.id).order_by(SurveyParameter.order).all()
@@ -1675,7 +1685,18 @@ def manager_reports_export_links_excel(survey_id):
         ANONYMOUS_ACCESS_SECRET = "cfu_survey_anonymous_2024"
         data = f"{survey.id}_{ANONYMOUS_ACCESS_SECRET}"
         hash_value = hashlib.sha256(data.encode()).hexdigest()[:16]
-        base_url = url_for('survey.survey_start', survey_id=survey_id, hash=hash_value, _external=True)
+        
+        # Build URL with correct host (bi.cfu.ac.ir instead of localhost:5006)
+        # Get host from request or use default
+        host = request.host
+        scheme = request.scheme
+        
+        # Replace localhost with bi.cfu.ac.ir
+        if 'localhost' in host or '127.0.0.1' in host:
+            host = 'bi.cfu.ac.ir'
+            scheme = 'https'  # Use HTTPS for production
+        
+        base_url = f"{scheme}://{host}{url_for('survey.survey_start', survey_id=survey_id, hash=hash_value)}"
         
         # Generate all combinations using itertools.product
         import itertools
@@ -1777,7 +1798,18 @@ def manager_reports_export_links_qr_zip(survey_id):
         ANONYMOUS_ACCESS_SECRET = "cfu_survey_anonymous_2024"
         data = f"{survey.id}_{ANONYMOUS_ACCESS_SECRET}"
         hash_value = hashlib.sha256(data.encode()).hexdigest()[:16]
-        base_url = url_for('survey.survey_start', survey_id=survey_id, hash=hash_value, _external=True)
+        
+        # Build URL with correct host (bi.cfu.ac.ir instead of localhost:5006)
+        # Get host from request or use default
+        host = request.host
+        scheme = request.scheme
+        
+        # Replace localhost with bi.cfu.ac.ir
+        if 'localhost' in host or '127.0.0.1' in host:
+            host = 'bi.cfu.ac.ir'
+            scheme = 'https'  # Use HTTPS for production
+        
+        base_url = f"{scheme}://{host}{url_for('survey.survey_start', survey_id=survey_id, hash=hash_value)}"
         
         # Generate all combinations using itertools.product
         import itertools

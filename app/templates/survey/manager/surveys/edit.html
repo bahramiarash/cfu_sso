@@ -93,7 +93,7 @@
                                             </div>
                                             <div class="col-md-6">
                                                 <label class="form-label">مقادیر ممکن (با کاما جدا کنید)</label>
-                                                <input type="text" class="form-control parameter-values" name="parameter_values[]" value="{{ param.parameter_values|join(', ') }}" placeholder="مثال: مرکز1, مرکز2, مرکز3" required>
+                                                <textarea class="form-control parameter-values" name="parameter_values[]" rows="3" placeholder="مثال: مرکز1, مرکز2, مرکز3" required>{{ param.parameter_values|join(', ') }}</textarea>
                                             </div>
                                             <div class="col-md-2">
                                                 <label class="form-label">&nbsp;</label>
@@ -311,7 +311,7 @@ function addParameter() {
                 </div>
                 <div class="col-md-6">
                     <label class="form-label">مقادیر ممکن (با کاما جدا کنید)</label>
-                    <input type="text" class="form-control parameter-values" name="parameter_values[]" placeholder="مثال: مرکز1, مرکز2, مرکز3" required>
+                    <textarea class="form-control parameter-values" name="parameter_values[]" rows="3" placeholder="مثال: مرکز1, مرکز2, مرکز3" required></textarea>
                 </div>
                 <div class="col-md-2">
                     <label class="form-label">&nbsp;</label>
