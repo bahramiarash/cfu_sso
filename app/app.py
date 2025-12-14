@@ -1892,15 +1892,31 @@ def tables_data():
         hostname = hostnames.get(zone_name)
         if hostname:
             try:
-                response = requests.get(SERVICE_URL, params={"host": hostname}, timeout=2)
+                response = requests.get(SERVICE_URL, params={"host": hostname}, timeout=10)
                 if response.status_code == 200:
-                    latest_zone_resources[zone_name] = response.json()
+                    zabbix_data = response.json()
+                    # Check if response contains error
+                    if "error" in zabbix_data:
+                        logger.warning(f"Zabbix service returned error for {hostname}: {zabbix_data.get('error')}")
+                        latest_zone_resources[zone_name] = {}
+                    else:
+                        latest_zone_resources[zone_name] = zabbix_data
+                        logger.info(f"Successfully fetched Zabbix data for {hostname}: {list(zabbix_data.keys())}")
                 else:
-                    logger.debug(f"Zabbix service returned {response.status_code} for {hostname}")
-            except (requests.exceptions.RequestException, requests.exceptions.Timeout) as e:
-                logger.debug(f"Zabbix service unavailable for {hostname}: {e}")
+                    logger.warning(f"Zabbix service returned {response.status_code} for {hostname}")
+                    latest_zone_resources[zone_name] = {}
+            except requests.exceptions.Timeout as e:
+                logger.warning(f"Zabbix service timeout for {hostname} (service may be slow or unavailable): {e}")
+                latest_zone_resources[zone_name] = {}
+            except requests.exceptions.ConnectionError as e:
+                logger.warning(f"Zabbix service connection error for {hostname} (service may not be running on port 6000): {e}")
+                latest_zone_resources[zone_name] = {}
+            except (requests.exceptions.RequestException) as e:
+                logger.warning(f"Zabbix service request error for {hostname}: {e}")
+                latest_zone_resources[zone_name] = {}
             except Exception as e:
-                logger.debug(f"Error fetching Zabbix metrics for {hostname}: {e}")
+                logger.error(f"Unexpected error fetching Zabbix metrics for {hostname}: {e}", exc_info=True)
+                latest_zone_resources[zone_name] = {}
         
         # Process LMS data if available
         if zone_name in url_data:

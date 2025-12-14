@@ -13,6 +13,8 @@ from dashboards.context import UserContext
 from dashboards.utils import to_jalali, get_color_for_key
 import jdatetime
 
+logger = logging.getLogger(__name__)
+
 class LMSDataProvider(DataProvider):
     """Data provider for LMS monitoring data"""
     
@@ -226,20 +228,36 @@ class LMSDataProvider(DataProvider):
                         response = requests.get(
                             DashboardConfig.METRICS_SERVICE_URL,
                             params={"host": hostname},
-                            timeout=2  # Reduced timeout to fail faster if service is unavailable
+                            timeout=10  # Increased timeout for Zabbix API calls
                         )
                         if response.status_code == 200:
-                            latest_zone_resources[zone_name] = response.json()
-                    except (requests.exceptions.RequestException, requests.exceptions.Timeout) as e:
-                        # Silently continue if metrics service is unavailable
-                        # This allows dashboard to render even if metrics service is down
-                        logger = logging.getLogger(__name__)
-                        logger.debug(f"Metrics service unavailable for {hostname}: {e}")
-                        pass
+                            zabbix_data = response.json()
+                            # Check if response contains error
+                            if "error" in zabbix_data:
+                                logger.warning(f"Zabbix service returned error for {hostname}: {zabbix_data.get('error')}")
+                                latest_zone_resources[zone_name] = {}
+                            else:
+                                latest_zone_resources[zone_name] = zabbix_data
+                                logger.info(f"Successfully fetched Zabbix data for {hostname}: {list(zabbix_data.keys())}")
+                        else:
+                            logger.warning(f"Zabbix service returned {response.status_code} for {hostname}")
+                            latest_zone_resources[zone_name] = {}
+                    except requests.exceptions.Timeout as e:
+                        # Log timeout but continue
+                        logger.warning(f"Zabbix service timeout for {hostname} (service may be slow): {e}")
+                        latest_zone_resources[zone_name] = {}
+                    except requests.exceptions.ConnectionError as e:
+                        # Log connection error but continue
+                        logger.warning(f"Zabbix service connection error for {hostname} (service may not be running on port 6000): {e}")
+                        latest_zone_resources[zone_name] = {}
+                    except (requests.exceptions.RequestException) as e:
+                        # Log request error but continue
+                        logger.warning(f"Zabbix service request error for {hostname}: {e}")
+                        latest_zone_resources[zone_name] = {}
                     except Exception as e:
                         # Log other errors but continue
-                        logger = logging.getLogger(__name__)
-                        logger.debug(f"Error fetching metrics for {hostname}: {e}")
+                        logger.error(f"Unexpected error fetching Zabbix metrics for {hostname}: {e}", exc_info=True)
+                        latest_zone_resources[zone_name] = {}
                 
                 # Process data if available for this zone
                 if zone_name in url_data:
