@@ -487,9 +487,27 @@ def dashboard_api_proxy(path):
     """Proxy dashboard API requests to monolithic app"""
     import requests
     
+    # CRITICAL: Log at the start to verify request reaches gateway
+    logger.info(f"=== DASHBOARD API PROXY CALLED ===")
+    logger.info(f"path={path}, full_path={request.path}, method={request.method}")
+    logger.info(f"Request URL: {request.url}")
+    logger.info(f"Request headers: {dict(request.headers)}")
+    logger.info(f"Request cookies: {list(request.cookies.keys())}")
+    # Log cookie values (first 20 chars for security)
+    if request.cookies:
+        cookie_preview = {k: (v[:20] + '...' if len(v) > 20 else v) for k, v in request.cookies.items()}
+        logger.info(f"Cookie values preview: {cookie_preview}")
+    logger.info(f"Request remote_addr: {request.remote_addr}")
+    logger.info(f"Request host: {request.host}")
+    
     token = get_auth_token()
     if not token:
-        return jsonify({"error": "Unauthorized"}), 401
+        logger.warning(f"Dashboard API proxy: No auth token found for path={path}, cookies={list(request.cookies.keys())}, headers={list(request.headers.keys())}")
+        # Still proxy the request - let monolithic app handle authentication
+        # This allows session-based auth to work
+        logger.info(f"Proxying dashboard API request without token (session-based auth)")
+    else:
+        logger.info(f"Dashboard API proxy: Found auth token (length: {len(token)})")
     
     # Build target URL
     if path:
@@ -505,11 +523,10 @@ def dashboard_api_proxy(path):
     
     try:
         # Forward request with cookies and headers
-        headers = {
-            "Authorization": f"Bearer {token}",
-        }
+        headers = {}
         
         if token:
+            headers["Authorization"] = f"Bearer {token}"
             headers["X-Auth-Token"] = token
         
         # Create a session to maintain cookies
@@ -522,11 +539,20 @@ def dashboard_api_proxy(path):
         if token:
             session_obj.cookies.set("auth_token", token, path='/')
         
+        # Always forward cookie header for session sync in monolithic app
+        cookie_header = request.headers.get('Cookie', '')
+        if cookie_header:
+            headers["Cookie"] = cookie_header
+            if token and f"auth_token={token}" not in cookie_header:
+                headers["Cookie"] = f"{cookie_header}; auth_token={token}"
+        elif token:
+            headers["Cookie"] = f"auth_token={token}"
+        
         # Forward the request
         request_kwargs = {
             'headers': headers,
             'allow_redirects': False,
-            'timeout': 30
+            'timeout': 120  # Increased timeout for dashboard API requests
         }
         
         if request.method == "GET":
@@ -539,6 +565,21 @@ def dashboard_api_proxy(path):
             resp = session_obj.post(target_url, **request_kwargs)
         else:
             resp = session_obj.request(request.method, target_url, **request_kwargs)
+        
+        logger.info(f"Monolithic app response: status={resp.status_code}, content_length={len(resp.content)}")
+        
+        # If we get 404, log more details
+        if resp.status_code == 404:
+            logger.error(f"⚠️ 404 from monolithic app for: {target_url}")
+            logger.error(f"Request path: {request.path}, Method: {request.method}")
+            logger.error(f"Response content (first 500 chars): {resp.text[:500]}")
+            # Try to check if monolithic app is running
+            try:
+                health_check = session_obj.get(f"{MONOLITHIC_APP_URL}/health", timeout=5)
+                logger.info(f"Monolithic app health check: {health_check.status_code}")
+            except Exception as health_error:
+                logger.error(f"⚠️ Cannot connect to monolithic app at {MONOLITHIC_APP_URL}: {health_error}")
+                logger.error(f"Make sure monolithic app is running on port 5006")
         
         # Return response
         from flask import Response, jsonify
@@ -562,9 +603,23 @@ def dashboard_api_proxy(path):
             )
         
         return response
+    except requests.exceptions.ConnectionError as e:
+        logger.error(f"✗ Connection error: Cannot connect to monolithic app at {MONOLITHIC_APP_URL}")
+        logger.error(f"Make sure the monolithic app is running. Start it with: python start-monolithic-app.ps1")
+        logger.error(f"Error details: {e}")
+        return jsonify({
+            "error": "Service unavailable",
+            "message": "سرویس در دسترس نیست. لطفاً با مدیر سیستم تماس بگیرید.",
+            "details": f"Cannot connect to {MONOLITHIC_APP_URL}"
+        }), 503
     except Exception as e:
         logger.error(f"Error proxying dashboard API request: {e}", exc_info=True)
-        return jsonify({"error": str(e)}), 500
+        import traceback
+        logger.error(f"Traceback: {traceback.format_exc()}")
+        return jsonify({
+            "error": str(e),
+            "message": "خطا در ارتباط با سرور"
+        }), 500
 
 @app.route("/dashboard", defaults={"path": ""}, methods=['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS', 'HEAD'])
 @app.route("/dashboard/", defaults={"path": ""}, methods=['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS', 'HEAD'])
@@ -1341,8 +1396,55 @@ def auth_proxy(path):
 def health():
     """Health check endpoint"""
     from flask import jsonify
-    return jsonify({"status": "healthy", "service": "gateway-service"}), 200
+    import requests
+    
+    # Check if monolithic app is running
+    monolithic_status = "unknown"
+    try:
+        health_resp = requests.get(f"{MONOLITHIC_APP_URL}/health", timeout=2)
+        monolithic_status = "running" if health_resp.status_code == 200 else f"error_{health_resp.status_code}"
+    except requests.exceptions.ConnectionError:
+        monolithic_status = "not_running"
+    except Exception as e:
+        monolithic_status = f"error_{str(e)}"
+    
+    return jsonify({
+        "status": "healthy",
+        "service": "gateway-service",
+        "monolithic_app": {
+            "url": MONOLITHIC_APP_URL,
+            "status": monolithic_status
+        }
+    }), 200
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000, debug=True)
+    import sys
+    try:
+        # Check if port is already in use
+        import socket
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        result = sock.connect_ex(('127.0.0.1', 5000))
+        sock.close()
+        if result == 0:
+            logger.error("Port 5000 is already in use. Please stop the existing service first.")
+            logger.error("To find and kill the process using port 5000, run:")
+            logger.error("  netstat -ano | findstr :5000")
+            logger.error("  taskkill /F /PID <PID>")
+            sys.exit(1)
+        
+        logger.info("Starting Gateway Service on port 5000...")
+        # Use use_reloader=False to prevent issues with multiple processes
+        # In production, use a proper WSGI server like waitress or gunicorn
+        app.run(host="0.0.0.0", port=5000, debug=True, use_reloader=False)
+    except OSError as e:
+        if e.errno == 98 or "Address already in use" in str(e):
+            logger.error(f"Port 5000 is already in use: {e}")
+            logger.error("Please stop the existing service first.")
+            sys.exit(1)
+        else:
+            logger.error(f"Error starting Gateway Service: {e}", exc_info=True)
+            raise
+    except Exception as e:
+        logger.error(f"Unexpected error starting Gateway Service: {e}", exc_info=True)
+        raise
 
