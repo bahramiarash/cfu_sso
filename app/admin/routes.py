@@ -17,8 +17,261 @@ import logging
 import os
 import shutil
 from pathlib import Path
+import requests
+import subprocess
+import json
+from typing import Dict, Optional
 
 logger = logging.getLogger(__name__)
+
+# میکروسرویس‌ها و اطلاعات آنها
+MICROSERVICES = {
+    'auth-service': {
+        'name': 'سرویس احراز هویت',
+        'port': 5001,
+        'url': 'http://auth-service:5001',
+        'container': 'auth-service',
+        'description': 'مدیریت احراز هویت SSO و JWT Token'
+    },
+    'admin-service': {
+        'name': 'سرویس مدیریت',
+        'port': 5002,
+        'url': 'http://admin-service:5002',
+        'container': 'admin-service',
+        'description': 'مدیریت کاربران، دسترسی‌ها و همگام‌سازی داده'
+    },
+    'survey-service': {
+        'name': 'سرویس نظرسنجی',
+        'port': 5003,
+        'url': 'http://survey-service:5003',
+        'container': 'survey-service',
+        'description': 'مدیریت نظرسنجی‌ها و پاسخ‌های کاربران'
+    },
+    'dashboard-service': {
+        'name': 'سرویس داشبورد',
+        'port': 5004,
+        'url': 'http://dashboard-service:5004',
+        'container': 'dashboard-service',
+        'description': 'نمایش داشبوردهای تحلیلی و نمودارها'
+    },
+    'kanban-service': {
+        'name': 'سرویس Kanban',
+        'port': 5005,
+        'url': 'http://kanban-service:5005',
+        'container': 'kanban-service',
+        'description': 'مدیریت پروژه‌ها و تسک‌ها'
+    },
+    'gateway-service': {
+        'name': 'سرویس Gateway',
+        'port': 5000,
+        'url': 'http://gateway-service:5000',
+        'container': 'gateway-service',
+        'description': 'مسیریابی و Proxy به سایر سرویس‌ها'
+    }
+}
+
+def check_service_health(service_name: str) -> Dict:
+    """
+    بررسی وضعیت یک میکروسرویس از طریق health endpoint
+    """
+    service_info = MICROSERVICES.get(service_name)
+    if not service_info:
+        return {
+            'status': 'unknown',
+            'error': f'Service {service_name} not found'
+        }
+    
+    try:
+        # Convert Docker hostnames to localhost for non-Docker environments
+        health_url = service_info['url'].replace('auth-service', 'localhost')\
+                                       .replace('admin-service', 'localhost')\
+                                       .replace('survey-service', 'localhost')\
+                                       .replace('dashboard-service', 'localhost')\
+                                       .replace('kanban-service', 'localhost')\
+                                       .replace('gateway-service', 'localhost')
+        health_url = f"{health_url}/health"
+        response = requests.get(health_url, timeout=5)
+        
+        if response.status_code == 200:
+            try:
+                health_data = response.json()
+                return {
+                    'status': 'healthy',
+                    'status_code': response.status_code,
+                    'response_time': response.elapsed.total_seconds(),
+                    'data': health_data
+                }
+            except json.JSONDecodeError:
+                return {
+                    'status': 'healthy',
+                    'status_code': response.status_code,
+                    'response_time': response.elapsed.total_seconds(),
+                    'data': {'message': response.text[:200]}
+                }
+        else:
+            return {
+                'status': 'unhealthy',
+                'status_code': response.status_code,
+                'error': f'Health check returned status {response.status_code}'
+            }
+    except requests.exceptions.Timeout:
+        return {
+            'status': 'timeout',
+            'error': 'Health check request timed out'
+        }
+    except requests.exceptions.ConnectionError:
+        return {
+            'status': 'unreachable',
+            'error': 'Could not connect to service'
+        }
+    except Exception as e:
+        return {
+            'status': 'error',
+            'error': str(e)
+        }
+
+def check_docker_container_status(container_name: str) -> Dict:
+    """
+    بررسی وضعیت container از طریق docker ps
+    """
+    try:
+        result = subprocess.run(
+            ['docker', 'ps', '-a', '--filter', f'name={container_name}', '--format', '{{.Status}}|{{.Names}}'],
+            capture_output=True,
+            text=True,
+            timeout=10
+        )
+        
+        if result.returncode == 0 and result.stdout.strip():
+            status_line = result.stdout.strip()
+            if container_name in status_line:
+                if 'Up' in status_line:
+                    # Extract uptime
+                    parts = status_line.split('|')
+                    status = parts[0] if len(parts) > 0 else status_line
+                    return {
+                        'running': True,
+                        'status': status
+                    }
+                else:
+                    return {
+                        'running': False,
+                        'status': status_line.split('|')[0] if '|' in status_line else status_line
+                    }
+        
+        return {
+            'running': False,
+            'status': 'Container not found'
+        }
+    except FileNotFoundError:
+        return {
+            'running': None,
+            'status': 'Docker command not found'
+        }
+    except subprocess.TimeoutExpired:
+        return {
+            'running': None,
+            'status': 'Docker command timeout'
+        }
+    except Exception as e:
+        return {
+            'running': None,
+            'status': f'Error: {str(e)}'
+        }
+
+def restart_service(service_name: str) -> Dict:
+    """
+    Restart کردن یک میکروسرویس با استفاده از docker-compose
+    """
+    service_info = MICROSERVICES.get(service_name)
+    if not service_info:
+        return {
+            'success': False,
+            'error': f'Service {service_name} not found'
+        }
+    
+    try:
+        # پیدا کردن مسیر docker-compose.yml
+        # __file__ = app/admin/routes.py
+        # parent = app/admin
+        # parent.parent = app
+        # parent.parent.parent = project root
+        compose_file = None
+        current_file = Path(__file__).resolve()
+        project_root = current_file.parent.parent.parent
+        
+        # جستجو در دایرکتوری‌های مختلف
+        for search_dir in [project_root, project_root.parent]:
+            compose_path = search_dir / 'docker-compose.yml'
+            if compose_path.exists():
+                compose_file = compose_path
+                break
+        
+        if not compose_file:
+            return {
+                'success': False,
+                'error': 'docker-compose.yml not found'
+            }
+        
+        # اجرای docker-compose restart
+        result = subprocess.run(
+            ['docker-compose', '-f', str(compose_file), 'restart', service_name],
+            cwd=compose_file.parent,
+            capture_output=True,
+            text=True,
+            timeout=60
+        )
+        
+        if result.returncode == 0:
+            return {
+                'success': True,
+                'message': f'Service {service_name} restarted successfully',
+                'output': result.stdout
+            }
+        else:
+            return {
+                'success': False,
+                'error': result.stderr or result.stdout,
+                'returncode': result.returncode
+            }
+    except FileNotFoundError:
+        # تلاش با docker compose (بدون خط تیره)
+        try:
+            result = subprocess.run(
+                ['docker', 'compose', '-f', str(compose_file), 'restart', service_name],
+                cwd=compose_file.parent,
+                capture_output=True,
+                text=True,
+                timeout=60
+            )
+            
+            if result.returncode == 0:
+                return {
+                    'success': True,
+                    'message': f'Service {service_name} restarted successfully',
+                    'output': result.stdout
+                }
+            else:
+                return {
+                    'success': False,
+                    'error': result.stderr or result.stdout,
+                    'returncode': result.returncode
+                }
+        except Exception as e:
+            return {
+                'success': False,
+                'error': f'Docker compose command not available: {str(e)}'
+            }
+    except subprocess.TimeoutExpired:
+        return {
+            'success': False,
+            'error': 'Restart command timed out'
+        }
+    except Exception as e:
+        return {
+            'success': False,
+            'error': str(e)
+        }
 
 # Color palettes for charts
 COLOR_PALETTES = {
@@ -1746,6 +1999,121 @@ def index():
                              stats={'total_users': 0, 'total_dashboards': 0, 'total_access_logs': 0, 'active_data_syncs': 0}, 
                              recent_logs=[],
                              data_syncs=[])
+
+
+# ==================== Microservices Monitoring ====================
+
+@admin_bp.route('/microservices')
+@login_required
+@admin_required
+def microservices_list():
+    """List all microservices and their status"""
+    log_action('view_microservices')
+    
+    services_status = {}
+    for service_name, service_info in MICROSERVICES.items():
+        health_status = check_service_health(service_name)
+        container_status = check_docker_container_status(service_info['container'])
+        
+        services_status[service_name] = {
+            **service_info,
+            'health': health_status,
+            'container': container_status
+        }
+    
+    return render_template('admin/microservices/list.html', services=services_status)
+
+
+@admin_bp.route('/microservices/status')
+@login_required
+@admin_required
+def microservices_status():
+    """API endpoint to get all microservices status"""
+    try:
+        services_status = {}
+        for service_name, service_info in MICROSERVICES.items():
+            health_status = check_service_health(service_name)
+            container_status = check_docker_container_status(service_info['container'])
+            
+            services_status[service_name] = {
+                **service_info,
+                'health': health_status,
+                'container': container_status
+            }
+        
+        return jsonify({
+            'success': True,
+            'services': services_status,
+            'timestamp': datetime.utcnow().isoformat()
+        })
+    except Exception as e:
+        logger.error(f"Error getting microservices status: {e}", exc_info=True)
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
+@admin_bp.route('/microservices/<service_name>/restart', methods=['POST'])
+@login_required
+@admin_required
+def microservice_restart(service_name):
+    """Restart a microservice"""
+    if service_name not in MICROSERVICES:
+        return jsonify({
+            'success': False,
+            'error': f'Service {service_name} not found'
+        }), 404
+    
+    try:
+        log_action('restart_microservice', 'microservice', service_name)
+        result = restart_service(service_name)
+        
+        if result['success']:
+            flash(f'سرویس {MICROSERVICES[service_name]["name"]} با موفقیت راه‌اندازی مجدد شد.', 'success')
+            return jsonify(result)
+        else:
+            flash(f'خطا در راه‌اندازی مجدد سرویس: {result.get("error", "خطای نامشخص")}', 'error')
+            return jsonify(result), 500
+    except Exception as e:
+        logger.error(f"Error restarting microservice {service_name}: {e}", exc_info=True)
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
+@admin_bp.route('/microservices/<service_name>/status')
+@login_required
+@admin_required
+def microservice_status(service_name):
+    """Get status of a specific microservice"""
+    if service_name not in MICROSERVICES:
+        return jsonify({
+            'success': False,
+            'error': f'Service {service_name} not found'
+        }), 404
+    
+    try:
+        service_info = MICROSERVICES[service_name]
+        health_status = check_service_health(service_name)
+        container_status = check_docker_container_status(service_info['container'])
+        
+        return jsonify({
+            'success': True,
+            'service': {
+                **service_info,
+                'health': health_status,
+                'container': container_status
+            },
+            'timestamp': datetime.utcnow().isoformat()
+        })
+    except Exception as e:
+        logger.error(f"Error getting microservice status: {e}", exc_info=True)
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
 
 
 # ==================== User Management ====================

@@ -1,0 +1,514 @@
+{% extends "admin/base.html" %}
+
+{% block title %}نظارت بر میکروسرویس‌ها{% endblock %}
+
+{% block extra_css %}
+<style>
+    .service-card {
+        transition: transform 0.2s;
+        margin-bottom: 20px;
+    }
+    .service-card:hover {
+        transform: translateY(-5px);
+        box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+    }
+    .status-badge {
+        font-size: 0.85rem;
+        padding: 0.35rem 0.65rem;
+    }
+    .health-indicator {
+        display: inline-block;
+        width: 12px;
+        height: 12px;
+        border-radius: 50%;
+        margin-left: 5px;
+    }
+    .health-indicator.healthy {
+        background-color: #28a745;
+        box-shadow: 0 0 5px #28a745;
+    }
+    .health-indicator.unhealthy {
+        background-color: #dc3545;
+        box-shadow: 0 0 5px #dc3545;
+    }
+    .health-indicator.timeout {
+        background-color: #ffc107;
+        box-shadow: 0 0 5px #ffc107;
+    }
+    .health-indicator.unreachable {
+        background-color: #6c757d;
+        box-shadow: 0 0 5px #6c757d;
+    }
+    .health-indicator.error {
+        background-color: #dc3545;
+        box-shadow: 0 0 5px #dc3545;
+    }
+    .refresh-btn {
+        position: fixed;
+        bottom: 30px;
+        left: 30px;
+        z-index: 1000;
+        border-radius: 50%;
+        width: 60px;
+        height: 60px;
+        box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+    }
+    .auto-refresh-badge {
+        position: fixed;
+        top: 80px;
+        right: 20px;
+        z-index: 999;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h1><i class="bi bi-server"></i> نظارت بر میکروسرویس‌ها</h1>
+        <div>
+            <button class="btn btn-primary" onclick="refreshAllServices()">
+                <i class="bi bi-arrow-clockwise"></i> به‌روزرسانی وضعیت
+            </button>
+            <div class="form-check form-switch d-inline-block ms-3">
+                <input class="form-check-input" type="checkbox" id="autoRefreshToggle" checked onchange="toggleAutoRefresh()">
+                <label class="form-check-label" for="autoRefreshToggle">به‌روزرسانی خودکار</label>
+            </div>
+        </div>
+    </div>
+
+    <div id="autoRefreshBadge" class="alert alert-info auto-refresh-badge d-none">
+        <i class="bi bi-info-circle"></i> به‌روزرسانی خودکار فعال است (هر 10 ثانیه)
+    </div>
+
+    <!-- Services Grid -->
+    <div class="row" id="servicesContainer">
+        {% for service_name, service in services.items() %}
+        <div class="col-md-6 col-lg-4">
+            <div class="card service-card" data-service="{{ service_name }}">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <h5 class="mb-0">
+                        <i class="bi bi-server"></i> {{ service.name }}
+                    </h5>
+                    <span class="health-indicator {% if service.health.status == 'healthy' %}healthy{% elif service.health.status == 'timeout' %}timeout{% elif service.health.status == 'unreachable' %}unreachable{% else %}error{% endif %}"></span>
+                </div>
+                <div class="card-body">
+                    <p class="text-muted small mb-3">{{ service.description }}</p>
+                    
+                    <div class="mb-3">
+                        <strong>وضعیت Health Check:</strong><br>
+                        <span class="badge status-badge health-status-badge bg-{% if service.health.status == 'healthy' %}success{% elif service.health.status == 'timeout' %}warning{% else %}danger{% endif %}">
+                            {% if service.health.status == 'healthy' %}
+                                سالم
+                            {% elif service.health.status == 'timeout' %}
+                                تایم‌اوت
+                            {% elif service.health.status == 'unreachable' %}
+                                غیرقابل دسترس
+                            {% else %}
+                                خطا
+                            {% endif %}
+                        </span>
+                        {% if service.health.get('response_time') %}
+                        <small class="text-muted"> ({{ "%.2f"|format(service.health.response_time) }}s)</small>
+                        {% endif %}
+                    </div>
+
+                    <div class="mb-3">
+                        <strong>وضعیت Container:</strong><br>
+                        {% if service.container.running is true %}
+                            <span class="badge status-badge container-status-badge bg-success">در حال اجرا</span>
+                        {% elif service.container.running is false %}
+                            <span class="badge status-badge container-status-badge bg-danger">متوقف شده</span>
+                        {% else %}
+                            <span class="badge status-badge container-status-badge bg-secondary">نامشخص</span>
+                        {% endif %}
+                        {% if service.container.status %}
+                        <br><small class="text-muted">{{ service.container.status[:50] }}{% if service.container.status|length > 50 %}...{% endif %}</small>
+                        {% endif %}
+                    </div>
+
+                    {% if service.health.get('error') %}
+                    <div class="alert alert-warning alert-sm mb-3 error-alert">
+                        <small><i class="bi bi-exclamation-triangle"></i> {{ service.health.error }}</small>
+                    </div>
+                    {% else %}
+                    <div class="alert alert-warning alert-sm mb-3 error-alert" style="display: none;">
+                        <small><i class="bi bi-exclamation-triangle"></i> <span></span></small>
+                    </div>
+                    {% endif %}
+
+                    <div class="d-grid gap-2">
+                        <button class="btn btn-sm btn-outline-primary" onclick="refreshService('{{ service_name }}')">
+                            <i class="bi bi-arrow-clockwise"></i> به‌روزرسانی وضعیت
+                        </button>
+                        <button class="btn btn-sm btn-warning restart-btn" onclick="restartService('{{ service_name }}', '{{ service.name }}')" 
+                                {% if service.container.running is not true %}disabled{% endif %}>
+                            <i class="bi bi-arrow-repeat"></i> راه‌اندازی مجدد
+                        </button>
+                    </div>
+
+                    <hr class="my-3">
+
+                    <div class="small text-muted">
+                        <div><strong>Container:</strong> {{ service.container }}</div>
+                        <div><strong>Port:</strong> {{ service.port }}</div>
+                        <div><strong>URL:</strong> <code>{{ service.url }}</code></div>
+                        {% if service.health.get('data') %}
+                        <div class="mt-2">
+                            <details>
+                                <summary class="text-primary" style="cursor: pointer;"><small>جزئیات Health Check</small></summary>
+                                <pre class="small mt-2 p-2 bg-light" style="max-height: 150px; overflow-y: auto;"><code>{{ service.health.data|tojson(indent=2) }}</code></pre>
+                            </details>
+                        </div>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+</div>
+
+<button class="btn btn-primary refresh-btn" onclick="refreshAllServices()" title="به‌روزرسانی وضعیت">
+    <i class="bi bi-arrow-clockwise"></i>
+</button>
+
+<!-- Loading Modal -->
+<div class="modal fade" id="loadingModal" tabindex="-1" data-bs-backdrop="static" data-bs-keyboard="false">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-body text-center">
+                <div class="spinner-border text-primary" role="status">
+                    <span class="visually-hidden">در حال بارگذاری...</span>
+                </div>
+                <p class="mt-3" id="loadingMessage">در حال پردازش...</p>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+let autoRefreshInterval = null;
+const AUTO_REFRESH_INTERVAL = 10000; // 10 seconds
+
+function showLoading(message = 'در حال پردازش...') {
+    document.getElementById('loadingMessage').textContent = message;
+    const modal = new bootstrap.Modal(document.getElementById('loadingModal'));
+    modal.show();
+}
+
+function hideLoading() {
+    try {
+        const modalElement = document.getElementById('loadingModal');
+        if (modalElement) {
+            const modal = bootstrap.Modal.getInstance(modalElement);
+            if (modal) {
+                modal.hide();
+            } else {
+                // If no instance exists, create one and hide it
+                const newModal = new bootstrap.Modal(modalElement);
+                newModal.hide();
+            }
+        }
+    } catch (error) {
+        console.error('Error hiding loading modal:', error);
+        // Force hide by removing backdrop and modal classes
+        const modalElement = document.getElementById('loadingModal');
+        if (modalElement) {
+            modalElement.classList.remove('show');
+            modalElement.style.display = 'none';
+            const backdrop = document.querySelector('.modal-backdrop');
+            if (backdrop) {
+                backdrop.remove();
+            }
+            document.body.classList.remove('modal-open');
+            document.body.style.overflow = '';
+            document.body.style.paddingRight = '';
+        }
+    }
+}
+
+function showNotification(message, type = 'success') {
+    // Remove existing notifications
+    const existing = document.querySelector('.notification-toast');
+    if (existing) {
+        existing.remove();
+    }
+
+    const toast = document.createElement('div');
+    toast.className = `alert alert-${type === 'success' ? 'success' : 'danger'} alert-dismissible fade show notification-toast`;
+    toast.style.cssText = 'position: fixed; top: 100px; left: 50%; transform: translateX(-50%); z-index: 9999; min-width: 300px;';
+    toast.innerHTML = `
+        ${message}
+        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+    `;
+    document.body.appendChild(toast);
+
+    setTimeout(() => {
+        toast.remove();
+    }, 5000);
+}
+
+async function refreshService(serviceName) {
+    try {
+        showLoading('در حال به‌روزرسانی وضعیت سرویس...');
+        
+        // Add timeout to prevent hanging
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 15000); // 15 second timeout
+        
+        try {
+            const response = await fetch(`/admin/microservices/${serviceName}/status`, {
+                signal: controller.signal
+            });
+            
+            clearTimeout(timeoutId);
+            
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+            
+            const data = await response.json();
+            
+            if (data.success) {
+                updateServiceCard(serviceName, data.service);
+                showNotification('وضعیت سرویس به‌روزرسانی شد', 'success');
+            } else {
+                showNotification('خطا در به‌روزرسانی: ' + (data.error || 'خطای نامشخص'), 'danger');
+            }
+        } catch (fetchError) {
+            clearTimeout(timeoutId);
+            if (fetchError.name === 'AbortError') {
+                throw new Error('درخواست timeout شد. لطفاً دوباره تلاش کنید.');
+            }
+            throw fetchError;
+        }
+    } catch (error) {
+        console.error('Error refreshing service:', error);
+        showNotification('خطا در ارتباط با سرور: ' + (error.message || 'خطای نامشخص'), 'danger');
+    } finally {
+        // Always hide loading modal, even on error
+        hideLoading();
+    }
+}
+
+async function refreshAllServices() {
+    try {
+        showLoading('در حال به‌روزرسانی وضعیت همه سرویس‌ها...');
+        
+        // Add timeout to prevent hanging
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout
+        
+        try {
+            const response = await fetch('/admin/microservices/status', {
+                signal: controller.signal
+            });
+            
+            clearTimeout(timeoutId);
+            
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+            
+            const data = await response.json();
+            
+            if (data.success) {
+                for (const [serviceName, service] of Object.entries(data.services)) {
+                    updateServiceCard(serviceName, service);
+                }
+                showNotification('وضعیت همه سرویس‌ها به‌روزرسانی شد', 'success');
+            } else {
+                showNotification('خطا در به‌روزرسانی: ' + (data.error || 'خطای نامشخص'), 'danger');
+            }
+        } catch (fetchError) {
+            clearTimeout(timeoutId);
+            if (fetchError.name === 'AbortError') {
+                throw new Error('درخواست timeout شد. لطفاً دوباره تلاش کنید.');
+            }
+            throw fetchError;
+        }
+    } catch (error) {
+        console.error('Error refreshing services:', error);
+        showNotification('خطا در ارتباط با سرور: ' + (error.message || 'خطای نامشخص'), 'danger');
+    } finally {
+        // Always hide loading modal, even on error
+        hideLoading();
+    }
+}
+
+function updateServiceCard(serviceName, service) {
+    const container = document.getElementById('servicesContainer');
+    const card = container.querySelector(`[data-service="${serviceName}"]`);
+    
+    if (!card) {
+        // Card doesn't exist, reload page
+        location.reload();
+        return;
+    }
+
+    // Update health status
+    const healthBadge = card.querySelector('.health-status-badge');
+    const healthIndicator = card.querySelector('.health-indicator');
+    
+    if (healthBadge) {
+        healthBadge.className = `badge status-badge bg-${service.health.status === 'healthy' ? 'success' : service.health.status === 'timeout' ? 'warning' : 'danger'}`;
+        healthBadge.textContent = getHealthStatusText(service.health.status);
+    }
+    
+    if (healthIndicator) {
+        healthIndicator.className = `health-indicator ${getHealthIndicatorClass(service.health.status)}`;
+    }
+
+    // Update container status
+    const containerBadge = card.querySelector('.container-status-badge');
+    if (containerBadge) {
+        if (service.container.running === true) {
+            containerBadge.className = 'badge status-badge bg-success';
+            containerBadge.textContent = 'در حال اجرا';
+        } else if (service.container.running === false) {
+            containerBadge.className = 'badge status-badge bg-danger';
+            containerBadge.textContent = 'متوقف شده';
+        } else {
+            containerBadge.className = 'badge status-badge bg-secondary';
+            containerBadge.textContent = 'نامشخص';
+        }
+    }
+
+    // Update error message
+    const errorAlert = card.querySelector('.error-alert');
+    if (errorAlert) {
+        if (service.health.error) {
+            errorAlert.style.display = 'block';
+            errorAlert.querySelector('small').textContent = service.health.error;
+        } else {
+            errorAlert.style.display = 'none';
+        }
+    }
+
+    // Update restart button
+    const restartBtn = card.querySelector('.restart-btn');
+    if (restartBtn) {
+        restartBtn.disabled = service.container.running !== true;
+    }
+}
+
+function getHealthStatusText(status) {
+    const statusMap = {
+        'healthy': 'سالم',
+        'timeout': 'تایم‌اوت',
+        'unreachable': 'غیرقابل دسترس',
+        'error': 'خطا'
+    };
+    return statusMap[status] || 'نامشخص';
+}
+
+function getHealthIndicatorClass(status) {
+    const classMap = {
+        'healthy': 'healthy',
+        'timeout': 'timeout',
+        'unreachable': 'unreachable',
+        'error': 'error'
+    };
+    return classMap[status] || 'error';
+}
+
+async function restartService(serviceName, serviceDisplayName) {
+    if (!confirm(`آیا مطمئن هستید که می‌خواهید سرویس "${serviceDisplayName}" را راه‌اندازی مجدد کنید؟`)) {
+        return;
+    }
+
+    try {
+        showLoading(`در حال راه‌اندازی مجدد سرویس ${serviceDisplayName}...`);
+        
+        const response = await fetch(`/admin/microservices/${serviceName}/restart`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            }
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            showNotification(`سرویس ${serviceDisplayName} با موفقیت راه‌اندازی مجدد شد`, 'success');
+            // Wait a bit then refresh status
+            setTimeout(() => {
+                refreshService(serviceName);
+            }, 2000);
+        } else {
+            showNotification('خطا در راه‌اندازی مجدد: ' + (data.error || 'خطای نامشخص'), 'danger');
+        }
+    } catch (error) {
+        showNotification('خطا در ارتباط با سرور: ' + error.message, 'danger');
+    } finally {
+        hideLoading();
+    }
+}
+
+function toggleAutoRefresh() {
+    const toggle = document.getElementById('autoRefreshToggle');
+    const badge = document.getElementById('autoRefreshBadge');
+    
+    if (toggle.checked) {
+        startAutoRefresh();
+        badge.classList.remove('d-none');
+    } else {
+        stopAutoRefresh();
+        badge.classList.add('d-none');
+    }
+}
+
+function startAutoRefresh() {
+    stopAutoRefresh(); // Clear any existing interval
+    // Don't show loading modal for auto-refresh to avoid blocking UI
+    autoRefreshInterval = setInterval(async () => {
+        try {
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 30000);
+            
+            try {
+                const response = await fetch('/admin/microservices/status', {
+                    signal: controller.signal
+                });
+                clearTimeout(timeoutId);
+                
+                if (response.ok) {
+                    const data = await response.json();
+                    if (data.success) {
+                        for (const [serviceName, service] of Object.entries(data.services)) {
+                            updateServiceCard(serviceName, service);
+                        }
+                    }
+                }
+            } catch (fetchError) {
+                clearTimeout(timeoutId);
+                // Silently fail for auto-refresh - don't show errors
+                console.warn('Auto-refresh failed:', fetchError);
+            }
+        } catch (error) {
+            // Silently fail for auto-refresh
+            console.warn('Auto-refresh error:', error);
+        }
+    }, AUTO_REFRESH_INTERVAL);
+}
+
+function stopAutoRefresh() {
+    if (autoRefreshInterval) {
+        clearInterval(autoRefreshInterval);
+        autoRefreshInterval = null;
+    }
+}
+
+// Initialize
+document.addEventListener('DOMContentLoaded', function() {
+    // Start auto-refresh if enabled
+    if (document.getElementById('autoRefreshToggle').checked) {
+        startAutoRefresh();
+        document.getElementById('autoRefreshBadge').classList.remove('d-none');
+    }
+});
+</script>
+{% endblock %}
