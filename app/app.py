@@ -7,7 +7,8 @@ import sqlite3
 import subprocess
 import platform
 import time
-from urllib.parse import quote_plus
+import socket
+from urllib.parse import quote_plus, unquote_plus
 from flask import Flask, redirect, url_for, session, request, render_template, jsonify, flash, abort, make_response
 from flask_login import login_user
 
@@ -65,7 +66,20 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(me
 logger = logging.getLogger(__name__)
 
 # Initialize Flask app
-app = Flask(__name__, template_folder="templates", static_folder="static")
+# Set static_url_path to ensure static files work correctly behind reverse proxy
+app = Flask(__name__, template_folder="templates", static_folder="static", static_url_path="/static")
+
+# Configure Flask to use X-Forwarded headers when behind reverse proxy
+# This ensures url_for() generates correct URLs when accessed through gateway service
+from werkzeug.middleware.proxy_fix import ProxyFix
+app.wsgi_app = ProxyFix(
+    app.wsgi_app,
+    x_for=1,  # Trust X-Forwarded-For header
+    x_proto=1,  # Trust X-Forwarded-Proto header
+    x_host=1,  # Trust X-Forwarded-Host header
+    x_port=1,  # Trust X-Forwarded-Port header
+    x_prefix=1  # Trust X-Forwarded-Prefix header
+)
 # SECRET_KEY must be set as environment variable for security
 secret_key = os.environ.get("SECRET_KEY")
 if not secret_key:
@@ -159,7 +173,8 @@ def handle_500_error(e):
 app.config["SESSION_TYPE"] = "filesystem"
 app.config["SESSION_COOKIE_SECURE"] = True      # Ensures cookies are only sent over HTTPS
 app.config["SESSION_COOKIE_HTTPONLY"] = True    # Prevents JavaScript access to cookies
-app.config["SESSION_COOKIE_SAMESITE"] = "Lax"   # Adjust as needed (Lax/Strict/None)
+# Use None for OAuth flows that redirect to external domains (requires Secure=True)
+app.config["SESSION_COOKIE_SAMESITE"] = "None"   # Required for cross-site OAuth redirects
 # app.secret_key = 'your_secret'
 BASE_DIR = os.path.abspath(os.path.dirname(__file__))  # Directory where this script lives
 DB_PATH = f"sqlite:///{os.path.join(BASE_DIR, 'access_control.db')}"
@@ -183,7 +198,29 @@ app.register_blueprint(assignment_bp)
 # Register your dashboard routes
 # Note: Using new architecture only
 app.register_blueprint(new_dashboard_bp)  # New architecture routes
-app.register_blueprint(dashboard_api_bp)  # Dashboard API for filters
+
+# CRITICAL: Register dashboard API blueprint BEFORE other blueprints to ensure routes are available
+try:
+    app.register_blueprint(dashboard_api_bp)  # Dashboard API for filters
+    logger.info(f"✓ Successfully registered dashboard API blueprint: {dashboard_api_bp.name} with url_prefix={dashboard_api_bp.url_prefix}")
+    
+    # Log all registered routes from the blueprint
+    api_routes = []
+    for rule in app.url_map.iter_rules():
+        if rule.endpoint.startswith('dashboard_api.'):
+            api_routes.append(f"{rule.rule} -> {rule.endpoint} (methods: {list(rule.methods)})")
+            logger.info(f"  ✓ Dashboard API route: {rule.rule} -> {rule.endpoint} (methods: {list(rule.methods)})")
+    
+    if not api_routes:
+        logger.error("⚠️ WARNING: No dashboard API routes found after registering blueprint!")
+        logger.error(f"Blueprint name: {dashboard_api_bp.name}, url_prefix: {dashboard_api_bp.url_prefix}")
+        logger.error("This may indicate the blueprint routes are not being registered correctly.")
+    else:
+        logger.info(f"✓ Total {len(api_routes)} dashboard API routes registered successfully")
+except Exception as e:
+    logger.error(f"✗ ERROR: Failed to register dashboard API blueprint: {e}", exc_info=True)
+    raise
+
 app.register_blueprint(admin_bp)  # Admin panel
 app.register_blueprint(survey_bp)  # Survey system
 # app.register_blueprint(dashboard_bp)  # Legacy routes - DISABLED (using new architecture)
@@ -196,6 +233,15 @@ try:
         logger.info("Auto-sync scheduler initialized")
 except Exception as e:
     logger.error(f"Failed to start auto-sync scheduler: {e}", exc_info=True)
+
+# Start dashboard pre-loader
+try:
+    with app.app_context():
+        from dashboards.preloader import start_preloader
+        start_preloader()
+        logger.info("Dashboard pre-loader initialized")
+except Exception as e:
+    logger.warning(f"Failed to start dashboard pre-loader: {e}")
 
 # Context processor to make dashboard list available in all templates
 @app.context_processor
@@ -227,6 +273,23 @@ def inject_dashboards():
         'current_year': jdatetime.datetime.now().year
     }
 
+# Context processor to fix static file URLs when behind reverse proxy
+@app.context_processor
+def inject_static_url():
+    """Fix static file URLs to work correctly behind reverse proxy (gateway service)"""
+    def static_url(filename):
+        """Generate static file URL that works behind reverse proxy"""
+        # Get the host from request (set by nginx/gateway)
+        host = request.host
+        scheme = request.scheme
+        
+        # Build absolute URL for static files
+        # This ensures static files work correctly when accessed through gateway service
+        static_path = f"/static/{filename}"
+        return f"{scheme}://{host}{static_path}"
+    
+    return {'static_url': static_url}
+
 # Mock SSO for local testing (only in DEBUG mode)
 if app.config.get('DEBUG'):
     from mock_sso import mock_sso_login
@@ -241,8 +304,138 @@ if app.config.get('DEBUG'):
         return mock_sso_login(username, access_level, province_code, faculty_code)
 app.register_blueprint(students_bp)
 
+# Debug route to list all registered routes (only in development)
+if app.config.get('DEBUG') or os.environ.get('FLASK_DEBUG') == '1':
+    @app.route('/debug/routes')
+    def debug_routes():
+        """List all registered routes for debugging"""
+        routes = []
+        for rule in app.url_map.iter_rules():
+            routes.append({
+                'endpoint': rule.endpoint,
+                'rule': rule.rule,
+                'methods': list(rule.methods)
+            })
+        return jsonify({
+            'total_routes': len(routes),
+            'api_routes': [r for r in routes if r['endpoint'].startswith('dashboard_api.')],
+            'all_routes': routes
+        })
 
 Session(app)
+
+# CRITICAL: Sync session from gateway service if auth_token is present
+@app.before_request
+def sync_session_from_gateway():
+    """Sync session from gateway service if auth_token is present but sso_token is missing"""
+    # Only sync if we don't have sso_token but have auth_token (from gateway)
+    if "sso_token" not in session:
+        # Try multiple sources for auth_token: cookie, Authorization header, or X-Auth-Token header
+        auth_token = (request.cookies.get("auth_token") or 
+                     request.headers.get("Authorization", "").replace("Bearer ", "") or
+                     request.headers.get("X-Auth-Token", ""))
+        logger.info(f"sync_session_from_gateway: path={request.path}, cookies={list(request.cookies.keys())}, headers={list(request.headers.keys())}, auth_token={'present' if auth_token else 'missing'}, session_keys={list(session.keys())}")
+        # Log cookie values (first 20 chars for security)
+        if request.cookies:
+            cookie_preview = {k: (v[:20] + '...' if len(v) > 20 else v) for k, v in request.cookies.items()}
+            logger.info(f"Cookie values preview: {cookie_preview}")
+        if auth_token:
+            try:
+                # Get auth service URL from environment
+                auth_service_url = os.getenv("AUTH_SERVICE_URL", "http://localhost:5001")
+                
+                # Check if we're running in Docker or locally
+                # If AUTH_SERVICE_URL contains Docker hostname (auth-service, gateway-service, etc.)
+                # and we're not in Docker, convert to localhost
+                docker_hostnames = ["auth-service", "gateway-service", "survey-service", "dashboard-service"]
+                is_docker_hostname = any(hostname in auth_service_url for hostname in docker_hostnames)
+                
+                if is_docker_hostname:
+                    # Try to detect if we're actually in Docker
+                    # If not in Docker, convert to localhost
+                    try:
+                        # Try to resolve the Docker hostname - if it fails, we're not in Docker
+                        socket.gethostbyname("auth-service")
+                        # If we get here, we're in Docker, keep the URL as is
+                        logger.debug(f"Running in Docker - using AUTH_SERVICE_URL: {auth_service_url}")
+                    except (socket.gaierror, OSError):
+                        # Can't resolve Docker hostname - we're not in Docker, use localhost
+                        # Replace Docker hostname with localhost
+                        for hostname in docker_hostnames:
+                            if hostname in auth_service_url:
+                                auth_service_url = auth_service_url.replace(hostname, "localhost")
+                                break
+                        if "localhost" not in auth_service_url:
+                            # If replacement didn't work, use default
+                            auth_service_url = "http://localhost:5001"
+                        logger.info(f"Not in Docker - changed AUTH_SERVICE_URL to: {auth_service_url}")
+                
+                # Get user info from auth service
+                logger.info(f"Calling auth service: {auth_service_url}/api/auth/user")
+                response = requests.get(
+                    f"{auth_service_url}/api/auth/user",
+                    headers={"Authorization": f"Bearer {auth_token}"},
+                    timeout=5
+                )
+                
+                logger.info(f"Auth service response status: {response.status_code}")
+                if response.status_code == 200:
+                    user_data = response.json()
+                    logger.info(f"Auth service response data keys: {list(user_data.keys()) if isinstance(user_data, dict) else 'not a dict'}")
+                    if "error" not in user_data and user_data.get("user_info"):
+                        # Create session from gateway auth
+                        user_info = user_data["user_info"]
+                        session["user_info"] = user_info
+                        session["sso_token"] = {"access_token": auth_token, "token_type": "Bearer"}
+                        session["access_token"] = auth_token
+                        session.modified = True
+                        session.permanent = True
+                        
+                        # Get or create user in database
+                        username = user_info.get("username", "").lower()
+                        if username:
+                            user = User.query.filter_by(sso_id=username).first()
+                            if not user:
+                                firstname = user_info.get("firstname", "")
+                                lastname = user_info.get("lastname", "")
+                                fullname = f"{firstname} {lastname}".strip() if (firstname or lastname) else user_info.get("fullname", "Unnamed User")
+                                user = User(
+                                    sso_id=username,
+                                    name=fullname,
+                                    email=user_info.get("email") or user_info.get("Email") or None,
+                                    firstname=firstname or None,
+                                    lastname=lastname or None,
+                                )
+                                db.session.add(user)
+                                db.session.commit()
+                            
+                            # Login user with Flask-Login
+                            login_user(user)
+                            logger.info(f"Synced session from gateway for user: {username}")
+                    else:
+                        logger.warning(f"Auth service response missing user_info or has error: {user_data}")
+                else:
+                    logger.warning(f"Auth service returned status {response.status_code}: {response.text[:200]}")
+            except Exception as e:
+                logger.warning(f"Failed to sync session from gateway: {e}", exc_info=True)
+
+# CRITICAL: Ensure session is saved before any redirect
+@app.before_request
+def ensure_session_saved():
+    """Ensure session is marked as permanent and will be saved"""
+    if not session.permanent:
+        session.permanent = True
+
+# CRITICAL: Ensure session is saved after request
+@app.teardown_request
+def save_session(exception):
+    """Ensure session is saved after each request"""
+    try:
+        if session.modified:
+            session.permanent = True
+    except Exception as e:
+        logger.warning(f"Error saving session in teardown: {e}")
+
 # Initialize LoginManager
 login_manager = LoginManager()
 login_manager.login_view = 'login'  # the endpoint name for your login route
@@ -349,10 +542,26 @@ def login():
     inner = f"https://sso.cfu.ac.ir/oauth2/login.php?wantsurl={quote_plus(wants_url)}&sesskey={sesskey}&id={user_id}"
     state = quote_plus(inner)
     session["oauth_state"] = state
+    
+    # CRITICAL: Mark session as permanent and ensure it's saved before redirect
+    session.permanent = True
+    session.modified = True
 
     try:
         logger.info("Initiating SSO login with state: %s", state)
-        return oauth.sso.authorize_redirect(redirect_uri, state=state)
+        logger.info("Session keys before redirect: %s", list(session.keys()))
+        logger.info("Session modified: %s", session.modified)
+        logger.info("Session permanent: %s", session.permanent)
+        
+        # Get the redirect response from authlib
+        redirect_response = oauth.sso.authorize_redirect(redirect_uri, state=state)
+        
+        # Log redirect location
+        logger.info("Redirect location from authlib: %s", redirect_response.location if hasattr(redirect_response, 'location') else 'N/A')
+        
+        # The session should be automatically saved by Flask-Session when response is returned
+        # But we ensure it's marked as modified
+        return redirect_response
     except Exception as e:
         logger.error("Error initiating SSO login: %s", e)
         return render_template("error.html", error="Failed to initiate SSO login"), 500
@@ -362,9 +571,10 @@ def authorized():
     stored_state = session.get("oauth_state")
     returned_state = request.args.get("state")
     logger.info("Stored state: %s, Returned state: %s", stored_state, returned_state)
+    logger.info("Session keys: %s", list(session.keys()))
 
     # If state mismatch, it could be due to:
-    # 1. Session expired/cleared (user refreshed during auth flow)
+    # 1. Session expired/cleared (user refreshed during auth flow) - MOST COMMON
     # 2. CSRF attack (legitimate security concern)
     # 3. Multiple login attempts
     
@@ -376,8 +586,15 @@ def authorized():
             logger.warning("State mismatch but user already authenticated, redirecting to tools")
             return redirect(url_for("list_tools"))
         
-        # If not authenticated, clear any stale state and redirect to login
-        logger.error("CSRF Warning: State mismatch - stored_state=%s, returned_state=%s", stored_state, returned_state)
+        # If session is lost (common with cross-site redirects), log details
+        if not stored_state:
+            logger.error("CSRF Warning: State mismatch - Session lost during OAuth flow")
+            logger.error("Stored state: None...")
+            logger.error("Returned state: %s...", returned_state[:100] if returned_state else None)
+        else:
+            logger.error("CSRF Warning: State mismatch - stored_state=%s, returned_state=%s", stored_state, returned_state)
+        
+        # Clear any stale state and redirect to login
         session.pop("oauth_state", None)  # Clear stale state
         return redirect(url_for("login"))
 
@@ -547,14 +764,34 @@ def authorized():
 
         g.current_user = user
 
+        # Extract wants_url from state if available
+        wants_url = None
+        if returned_state:
+            try:
+                # Decode the state to get the inner URL
+                decoded_state = unquote_plus(returned_state)
+                # Extract wantsurl from the decoded state
+                # Format: https://sso.cfu.ac.ir/oauth2/login.php?wantsurl=...&sesskey=...&id=...
+                if 'wantsurl=' in decoded_state:
+                    wantsurl_part = decoded_state.split('wantsurl=')[1].split('&')[0]
+                    wants_url = unquote_plus(wantsurl_part)
+                    logger.info(f"Extracted wants_url from state: {wants_url}")
+            except Exception as e:
+                logger.warning(f"Failed to extract wants_url from state: {e}")
+
         # Check access: allow admin users to access regardless of usertype
         # Allow all authenticated users to access the system (access control happens at dashboard level)
         if is_admin:
             logger.info(f"Admin user {username} logged in successfully")
-            return redirect(url_for("list_tools"))
         else:
             # Allow non-admin users to access as well - they'll have limited access based on their role
             logger.info(f"Regular user {username} logged in successfully")
+        
+        # Redirect to wants_url if available, otherwise to list_tools
+        if wants_url:
+            logger.info(f"Redirecting to wants_url: {wants_url}")
+            return redirect(wants_url)
+        else:
             return redirect(url_for("list_tools"))
 
     except OAuthError as e:
@@ -1553,11 +1790,17 @@ def tables_data():
     conn = sqlite3.connect(DB_PATH2)
     cursor = conn.cursor()
 
-    # === 1. Get all relevant rows ===
+    # === 1. Get latest data for each zone and key ===
+    # Get the most recent value for each (url, key) combination
     query = """
-        SELECT url, timestamp, key, value
-        FROM monitor_data
-        ORDER BY url, timestamp ASC
+        SELECT m1.url, m1.timestamp, m1.key, m1.value
+        FROM monitor_data m1
+        INNER JOIN (
+            SELECT url, key, MAX(timestamp) as max_timestamp
+            FROM monitor_data
+            GROUP BY url, key
+        ) m2 ON m1.url = m2.url AND m1.key = m2.key AND m1.timestamp = m2.max_timestamp
+        ORDER BY m1.url, m1.key
     """
     cursor.execute(query)
     rows = cursor.fetchall()
@@ -1593,7 +1836,22 @@ def tables_data():
         "Zone9": "lms9",
         "Zone10": "lms10",
         "Zone11": "meeting"
-        }        
+        }
+    
+    # Mapping from full URL to zone name
+    url_to_zone = {
+        "https://lms1.cfu.ac.ir/mod/adobeconnect/monitor.php": "Zone1",
+        "https://lms2.cfu.ac.ir/mod/adobeconnect/monitor.php": "Zone2",
+        "https://lms3.cfu.ac.ir/mod/adobeconnect/monitor.php": "Zone3",
+        "https://lms4.cfu.ac.ir/mod/adobeconnect/monitor.php": "Zone4",
+        "https://lms5.cfu.ac.ir/mod/adobeconnect/monitor.php": "Zone5",
+        "https://lms6.cfu.ac.ir/mod/adobeconnect/monitor.php": "Zone6",
+        "https://lms7.cfu.ac.ir/mod/adobeconnect/monitor.php": "Zone7",
+        "https://lms8.cfu.ac.ir/mod/adobeconnect/monitor.php": "Zone8",
+        "https://lms9.cfu.ac.ir/mod/adobeconnect/monitor.php": "Zone9",
+        "https://lms10.cfu.ac.ir/mod/adobeconnect/monitor.php": "Zone10",
+        "https://meeting.cfu.ac.ir/mod/adobeconnect/monitor.php": "Zone11"
+    }
         
     chartlabels = {
         "online_lms_user": "کاربران آنلاین LMS",
@@ -1601,75 +1859,60 @@ def tables_data():
         "online_adobe_user": "کاربران Adobe",
         "online_quizes": "آزمونهای درحال برگزاری",
         "online_users_in_quizes": "کاربران درحال برگزاری آزمون",
-        }        
+        }
+    
+    # === 2. Initialize all zones with empty data structures ===
+    zone_order = ["Zone1", "Zone2", "Zone3", "Zone4", "Zone5", "Zone6", 
+                 "Zone7", "Zone8", "Zone9", "Zone10", "Zone11"]
+    
+    for zone_name in zone_order:
+        latest_values[zone_name] = {}
+        latest_zone_resources[zone_name] = {}
+        charts[zone_name] = {
+            "labels": [],
+            "datasets": [],
+            "latest_values": {},
+            "latest_zone_resources": {},
+            "title": zones.get(zone_name, zone_name)
+        }
+    
+    # === 3. Group data by zone name (convert URL to zone name) ===
+    url_data = {}
     if rows:
-        # === 2. Group data by URL and key ===
-        url_data = {}
         for url, timestamp, key, value in rows:
-            if url not in url_data:
-                url_data[url] = {}
-            if key not in url_data[url]:
-                url_data[url][key] = {"timestamps": [], "values": []}
-
-            # Convert to Jalali date string
-            ts = timestamp
-            if isinstance(ts, str):
-                from datetime import datetime
-                ts = datetime.fromisoformat(ts)
-            jalali_ts = jdatetime.datetime.fromgregorian(datetime=ts).strftime("%Y/%m/%d %H:%M")
-           
-            url_data[url][key]["timestamps"].append(jalali_ts)
-            url_data[url][key]["values"].append(value)
-
-        # === 3. Build Chart.js structure for each URL ===
-        # فقط Zone1 تا Zone11 را پردازش می‌کنیم (11 منطقه)
-        zone_order = ["Zone1", "Zone2", "Zone3", "Zone4", "Zone5", "Zone6", 
-                     "Zone7", "Zone8", "Zone9", "Zone10", "Zone11"]
-        
-        for url in zone_order:
-            if url not in url_data:
-                continue
-                
-            keys = url_data[url]
-            datasets = []
-            labels = []  # we can take timestamps from first key
-            first_key = next(iter(keys))
-            labels = keys[first_key]["timestamps"]
-            latest_values[url] = {}
-            latest_zone_resources[url] = {}
-
-            hostname = hostnames.get(url)
-            if hostname:
-                print(hostname)
-                response = requests.get(SERVICE_URL, params={"host": hostname})
+            # Convert URL to zone name
+            zone_name = url_to_zone.get(url, url)  # Use zone name if mapping exists, otherwise use URL as-is
+            if zone_name not in url_data:
+                url_data[zone_name] = {}
+            url_data[zone_name][key] = value
+    
+    # === 4. Process all zones (even if they don't have data) ===
+    for zone_name in zone_order:
+        # Fetch Zabbix data for all zones
+        hostname = hostnames.get(zone_name)
+        if hostname:
+            try:
+                response = requests.get(SERVICE_URL, params={"host": hostname}, timeout=2)
                 if response.status_code == 200:
-                    # print("Metrics:", response.json())
-                    latest_zone_resources[url] = response.json()
+                    latest_zone_resources[zone_name] = response.json()
                 else:
-                    print("Error:", response.text)   
-            
-            for key, data in keys.items():
-                datasets.append({
-                    "label": chartlabels.get(key, key),
-                    "data": data["values"],
-                    "borderColor": get_color_for_key(key),
-                    "backgroundColor": get_color_for_key(key),
-                    "fill": False
-                })
-                # latest value = last entry
-                latest_val = data["values"][-1]
-                latest_values[url][key] = latest_val
-
-                # update overall sum
-                overall_sum[key] = overall_sum.get(key, 0) + latest_val
-
-            charts[url] = {
-                "labels": labels,
-                "datasets": datasets,
-                "latest_values": latest_values[url],         # fixed: return per-url latest_values
-                "latest_zone_resources": latest_zone_resources[url],
-                "title": zones.get(url, url)
-            }
+                    logger.debug(f"Zabbix service returned {response.status_code} for {hostname}")
+            except (requests.exceptions.RequestException, requests.exceptions.Timeout) as e:
+                logger.debug(f"Zabbix service unavailable for {hostname}: {e}")
+            except Exception as e:
+                logger.debug(f"Error fetching Zabbix metrics for {hostname}: {e}")
+        
+        # Process LMS data if available
+        if zone_name in url_data:
+            keys = url_data[zone_name]
+            for key, value in keys.items():
+                latest_values[zone_name][key] = value
+                # Update overall sum
+                overall_sum[key] = overall_sum.get(key, 0) + value
+        
+        # Update charts structure
+        charts[zone_name]["latest_values"] = latest_values[zone_name]
+        charts[zone_name]["latest_zone_resources"] = latest_zone_resources[zone_name]
 
     return jsonify({
         "charts": charts,
@@ -1784,6 +2027,29 @@ def kill_process_on_port(port=5000):
         logger.error(f"Unexpected error in kill_process_on_port: {e}")
 
 
+# Health check endpoint
+@app.route("/health")
+def health_check():
+    """Health check endpoint for monitoring"""
+    from flask import jsonify
+    import sys
+    
+    # Check if blueprints are registered
+    api_routes = [rule.rule for rule in app.url_map.iter_rules() if rule.endpoint.startswith('dashboard_api.')]
+    
+    return jsonify({
+        "status": "healthy",
+        "service": "monolithic-app",
+        "blueprints": {
+            "dashboard_api": {
+                "registered": len(api_routes) > 0,
+                "routes_count": len(api_routes),
+                "routes": api_routes[:10]  # First 10 routes
+            }
+        },
+        "python_version": sys.version
+    }), 200
+
 if __name__ == "__main__":
     # Kill any existing processes on port 5000 before starting
     logger.info("Checking for processes on port 5000...")
@@ -1791,4 +2057,6 @@ if __name__ == "__main__":
     
     with app.app_context():
         # db.create_all()
-        serve(app, host="0.0.0.0", port=5000)
+        # Run on port 5006 to avoid conflict with Gateway Service (port 5000)
+        port = int(os.getenv("FLASK_RUN_PORT", "5006"))
+        serve(app, host="0.0.0.0", port=port)

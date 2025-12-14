@@ -142,11 +142,15 @@ class LMSDataProvider(DataProvider):
         
         # Build query
         where_clause = " AND ".join(where_clauses) if where_clauses else "1=1"
+        # CRITICAL: Add LIMIT to prevent loading too much data at once
+        # This improves performance significantly for large datasets
+        # 50000 records should be enough for most time ranges
         query = f"""
             SELECT url, timestamp, key, value
             FROM monitor_data
             WHERE {where_clause}
-            ORDER BY url, timestamp ASC
+            ORDER BY url, timestamp DESC
+            LIMIT 50000
         """
         
         rows = self.execute_query(query, tuple(params), context)
@@ -164,14 +168,41 @@ class LMSDataProvider(DataProvider):
             "online_users_in_quizes": "کاربران درحال برگزاری آزمون",
         }
         
+        # Mapping from full URL to zone name
+        url_to_zone = {
+            "https://lms1.cfu.ac.ir/mod/adobeconnect/monitor.php": "Zone1",
+            "https://lms2.cfu.ac.ir/mod/adobeconnect/monitor.php": "Zone2",
+            "https://lms3.cfu.ac.ir/mod/adobeconnect/monitor.php": "Zone3",
+            "https://lms4.cfu.ac.ir/mod/adobeconnect/monitor.php": "Zone4",
+            "https://lms5.cfu.ac.ir/mod/adobeconnect/monitor.php": "Zone5",
+            "https://lms6.cfu.ac.ir/mod/adobeconnect/monitor.php": "Zone6",
+            "https://lms7.cfu.ac.ir/mod/adobeconnect/monitor.php": "Zone7",
+            "https://lms8.cfu.ac.ir/mod/adobeconnect/monitor.php": "Zone8",
+            "https://lms9.cfu.ac.ir/mod/adobeconnect/monitor.php": "Zone9",
+            "https://lms10.cfu.ac.ir/mod/adobeconnect/monitor.php": "Zone10",
+            "https://meeting.cfu.ac.ir/mod/adobeconnect/monitor.php": "Zone11"
+        }
+        
+        # Initialize all zones with empty data
+        for zone_name in DashboardConfig.ZONE_ORDER:
+            latest_values[zone_name] = {}
+            latest_zone_resources[zone_name] = {}
+            charts[zone_name] = {
+                "labels": [],
+                "datasets": [],
+                "title": DashboardConfig.ZONES.get(zone_name, zone_name)
+            }
+        
         if rows:
-            # Group data by URL and key
+            # Group data by zone name (convert URL to zone name)
             url_data = {}
             for url, timestamp, key, value in rows:
-                if url not in url_data:
-                    url_data[url] = {}
-                if key not in url_data[url]:
-                    url_data[url][key] = {"timestamps": [], "values": []}
+                # Convert URL to zone name
+                zone_name = url_to_zone.get(url, url)  # Use zone name if mapping exists, otherwise use URL as-is
+                if zone_name not in url_data:
+                    url_data[zone_name] = {}
+                if key not in url_data[zone_name]:
+                    url_data[zone_name][key] = {"timestamps": [], "values": []}
                 
                 # Convert to Jalali date string
                 ts = timestamp
@@ -179,24 +210,17 @@ class LMSDataProvider(DataProvider):
                     ts = datetime.fromisoformat(ts)
                 jalali_ts = to_jalali(ts)
                 
-                url_data[url][key]["timestamps"].append(jalali_ts)
-                url_data[url][key]["values"].append(value)
+                url_data[zone_name][key]["timestamps"].append(jalali_ts)
+                url_data[zone_name][key]["values"].append(value)
             
-            # Build Chart.js structure for each URL
-            # فقط Zone1 تا Zone11 را پردازش می‌کنیم (11 منطقه)
-            for url in DashboardConfig.ZONE_ORDER:
-                if url not in url_data:
-                    continue
-                    
-                keys = url_data[url]
+            # Build Chart.js structure for each zone
+            # نمایش همه Zone1 تا Zone11 (11 منطقه) حتی اگر داده نداشته باشند
+            for zone_name in DashboardConfig.ZONE_ORDER:
                 datasets = []
-                first_key = next(iter(keys))
-                labels = keys[first_key]["timestamps"]
-                latest_values[url] = {}
-                latest_zone_resources[url] = {}
+                labels = []
                 
                 # Get zone resources from metrics service
-                hostname = DashboardConfig.HOSTNAMES.get(url)
+                hostname = DashboardConfig.HOSTNAMES.get(zone_name)
                 if hostname:
                     try:
                         response = requests.get(
@@ -205,7 +229,7 @@ class LMSDataProvider(DataProvider):
                             timeout=2  # Reduced timeout to fail faster if service is unavailable
                         )
                         if response.status_code == 200:
-                            latest_zone_resources[url] = response.json()
+                            latest_zone_resources[zone_name] = response.json()
                     except (requests.exceptions.RequestException, requests.exceptions.Timeout) as e:
                         # Silently continue if metrics service is unavailable
                         # This allows dashboard to render even if metrics service is down
@@ -217,26 +241,32 @@ class LMSDataProvider(DataProvider):
                         logger = logging.getLogger(__name__)
                         logger.debug(f"Error fetching metrics for {hostname}: {e}")
                 
-                for key, data in keys.items():
-                    datasets.append({
-                        "label": chartlabels.get(key, key),
-                        "data": data["values"],
-                        "borderColor": get_color_for_key(key),
-                        "backgroundColor": get_color_for_key(key),
-                        "fill": False
-                    })
-                    # Latest value = last entry
-                    latest_val = data["values"][-1]
-                    latest_values[url][key] = latest_val
-                    
-                    # Update overall sum
-                    overall_sum[key] = overall_sum.get(key, 0) + latest_val
+                # Process data if available for this zone
+                if zone_name in url_data:
+                    keys = url_data[zone_name]
+                    if keys:
+                        first_key = next(iter(keys))
+                        labels = keys[first_key]["timestamps"]
+                        
+                        for key, data in keys.items():
+                            datasets.append({
+                                "label": chartlabels.get(key, key),
+                                "data": data["values"],
+                                "borderColor": get_color_for_key(key),
+                                "backgroundColor": get_color_for_key(key),
+                                "fill": False
+                            })
+                            # Latest value = last entry
+                            if data["values"]:
+                                latest_val = data["values"][-1]
+                                latest_values[zone_name][key] = latest_val
+                                
+                                # Update overall sum
+                                overall_sum[key] = overall_sum.get(key, 0) + latest_val
                 
-                charts[url] = {
-                    "labels": labels,
-                    "datasets": datasets,
-                    "title": DashboardConfig.ZONES.get(url, url)
-                }
+                # Update chart for this zone (already initialized above)
+                charts[zone_name]["labels"] = labels
+                charts[zone_name]["datasets"] = datasets
         
         return {
             "charts": charts,

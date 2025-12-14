@@ -480,6 +480,88 @@ def charts_data_proxy():
         logger.error(f"Error proxying charts-data request: {e}", exc_info=True)
         return jsonify({"error": str(e)}), 500
 
+@app.route("/tables-data", methods=['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS', 'HEAD'])
+def tables_data_proxy():
+    """Proxy tables-data requests to monolithic app"""
+    import requests
+    
+    token = get_auth_token()
+    if not token:
+        redirect_uri = request.url_root.rstrip('/')
+        return redirect(f"/auth/login?redirect_uri={redirect_uri}")
+    
+    # Build target URL
+    target_url = f"{MONOLITHIC_APP_URL}/tables-data"
+    
+    # Add query string if present
+    if request.query_string:
+        target_url += f"?{request.query_string.decode()}"
+    
+    logger.info(f"Proxying tables-data request to: {target_url}")
+    
+    try:
+        # Forward request with cookies and headers
+        headers = {
+            "Authorization": f"Bearer {token}",
+        }
+        
+        if token:
+            headers["X-Auth-Token"] = token
+        
+        # Create a session to maintain cookies
+        session_obj = requests.Session()
+        
+        # Forward all cookies from the original request
+        for name, value in request.cookies.items():
+            session_obj.cookies.set(name, value, path='/')
+        
+        if token:
+            session_obj.cookies.set("auth_token", token, path='/')
+        
+        # Forward the request
+        request_kwargs = {
+            'headers': headers,
+            'allow_redirects': False,
+            'timeout': 120
+        }
+        
+        if request.method == "GET":
+            resp = session_obj.get(target_url, **request_kwargs)
+        elif request.method == "POST":
+            if request.is_json:
+                request_kwargs['json'] = request.json
+            else:
+                request_kwargs['data'] = request.form
+            resp = session_obj.post(target_url, **request_kwargs)
+        else:
+            resp = session_obj.request(request.method, target_url, **request_kwargs)
+        
+        # Return response
+        from flask import Response
+        response = Response(resp.content, status=resp.status_code)
+        
+        # Copy response headers
+        for key, value in resp.headers.items():
+            if key.lower() not in ['content-encoding', 'transfer-encoding', 'connection']:
+                response.headers[key] = value
+        
+        # Copy cookies
+        for cookie in session_obj.cookies:
+            response.set_cookie(
+                cookie.name,
+                cookie.value,
+                domain=None,
+                path=cookie.path if cookie.path else '/',
+                secure=False,
+                httponly=True,
+                samesite='Lax'
+            )
+        
+        return response
+    except Exception as e:
+        logger.error(f"Error proxying tables-data request: {e}", exc_info=True)
+        return jsonify({"error": str(e)}), 500
+
 @app.route("/api/dashboards", defaults={"path": ""}, methods=['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS', 'HEAD'])
 @app.route("/api/dashboards/", defaults={"path": ""}, methods=['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS', 'HEAD'])
 @app.route("/api/dashboards/<path:path>", methods=['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS', 'HEAD'])

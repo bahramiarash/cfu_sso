@@ -52,13 +52,19 @@
                         <th>تعداد</th>
                       </tr>
                     </thead>
-                    <tbody>
-                      {% for key, value in latest_values[url].items() %}
-                      <tr>
-                        <td>{{ chartlabels[key] }}</td>
-                        <td><strong>{{ value }}</strong></td>
-                      </tr>
-                      {% endfor %}
+                    <tbody id="tableBody_lms_{{ url }}">
+                      {% if latest_values.get(url) %}
+                        {% for key, value in latest_values[url].items() %}
+                        <tr>
+                          <td>{{ chartlabels.get(key, key) }}</td>
+                          <td><strong>{{ value }}</strong></td>
+                        </tr>
+                        {% endfor %}
+                      {% else %}
+                        <tr>
+                          <td colspan="2" class="text-center text-muted">داده‌ای موجود نیست</td>
+                        </tr>
+                      {% endif %}
                     </tbody>
                   </table>
 
@@ -70,13 +76,19 @@
                         <th>مقدار</th>
                       </tr>
                     </thead>
-                    <tbody id="tableBody_zabbix{{ loop.index }}">
-                      {% for key, value in latest_zone_resources[url].items() %}
-                      <tr>
-                        <td>{{ key }}</td>
-                        <td><strong>{{ value }}</strong></td>
-                      </tr>
-                      {% endfor %}
+                    <tbody id="tableBody_zabbix_{{ url }}">
+                      {% if latest_zone_resources.get(url) %}
+                        {% for key, value in latest_zone_resources[url].items() %}
+                        <tr>
+                          <td>{{ key }}</td>
+                          <td><strong>{{ value }}</strong></td>
+                        </tr>
+                        {% endfor %}
+                      {% else %}
+                        <tr>
+                          <td colspan="2" class="text-center text-muted">داده‌ای موجود نیست</td>
+                        </tr>
+                      {% endif %}
                     </tbody>
                   </table>
                 </div>
@@ -372,57 +384,84 @@ setInterval(refreshCharts, 10000);
 </script>
 
 <script>
+// Define zone order for consistent iteration
+const ZONE_ORDER = ["Zone1", "Zone2", "Zone3", "Zone4", "Zone5", "Zone6", 
+                     "Zone7", "Zone8", "Zone9", "Zone10", "Zone11"];
+
 async function refreshStatus() {
   console.log('refresh Tables..');
-    const response = await fetch('/tables-data');
-    const data = await response.json();
+    try {
+        const response = await fetch('/tables-data');
+        const data = await response.json();
 
-    // برو سراغ جدول کلی
-    const overallTable = document.querySelector('.container-fluid table tbody');
-    if (overallTable) {
-        overallTable.innerHTML = '';
-        for (const [key,value] of Object.entries(data.overall_sum)) {
-            overallTable.innerHTML += `
-                <tr>
-                  <td>${key}</td>
-                  <td>${value.toFixed(2)}</td>
-                </tr>
-            `;
+        // برو سراغ جدول کلی
+        const overallTable = document.querySelector('.container-fluid table tbody');
+        if (overallTable && data.overall_sum) {
+            overallTable.innerHTML = '';
+            for (const [key, value] of Object.entries(data.overall_sum)) {
+                const label = data.chartlabels && data.chartlabels[key] ? data.chartlabels[key] : key;
+                overallTable.innerHTML += `
+                    <tr>
+                      <td>${label}</td>
+                      <td><strong>${value}</strong></td>
+                    </tr>
+                `;
+            }
         }
-    }
 
-    // برو سراغ جدول‌های هر زون
-    {% for url, chart in charts.items() %}
-    const tableBody{{ loop.index }} = document.querySelectorAll('.card-body table tbody')[{{ loop.index }}];
-    if (tableBody{{ loop.index }}) {
-        tableBody{{ loop.index }}.innerHTML = '';
-        const tableBody_zabbix{{ loop.index }} = document.getElementById('tableBody_zabbix{{ loop.index }}');
-        if (tableBody_zabbix{{ loop.index }}) {
-            tableBody_zabbix{{ loop.index }}.innerHTML = '';
-            const zoneValues{{ loop.index }} = data.latest_values["{{ url }}"];
-            const latest_zone_resources{{ loop.index }} = data.latest_zone_resources["{{ url }}"];
-            if (zoneValues{{ loop.index }}) {
-                for (const [key, value] of Object.entries(zoneValues{{ loop.index }})) {
-                    tableBody{{ loop.index }}.innerHTML += `
+        // برو سراغ جدول‌های هر زون - iterate through all zones
+        for (const url of ZONE_ORDER) {
+            const tableBodyLms = document.getElementById(`tableBody_lms_${url}`);
+            const tableBodyZabbix = document.getElementById(`tableBody_zabbix_${url}`);
+            
+            // Update LMS data table
+            if (tableBodyLms) {
+                tableBodyLms.innerHTML = '';
+                const zoneValues = data.latest_values && data.latest_values[url];
+                if (zoneValues && Object.keys(zoneValues).length > 0) {
+                    for (const [key, value] of Object.entries(zoneValues)) {
+                        const label = data.chartlabels && data.chartlabels[key] ? data.chartlabels[key] : key;
+                        tableBodyLms.innerHTML += `
+                          <tr>
+                            <td>${label}</td>
+                            <td><strong>${value}</strong></td>
+                          </tr>`;
+                    }
+                } else {
+                    tableBodyLms.innerHTML = `
                       <tr>
-                        <td>${data.chartlabels[key]}</td>
-                        <td><strong>${value}</strong></td>
+                        <td colspan="2" class="text-center text-muted">داده‌ای موجود نیست</td>
                       </tr>`;
                 }
             }
-            if (latest_zone_resources{{ loop.index }}) {
-                for (const [key, value] of Object.entries(latest_zone_resources{{ loop.index }})) {
-                    tableBody_zabbix{{ loop.index }}.innerHTML += `
+            
+            // Update Zabbix data table
+            if (tableBodyZabbix) {
+                tableBodyZabbix.innerHTML = '';
+                const zoneResources = data.latest_zone_resources && data.latest_zone_resources[url];
+                if (zoneResources && Object.keys(zoneResources).length > 0) {
+                    for (const [key, value] of Object.entries(zoneResources)) {
+                        tableBodyZabbix.innerHTML += `
+                          <tr>
+                            <td>${key}</td>
+                            <td><strong>${value}</strong></td>
+                          </tr>`;
+                    }
+                } else {
+                    tableBodyZabbix.innerHTML = `
                       <tr>
-                        <td>${key}</td>
-                        <td><strong>${value}</strong></td>
+                        <td colspan="2" class="text-center text-muted">داده‌ای موجود نیست</td>
                       </tr>`;
                 }
             }
         }
+    } catch (error) {
+        console.error('Error refreshing tables:', error);
     }
-    {% endfor %}
 }
-//setInterval(refreshStatus, 10000); // هر ۱۰ ثانیه
+
+// Call refreshStatus on page load and then every 10 seconds
+refreshStatus();
+setInterval(refreshStatus, 10000); // هر ۱۰ ثانیه
 </script>
 {% endblock %}
