@@ -1,0 +1,265 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate, max-age=0" />
+    <meta http-equiv="Pragma" content="no-cache" />
+    <meta http-equiv="Expires" content="0" />
+    <title>صفحه خوش‌آمدگویی</title>
+    <!-- Bootstrap CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.rtl.min.css" rel="stylesheet" />
+    <!-- Bootstrap Icons -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.0/font/bootstrap-icons.css">
+    <style>
+        body {
+            font-family: "Vazir", Tahoma, sans-serif;
+            background-color: #f8f9fa;
+            padding: 0;
+        }
+        .navbar-custom {
+            background: #ffffff;
+            border-bottom: 1px solid #e0e0e0;
+            padding: 0.5rem 0;
+        }
+        .navbar-brand-custom {
+            color: #2c3e50 !important;
+            font-weight: bold;
+            font-size: 1.1rem;
+        }
+        .navbar-brand-custom:hover {
+            color: #1a252f !important;
+        }
+        .navbar-toggler {
+            border-color: #dee2e6;
+        }
+        .navbar-toggler-icon {
+            background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 30 30'%3e%3cpath stroke='rgba%2844, 62, 80, 1%29' stroke-linecap='round' stroke-miterlimit='10' stroke-width='2' d='M4 7h22M4 15h22M4 23h22'/%3e%3c/svg%3e");
+        }
+        .logout-btn {
+            color: #2c3e50 !important;
+            border-color: #dee2e6 !important;
+            transition: all 0.3s ease;
+        }
+        .logout-btn:hover {
+            background-color: #f8f9fa !important;
+            border-color: #adb5bd !important;
+            color: #1a252f !important;
+        }
+        .main-content {
+            padding: 2rem 1rem;
+        }
+        .tile-card {
+            cursor: pointer;
+            transition: transform 0.2s ease-in-out, box-shadow 0.2s ease-in-out;
+        }
+        .tile-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 8px 20px rgba(0,0,0,0.15);
+        }
+        .tile-card:focus {
+            outline: 2px solid #0d6efd;
+            outline-offset: 2px;
+        }
+        .tile-icon {
+            font-size: 3rem;
+        }
+        .welcome-message {
+            color: #333;
+        }
+        .university-header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            padding: 1.5rem 0;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            margin-bottom: 0;
+        }
+    </style>
+</head>
+<body>
+
+<!-- University Header -->
+<div class="university-header">
+    <div class="container">
+        <div class="d-flex align-items-center justify-content-center gap-3 flex-wrap">
+            <h3 class="mb-0 text-center" style="font-weight: bold; font-size: 1.5rem; color: #2c3e50; background-color: rgba(255, 255, 255, 0.95); padding: 0.75rem 1.5rem; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.15); display: inline-block;">
+                سامانه پایش و رصد اطلاعات دانشگاه فرهنگیان
+            </h3>
+        </div>
+    </div>
+</div>
+
+<!-- Navigation Bar -->
+<nav class="navbar navbar-expand-lg navbar-custom">
+    <div class="container">
+        <a class="navbar-brand navbar-brand-custom" href="/tools">
+            <i class="bi bi-house-door"></i> صفحه اصلی
+        </a>
+        <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav" aria-controls="navbarNav" aria-expanded="false" aria-label="Toggle navigation">
+            <span class="navbar-toggler-icon"></span>
+        </button>
+        <div class="collapse navbar-collapse" id="navbarNav">
+            <ul class="navbar-nav me-auto">
+                <li class="nav-item">
+                    <a class="nav-link" href="/survey/dashboards" style="color: #2c3e50;">
+                        <i class="bi bi-bar-chart"></i> داشبوردها
+                    </a>
+                </li>
+            </ul>
+            <div class="d-flex align-items-center gap-2">
+                {% if user_info %}
+                {% set nav_name = user_info.get('firstname', '') + ' ' + user_info.get('lastname', '') if (user_info.get('firstname') or user_info.get('lastname')) else user_info.get('name', user_info.get('username', 'کاربر گرامی')) %}
+                {% if nav_name and nav_name.strip() != 'کاربر گرامی' %}
+                <span class="me-2" style="color: #2c3e50;">
+                    <i class="bi bi-person-circle"></i>
+                    {{ nav_name.strip() }}
+                </span>
+                {% endif %}
+                {% endif %}
+                <a href="/auth/logout" class="btn btn-outline-light btn-sm logout-btn" aria-label="خروج از سیستم">
+                    <i class="bi bi-box-arrow-right"></i> خروج
+                </a>
+            </div>
+        </div>
+    </div>
+</nav>
+
+<div class="container main-content">
+    <div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-2">
+        <h2 class="mb-0 welcome-message flex-grow-1">
+            خوش آمدید، 
+            {% if user_info %}
+                {% if user_info.get('firstname') or user_info.get('lastname') %}
+                    {{ user_info.get('firstname', '') }} {{ user_info.get('lastname', '') }}
+                {% elif user_info.get('name') %}
+                    {{ user_info.get('name') }}
+                {% elif user_info.get('username') %}
+                    {{ user_info.get('username') }}
+                {% else %}
+                    کاربر گرامی
+                {% endif %}
+            {% else %}
+                کاربر گرامی
+            {% endif %}
+        </h2>
+    </div>
+
+    <div class="row g-4">
+        <!-- نظرسنجی - همیشه نمایش داده می‌شود -->
+        <div class="col-12 col-sm-6 col-md-4">
+            <a href="/survey" class="text-decoration-none text-dark" aria-label="نظرسنجی">
+                <div class="card tile-card text-center p-4 h-100" role="button" tabindex="0">
+                    <div class="tile-icon" aria-hidden="true">📝</div>
+                    <h5 class="mt-3">نظرسنجی</h5>
+                </div>
+            </a>
+        </div>
+        
+        <!-- پنل مدیریت نظرسنجی - برای مسئولین نظرسنجی -->
+        {% if is_survey_manager %}
+        <div class="col-12 col-sm-6 col-md-4">
+            <a href="/survey/manager/dashboard" class="text-decoration-none text-dark" aria-label="پنل مدیریت نظرسنجی">
+                <div class="card tile-card text-center p-4 h-100 border-primary" role="button" tabindex="0" style="border-width: 2px;">
+                    <div class="tile-icon" aria-hidden="true">⚙️</div>
+                    <h5 class="mt-3">مدیریت نظرسنجی</h5>
+                    <small class="text-muted">پنل مسئولین</small>
+                </div>
+            </a>
+        </div>
+        {% endif %}
+
+        <!-- لینک‌های دیگر - در صورت داشتن دسترسی به داشبورد -->
+        {% if has_dashboard_access %}
+        <div class="col-12 col-sm-6 col-md-4">
+            <a href="/dashboard" class="text-decoration-none text-dark" aria-label="مشاهده داشبوردها">
+                <div class="card tile-card text-center p-4 h-100" role="button" tabindex="0">
+                    <div class="tile-icon" aria-hidden="true">📊</div>
+                    <h5 class="mt-3">داشبوردها</h5>
+                </div>
+            </a>
+        </div>
+
+        <div class="col-12 col-sm-6 col-md-4">
+            <a href="http://bi.cfu.ac.ir:8080/dashboard" class="text-decoration-none text-dark" aria-label="دسترسی به تصمیم یار همتای دیجیتال" target="_blank" rel="noopener noreferrer">
+                <div class="card tile-card text-center p-4 h-100" role="button" tabindex="0">
+                    <div class="tile-icon" aria-hidden="true">🧑‍💻</div>
+                    <h5 class="mt-3">تصمیم یار</h5>
+                    <h6>همتای دیجیتال</h6>
+                </div>
+            </a>
+        </div>
+
+        <div class="col-12 col-sm-6 col-md-4">
+            <a href="/reports/" class="text-decoration-none text-dark" aria-label="مشاهده گزارش‌ها">
+                <div class="card tile-card text-center p-4 h-100" role="button" tabindex="0">
+                    <div class="tile-icon" aria-hidden="true">📈</div>
+                    <h5 class="mt-3">گزارش‌ها</h5>
+                </div>
+            </a>
+        </div>
+
+        <div class="col-12 col-sm-6 col-md-4">
+            <a href="/projects" class="text-decoration-none text-dark" aria-label="مدیریت وظایف و پروژه‌ها">
+                <div class="card tile-card text-center p-4 h-100" role="button" tabindex="0">
+                    <div class="tile-icon" aria-hidden="true">✅</div>
+                    <h5 class="mt-3">مدیریت وظایف</h5>
+                </div>
+            </a>
+        </div>
+
+        <div class="col-12 col-sm-6 col-md-4">
+            <a href="/digitaltwins/" class="text-decoration-none text-dark" aria-label="اطلاع رسانی و همتای دیجیتال">
+                <div class="card tile-card text-center p-4 h-100" role="button" tabindex="0">
+                    <div class="tile-icon" aria-hidden="true">☎️</div>
+                    <h5 class="mt-3">اطلاع رسانی</h5>
+                </div>
+            </a>
+        </div>
+
+        <div class="col-12 col-sm-6 col-md-4">
+            <a href="/calendar" class="text-decoration-none text-dark" aria-label="مشاهده تقویم">
+                <div class="card tile-card text-center p-4 h-100" role="button" tabindex="0">
+                    <div class="tile-icon" aria-hidden="true">📅</div>
+                    <h5 class="mt-3">تقویم</h5>
+                </div>
+            </a>
+        </div>
+
+        <div class="col-12 col-sm-6 col-md-4">
+            <a href="/knowledge" class="text-decoration-none text-dark" aria-label="مدیریت دانش">
+                <div class="card tile-card text-center p-4 h-100" role="button" tabindex="0">
+                    <div class="tile-icon" aria-hidden="true">📚</div>
+                    <h5 class="mt-3">مدیریت دانش</h5>
+                </div>
+            </a>
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+<!-- Bootstrap JS Bundle -->
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+
+<script>
+// Prevent back button access after logout
+(function() {
+    var loginUrl = '/auth/login';
+    
+    if (window.history && window.history.replaceState) {
+        window.history.replaceState(null, '', window.location.href);
+    }
+    
+    window.addEventListener('popstate', function(event) {
+        window.location.replace(loginUrl);
+    });
+    
+    window.addEventListener('pageshow', function(event) {
+        if (event.persisted) {
+            window.location.replace(loginUrl);
+        }
+    });
+})();
+</script>
+
+</body>
+</html>
+

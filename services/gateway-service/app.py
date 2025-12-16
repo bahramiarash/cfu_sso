@@ -48,6 +48,83 @@ MONOLITHIC_APP_URL = os.getenv("MONOLITHIC_APP_URL") or "http://localhost:5006"
 # We handle static files manually via our custom route
 app = Flask(__name__, template_folder='templates', static_folder=None)
 
+# Global error handlers to prevent crashes
+@app.errorhandler(500)
+def internal_error(error):
+    """Handle 500 errors gracefully"""
+    logger.error(f"Internal server error: {error}", exc_info=True)
+    return jsonify({"error": "Internal server error", "message": "خطای داخلی سرور"}), 500
+
+@app.errorhandler(404)
+def not_found(error):
+    """Handle 404 errors"""
+    logger.warning(f"404 Not Found: {request.path}")
+    return jsonify({"error": "Not found", "message": "صفحه یافت نشد"}), 404
+
+@app.errorhandler(Exception)
+def handle_exception(e):
+    """Handle all unhandled exceptions to prevent crashes"""
+    logger.error(f"Unhandled exception: {e}", exc_info=True)
+    import traceback
+    error_traceback = traceback.format_exc()
+    logger.error(f"Full traceback: {error_traceback}")
+    
+    # Return a proper error response instead of crashing
+    try:
+        # Check if request is available (might not be in some error cases)
+        request_path = request.path if hasattr(request, 'path') else '/'
+        if request_path.startswith('/api/'):
+            return jsonify({
+                "error": "Internal server error",
+                "message": "خطای داخلی سرور"
+            }), 500
+    except:
+        pass  # If request is not available, use HTML response
+    
+    error_html = f"""<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <title>خطای سرور</title>
+    <style>
+        body {{ font-family: Tahoma, Arial, sans-serif; padding: 20px; background: #f5f5f5; }}
+        .container {{ max-width: 600px; margin: 50px auto; background: white; padding: 30px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }}
+        h1 {{ color: #d32f2f; }}
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>خطای سرور</h1>
+        <p>متأسفانه خطایی در سرور رخ داده است. لطفاً دوباره تلاش کنید.</p>
+        <p><a href="/">بازگشت به صفحه اصلی</a></p>
+    </div>
+</body>
+</html>"""
+    from flask import make_response
+    response = make_response(error_html, 500)
+    response.headers['Content-Type'] = 'text/html; charset=utf-8'
+    return response
+
+# #region agent log - Gateway service startup
+import json
+import time
+try:
+    with open(r'c:\services\cert2\.cursor\debug.log', 'a', encoding='utf-8') as f:
+        f.write(json.dumps({
+            "id": f"log_{int(time.time() * 1000)}_gateway_startup",
+            "timestamp": int(time.time() * 1000),
+            "location": "gateway-service/app.py:49",
+            "message": "Gateway service Flask app initialized",
+            "data": {
+                "monolithic_app_url": MONOLITHIC_APP_URL
+            },
+            "sessionId": "debug-session",
+            "runId": "run1",
+            "hypothesisId": "H"
+        }) + '\n')
+except: pass
+# #endregion
+
 # Initialize auth client
 auth_client = AuthClient(AUTH_SERVICE_URL)
 
@@ -126,6 +203,28 @@ def static_files(filename):
 @app.route("/")
 def index():
     """Main page - redirects to tools page"""
+    import json
+    import time
+    
+    # #region agent log
+    try:
+        with open(r'c:\services\cert2\.cursor\debug.log', 'a', encoding='utf-8') as f:
+            f.write(json.dumps({
+                "id": f"log_{int(time.time() * 1000)}_gateway_root",
+                "timestamp": int(time.time() * 1000),
+                "location": "gateway-service/app.py:126",
+                "message": "Gateway root endpoint called",
+                "data": {
+                    "request_path": request.path,
+                    "request_url": request.url
+                },
+                "sessionId": "debug-session",
+                "runId": "run1",
+                "hypothesisId": "I"
+            }) + '\n')
+    except: pass
+    # #endregion
+    
     token = get_auth_token()
     logger.info(f"Request to / - cookies: {list(request.cookies.keys())}, token: {'present' if token else 'missing'}")
     if not token:
@@ -153,6 +252,219 @@ def login_redirect():
     """Redirect /login to /auth/login (for compatibility with Auth Service redirects)"""
     redirect_uri = request.args.get("next", request.args.get("redirect_uri", request.url_root.rstrip('/')))
     return redirect(f"/auth/login?redirect_uri={redirect_uri}")
+
+@app.route("/knowledge", defaults={"path": ""}, methods=['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS', 'HEAD'])
+@app.route("/knowledge/", defaults={"path": ""}, methods=['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS', 'HEAD'])
+@app.route("/knowledge/<path:path>", methods=['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS', 'HEAD'])
+def knowledge_proxy(path):
+    """Proxy knowledge management requests to Knowledge Management Service"""
+    import requests
+    
+    token = get_auth_token()
+    if not token:
+        redirect_uri = request.url_root.rstrip('/')
+        return redirect(f"/auth/login?redirect_uri={redirect_uri}")
+    
+    # Get KNOWLEDGE_SERVICE_URL from environment
+    KNOWLEDGE_SERVICE_URL = os.getenv("KNOWLEDGE_SERVICE_URL", "http://localhost:5008")
+    
+    # Build target URL
+    if path:
+        target_url = f"{KNOWLEDGE_SERVICE_URL}/{path}"
+    else:
+        target_url = f"{KNOWLEDGE_SERVICE_URL}/"
+    
+    # Add query string if present
+    if request.query_string:
+        target_url += f"?{request.query_string.decode()}"
+    
+    logger.info(f"Proxying knowledge request to: {target_url}")
+    
+    try:
+        # Forward request with cookies and headers
+        headers = {
+            "Authorization": f"Bearer {token}",
+        }
+        
+        # CRITICAL: Forward Accept header so knowledge service can detect browser requests
+        if request.headers.get('Accept'):
+            headers['Accept'] = request.headers.get('Accept')
+        
+        # Forward User-Agent for browser detection
+        if request.headers.get('User-Agent'):
+            headers['User-Agent'] = request.headers.get('User-Agent')
+        
+        if token:
+            headers["X-Auth-Token"] = token
+        
+        # Create a session to maintain cookies
+        session_obj = requests.Session()
+        
+        # Forward all cookies from the original request
+        for name, value in request.cookies.items():
+            session_obj.cookies.set(name, value, path='/')
+        
+        if token:
+            session_obj.cookies.set("auth_token", token, path='/')
+        
+        # Forward the request
+        request_kwargs = {
+            'headers': headers,
+            'allow_redirects': False,
+            'timeout': 30
+        }
+        
+        if request.method == "GET":
+            resp = session_obj.get(target_url, **request_kwargs)
+        elif request.method == "POST":
+            if request.is_json:
+                request_kwargs['json'] = request.json
+            else:
+                request_kwargs['data'] = request.form
+                if request.files:
+                    request_kwargs['files'] = request.files
+            resp = session_obj.post(target_url, **request_kwargs)
+        elif request.method in ["PUT", "PATCH"]:
+            if request.is_json:
+                request_kwargs['json'] = request.json
+            else:
+                request_kwargs['data'] = request.form
+                if request.files:
+                    request_kwargs['files'] = request.files
+            resp = session_obj.request(request.method, target_url, **request_kwargs)
+        elif request.method == "DELETE":
+            resp = session_obj.delete(target_url, **request_kwargs)
+        else:
+            resp = session_obj.request(request.method, target_url, **request_kwargs)
+        
+        # Handle redirects
+        if resp.status_code in [301, 302, 303, 307, 308]:
+            location = resp.headers.get('Location') or ''
+            logger.info(f"Knowledge redirect detected: {location}")
+            
+            if location is None:
+                location = ''
+            
+            # Parse the location URL
+            from urllib.parse import urlparse
+            parsed = urlparse(location)
+            new_path = None
+            
+            # Handle both absolute URLs and relative URLs
+            if location and ('localhost:5008' in location or '127.0.0.1:5008' in location):
+                new_path = parsed.path or '/'
+                if parsed.query:
+                    new_path += f"?{parsed.query}"
+            elif location and location.startswith('/'):
+                new_path = location
+            elif location:
+                if 'sso.cfu.ac.ir' in location:
+                    redirect_response = redirect(location)
+                    for cookie in session_obj.cookies:
+                        redirect_response.set_cookie(
+                            cookie.name, cookie.value,
+                            domain=None, path=cookie.path if cookie.path else '/',
+                            secure=False, httponly=True, samesite='Lax'
+                        )
+                    return redirect_response
+                else:
+                    new_path = parsed.path or '/'
+                    if parsed.query:
+                        new_path += f"?{parsed.query}"
+            else:
+                new_path = '/'
+            
+            if new_path is None:
+                new_path = '/'
+            
+            # Convert /login to /auth/login
+            if new_path == '/login' or (new_path and new_path.startswith('/login?')):
+                new_path = new_path.replace('/login', '/auth/login', 1)
+            
+            redirect_response = redirect(new_path)
+            
+            # Copy cookies
+            for cookie in session_obj.cookies:
+                redirect_response.set_cookie(
+                    cookie.name,
+                    cookie.value,
+                    domain=None,
+                    path=cookie.path if cookie.path else '/',
+                    secure=False,
+                    httponly=True,
+                    samesite='Lax'
+                )
+            
+            return redirect_response
+        
+        # Return response
+        from flask import Response
+        
+        # Determine content type
+        content_type = resp.headers.get('Content-Type', 'application/json')
+        # If response is HTML but Content-Type is not set correctly, fix it
+        if isinstance(resp.content, bytes):
+            try:
+                content_str = resp.content.decode('utf-8')
+                if content_str.strip().startswith('<!DOCTYPE html') or content_str.strip().startswith('<html'):
+                    content_type = 'text/html; charset=utf-8'
+            except:
+                pass
+        
+        response = Response(resp.content, status=resp.status_code, mimetype=content_type)
+        
+        # Copy response headers (but override Content-Type if we determined it)
+        for key, value in resp.headers.items():
+            key_lower = key.lower()
+            if key_lower not in ['content-encoding', 'transfer-encoding', 'connection', 'location', 'content-type']:
+                response.headers[key] = value
+        
+        # Set Content-Type explicitly
+        if content_type:
+            response.headers['Content-Type'] = content_type
+        
+        # Copy cookies
+        for cookie in session_obj.cookies:
+            response.set_cookie(
+                cookie.name,
+                cookie.value,
+                domain=None,
+                path=cookie.path if cookie.path else '/',
+                secure=False,
+                httponly=True,
+                samesite='Lax'
+            )
+        
+        return response
+    except requests.exceptions.ConnectionError as e:
+        logger.error(f"Error proxying knowledge request: Cannot connect to Knowledge Management Service at {KNOWLEDGE_SERVICE_URL}")
+        error_msg = f"""<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>سرویس در دسترس نیست</title>
+    <style>
+        body {{ font-family: Tahoma, Arial, sans-serif; padding: 20px; background: #f5f5f5; }}
+        .container {{ max-width: 600px; margin: 50px auto; background: white; padding: 30px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }}
+        h1 {{ color: #d32f2f; }}
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>سرویس در دسترس نیست</h1>
+        <p>سرویس مدیریت دانش در حال حاضر در دسترس نیست. لطفاً با مدیر سیستم تماس بگیرید.</p>
+        <p><small>جزئیات خطا: {str(e)}</small></p>
+    </div>
+</body>
+</html>"""
+        from flask import make_response
+        response = make_response(error_msg, 503)
+        response.headers['Content-Type'] = 'text/html; charset=utf-8'
+        return response
+    except Exception as e:
+        logger.error(f"Error proxying knowledge request: {e}", exc_info=True)
+        return f"Error connecting to knowledge management service: {str(e)}", 500
 
 @app.route("/tools")
 def tools():
@@ -397,6 +709,356 @@ def survey_proxy(path):
         logger.error(f"Error proxying survey request: {e}", exc_info=True)
         logger.error(f"Full traceback: {error_traceback}")
         return f"Error connecting to survey service: {str(e)}", 500
+
+@app.route("/admin", defaults={"path": ""}, methods=['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS', 'HEAD'])
+@app.route("/admin/", defaults={"path": ""}, methods=['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS', 'HEAD'])
+@app.route("/admin/<path:path>", methods=['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS', 'HEAD'])
+def admin_proxy(path):
+    """Proxy admin requests to Admin Service or monolithic app"""
+    import requests
+    import json
+    import time
+    
+    # #region agent log
+    try:
+        with open(r'c:\services\cert2\.cursor\debug.log', 'a', encoding='utf-8') as f:
+            f.write(json.dumps({
+                "id": f"log_{int(time.time() * 1000)}_admin_entry",
+                "timestamp": int(time.time() * 1000),
+                "location": "gateway-service/app.py:404",
+                "message": "Admin proxy function called",
+                "data": {
+                    "path": path,
+                    "request_path": request.path,
+                    "request_url": request.url,
+                    "request_method": request.method,
+                    "has_trailing_slash": request.path.endswith('/')
+                },
+                "sessionId": "debug-session",
+                "runId": "run1",
+                "hypothesisId": "A"
+            }) + '\n')
+    except: pass
+    # #endregion
+    
+    token = get_auth_token()
+    
+    # #region agent log
+    try:
+        with open(r'c:\services\cert2\.cursor\debug.log', 'a', encoding='utf-8') as f:
+            f.write(json.dumps({
+                "id": f"log_{int(time.time() * 1000)}_admin_token",
+                "timestamp": int(time.time() * 1000),
+                "location": "gateway-service/app.py:425",
+                "message": "Token check result",
+                "data": {
+                    "has_token": bool(token),
+                    "token_length": len(token) if token else 0
+                },
+                "sessionId": "debug-session",
+                "runId": "run1",
+                "hypothesisId": "B"
+            }) + '\n')
+    except: pass
+    # #endregion
+    
+    if not token:
+        redirect_uri = request.url_root.rstrip('/')
+        return redirect(f"/auth/login?redirect_uri={redirect_uri}")
+    
+    # For now, proxy to monolithic app (Admin Service only has API endpoints, no HTML)
+    # Monolithic app runs on port 5006 to avoid conflict with Gateway Service (port 5000)
+    # MONOLITHIC_APP_URL is set at module level
+    
+    # Build target URL - ensure MONOLITHIC_APP_URL is set
+    if not MONOLITHIC_APP_URL:
+        logger.error("MONOLITHIC_APP_URL is not set")
+        return "Error: MONOLITHIC_APP_URL is not configured", 500
+    
+    # CRITICAL: Preserve trailing slash from original request
+    # If request is /admin/, target should be /admin/ (with trailing slash)
+    # If request is /admin, target should be /admin (without trailing slash)
+    # Check if original request path ends with /
+    original_path = request.path
+    has_trailing_slash = original_path.endswith('/')
+    
+    if path:
+        target_url = f"{MONOLITHIC_APP_URL}/admin/{path}"
+    else:
+        # Preserve trailing slash if original request had it
+        if has_trailing_slash:
+            target_url = f"{MONOLITHIC_APP_URL}/admin/"
+        else:
+            target_url = f"{MONOLITHIC_APP_URL}/admin"
+    
+    # Add query string if present
+    if request.query_string:
+        target_url += f"?{request.query_string.decode()}"
+    
+    logger.info(f"Proxying admin request: original_path={original_path}, has_trailing_slash={has_trailing_slash}, target_url={target_url}")
+    
+    # #region agent log
+    try:
+        with open(r'c:\services\cert2\.cursor\debug.log', 'a', encoding='utf-8') as f:
+            f.write(json.dumps({
+                "id": f"log_{int(time.time() * 1000)}_admin_target",
+                "timestamp": int(time.time() * 1000),
+                "location": "gateway-service/app.py:442",
+                "message": "Target URL built",
+                "data": {
+                    "target_url": target_url,
+                    "monolithic_app_url": MONOLITHIC_APP_URL,
+                    "original_path": original_path,
+                    "has_trailing_slash": has_trailing_slash
+                },
+                "sessionId": "debug-session",
+                "runId": "run1",
+                "hypothesisId": "C"
+            }) + '\n')
+    except: pass
+    # #endregion
+    
+    try:
+        # Forward request with cookies and headers
+        # Monolithic app uses Flask session, so we need to forward all cookies
+        headers = {
+            "Authorization": f"Bearer {token}",
+        }
+        
+        # CRITICAL: Add auth_token to headers so monolithic app can sync session
+        # This ensures auth_token is available even if cookies don't work
+        if token:
+            headers["X-Auth-Token"] = token
+        
+        # Create a session to maintain cookies
+        session_obj = requests.Session()
+        
+        # Forward all cookies from the original request to maintain session
+        for name, value in request.cookies.items():
+            session_obj.cookies.set(name, value, path='/')
+        
+        # Also set auth_token cookie if we have it (for session sync in monolithic app)
+        if token:
+            session_obj.cookies.set("auth_token", token, path='/')
+        
+        # Forward the request (don't follow redirects automatically)
+        # Handle different HTTP methods
+        request_kwargs = {
+            'headers': headers,
+            'allow_redirects': False,
+            'timeout': 30
+        }
+        
+        if request.method == "GET":
+            # #region agent log
+            try:
+                with open(r'c:\services\cert2\.cursor\debug.log', 'a', encoding='utf-8') as f:
+                    f.write(json.dumps({
+                        "id": f"log_{int(time.time() * 1000)}_admin_before_request",
+                        "timestamp": int(time.time() * 1000),
+                        "location": "gateway-service/app.py:541",
+                        "message": "Before sending request to monolithic app",
+                        "data": {
+                            "target_url": target_url,
+                            "method": "GET"
+                        },
+                        "sessionId": "debug-session",
+                        "runId": "run1",
+                        "hypothesisId": "D"
+                    }) + '\n')
+            except: pass
+            # #endregion
+            resp = session_obj.get(target_url, **request_kwargs)
+            
+            # #region agent log
+            try:
+                with open(r'c:\services\cert2\.cursor\debug.log', 'a', encoding='utf-8') as f:
+                    f.write(json.dumps({
+                        "id": f"log_{int(time.time() * 1000)}_admin_response",
+                        "timestamp": int(time.time() * 1000),
+                        "location": "gateway-service/app.py:543",
+                        "message": "Response received from monolithic app",
+                        "data": {
+                            "status_code": resp.status_code,
+                            "content_type": resp.headers.get('Content-Type', ''),
+                            "content_length": len(resp.content),
+                            "content_preview": resp.text[:200] if resp.text else ""
+                        },
+                        "sessionId": "debug-session",
+                        "runId": "run1",
+                        "hypothesisId": "E"
+                    }) + '\n')
+            except: pass
+            # #endregion
+        elif request.method == "POST":
+            # Handle both form data and JSON
+            if request.is_json:
+                request_kwargs['json'] = request.json
+            else:
+                request_kwargs['data'] = request.form
+                if request.files:
+                    request_kwargs['files'] = request.files
+            resp = session_obj.post(target_url, **request_kwargs)
+        elif request.method in ["PUT", "PATCH"]:
+            # Handle both form data and JSON
+            if request.is_json:
+                request_kwargs['json'] = request.json
+            else:
+                request_kwargs['data'] = request.form
+                if request.files:
+                    request_kwargs['files'] = request.files
+            resp = session_obj.request(request.method, target_url, **request_kwargs)
+        elif request.method == "DELETE":
+            resp = session_obj.delete(target_url, **request_kwargs)
+        else:
+            # For other methods (OPTIONS, HEAD, etc.)
+            resp = session_obj.request(request.method, target_url, **request_kwargs)
+        
+        # Handle redirects - convert monolithic app URLs to gateway URLs
+        if resp.status_code in [301, 302, 303, 307, 308]:
+            location = resp.headers.get('Location') or ''
+            logger.info(f"Admin redirect detected: {location}")
+            
+            # Ensure location is a string
+            if location is None:
+                location = ''
+            
+            # Parse the location URL
+            from urllib.parse import urlparse, urlunparse
+            parsed = urlparse(location)
+            new_path = None
+            
+            # Handle both absolute URLs (with localhost:5006) and relative URLs
+            if location and ('localhost:5006' in location or '127.0.0.1:5006' in location):
+                # Absolute URL with localhost:5006 - extract path and query
+                new_path = parsed.path or '/'
+                if parsed.query:
+                    new_path += f"?{parsed.query}"
+            elif location and location.startswith('/'):
+                # Relative URL - use as is
+                new_path = location
+            elif location:
+                # Other absolute URL (e.g., https://...) - keep as is unless it's SSO
+                if 'sso.cfu.ac.ir' in location:
+                    # Keep SSO redirects as is
+                    redirect_response = redirect(location)
+                    for cookie in session_obj.cookies:
+                        redirect_response.set_cookie(
+                            cookie.name, cookie.value,
+                            domain=None, path=cookie.path if cookie.path else '/',
+                            secure=False, httponly=True, samesite='Lax'
+                        )
+                    return redirect_response
+                else:
+                    # Unknown absolute URL - use path only
+                    new_path = parsed.path or '/'
+                    if parsed.query:
+                        new_path += f"?{parsed.query}"
+            else:
+                # Empty location - default to root
+                new_path = '/'
+            
+            # Ensure new_path is set and is a string
+            if new_path is None:
+                new_path = '/'
+            
+            # Convert /login to /auth/login (gateway auth route)
+            if new_path == '/login' or (new_path and new_path.startswith('/login?')):
+                new_path = new_path.replace('/login', '/auth/login', 1)
+                logger.info(f"Converted /login redirect to: {new_path}")
+            
+            # Return redirect through gateway
+            redirect_response = redirect(new_path)
+            
+            # Copy cookies from monolithic app response
+            for cookie in session_obj.cookies:
+                redirect_response.set_cookie(
+                    cookie.name,
+                    cookie.value,
+                    domain=None,
+                    path=cookie.path if cookie.path else '/',
+                    secure=False,  # Will be set by nginx if HTTPS
+                    httponly=True,
+                    samesite='Lax'
+                )
+            
+            return redirect_response
+        
+        # Return response
+        from flask import Response
+        response = Response(resp.content, status=resp.status_code)
+        
+        # Copy response headers (except Location which we handle above)
+        for key, value in resp.headers.items():
+            if key.lower() not in ['content-encoding', 'transfer-encoding', 'connection', 'location']:
+                response.headers[key] = value
+        
+        # Copy cookies from monolithic app response
+        for cookie in session_obj.cookies:
+            response.set_cookie(
+                cookie.name,
+                cookie.value,
+                domain=None,
+                path=cookie.path if cookie.path else '/',
+                secure=False,
+                httponly=True,
+                samesite='Lax'
+            )
+        
+        return response
+    except requests.exceptions.ConnectionError as e:
+        # #region agent log
+        try:
+            with open(r'c:\services\cert2\.cursor\debug.log', 'a', encoding='utf-8') as f:
+                f.write(json.dumps({
+                    "id": f"log_{int(time.time() * 1000)}_admin_connection_error",
+                    "timestamp": int(time.time() * 1000),
+                    "location": "gateway-service/app.py:593",
+                    "message": "Connection error to monolithic app",
+                    "data": {
+                        "error": str(e),
+                        "monolithic_app_url": MONOLITHIC_APP_URL,
+                        "target_url": target_url if 'target_url' in locals() else "N/A"
+                    },
+                    "sessionId": "debug-session",
+                    "runId": "run1",
+                    "hypothesisId": "F"
+                }) + '\n')
+        except: pass
+        # #endregion
+        logger.error(f"Error proxying admin request: Cannot connect to monolithic app at {MONOLITHIC_APP_URL}")
+        logger.error(f"Make sure the monolithic app is running. Start it with: python start-monolithic-app.ps1")
+        error_msg = f"""<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>سرویس در دسترس نیست</title>
+    <style>
+        body {{ font-family: Tahoma, Arial, sans-serif; padding: 20px; background: #f5f5f5; }}
+        .container {{ max-width: 600px; margin: 50px auto; background: white; padding: 30px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }}
+        h1 {{ color: #d32f2f; }}
+        code {{ background: #f5f5f5; padding: 2px 6px; border-radius: 3px; }}
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>سرویس در دسترس نیست</h1>
+        <p>پنل مدیریت در حال حاضر در دسترس نیست. لطفاً با مدیر سیستم تماس بگیرید.</p>
+        <p><small>جزئیات خطا: {str(e)}</small></p>
+    </div>
+</body>
+</html>"""
+        from flask import make_response
+        response = make_response(error_msg, 503)
+        response.headers['Content-Type'] = 'text/html; charset=utf-8'
+        return response
+    except Exception as e:
+        import traceback
+        error_traceback = traceback.format_exc()
+        logger.error(f"Error proxying admin request: {e}", exc_info=True)
+        logger.error(f"Full traceback: {error_traceback}")
+        return f"Error connecting to admin service: {str(e)}", 500
 
 @app.route("/charts-data", methods=['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS', 'HEAD'])
 def charts_data_proxy():
@@ -1501,6 +2163,33 @@ def health():
 
 if __name__ == "__main__":
     import sys
+    import signal
+    import atexit
+    import time
+    
+    # Graceful shutdown handler
+    def signal_handler(sig, frame):
+        """Handle shutdown signals gracefully"""
+        logger.info("Received shutdown signal, shutting down gracefully...")
+        sys.exit(0)
+    
+    # Register signal handlers for graceful shutdown (only on Unix-like systems)
+    # On Windows, signal handlers work differently
+    try:
+        signal.signal(signal.SIGINT, signal_handler)
+        signal.signal(signal.SIGTERM, signal_handler)
+    except (AttributeError, ValueError):
+        # Windows doesn't support SIGTERM, and signal handling might not work the same way
+        logger.info("Running on Windows - using alternative signal handling")
+        pass
+    
+    # Register cleanup function
+    def cleanup():
+        """Cleanup function called on exit"""
+        logger.info("Cleaning up Gateway Service...")
+    
+    atexit.register(cleanup)
+    
     try:
         # Check if port is already in use
         import socket
@@ -1515,18 +2204,58 @@ if __name__ == "__main__":
             sys.exit(1)
         
         logger.info("Starting Gateway Service on port 5000...")
+        logger.info("Gateway Service is running with error handling and graceful shutdown support")
+        
+        # Validate app before starting
+        try:
+            logger.info("Validating Flask app configuration...")
+            with app.app_context():
+                logger.info("Flask app context created successfully")
+            logger.info("Flask app validation completed")
+        except Exception as validation_error:
+            logger.error(f"Error validating Flask app: {validation_error}", exc_info=True)
+            raise
+        
         # Use use_reloader=False to prevent issues with multiple processes
         # In production, use a proper WSGI server like waitress or gunicorn
-        app.run(host="0.0.0.0", port=5000, debug=True, use_reloader=False)
+        # Set threaded=True to handle multiple requests concurrently
+        # Set use_reloader=False to prevent issues with multiple processes
+        logger.info("Starting Flask development server...")
+        logger.info("Server will run until stopped with CTRL+C")
+        
+        # Wrap app.run in a try-except to catch any immediate errors
+        try:
+            app.run(host="0.0.0.0", port=5000, debug=True, use_reloader=False, threaded=True)
+        except SystemExit:
+            # SystemExit is normal when stopping the server
+            logger.info("Gateway Service stopped")
+            raise
+        except Exception as run_error:
+            logger.error(f"Error during Flask app.run(): {run_error}", exc_info=True)
+            import traceback
+            logger.error(f"Full traceback: {traceback.format_exc()}")
+            raise
+            
+    except KeyboardInterrupt:
+        logger.info("Gateway Service stopped by user (KeyboardInterrupt)")
+        sys.exit(0)
     except OSError as e:
-        if e.errno == 98 or "Address already in use" in str(e):
+        if e.errno == 98 or "Address already in use" in str(e) or "Only one usage of each socket address" in str(e):
             logger.error(f"Port 5000 is already in use: {e}")
             logger.error("Please stop the existing service first.")
+            logger.error("To find and kill the process using port 5000, run:")
+            logger.error("  netstat -ano | findstr :5000")
+            logger.error("  taskkill /F /PID <PID>")
             sys.exit(1)
         else:
-            logger.error(f"Error starting Gateway Service: {e}", exc_info=True)
+            logger.error(f"OSError starting Gateway Service: {e}", exc_info=True)
             raise
     except Exception as e:
         logger.error(f"Unexpected error starting Gateway Service: {e}", exc_info=True)
+        import traceback
+        logger.error(f"Full traceback: {traceback.format_exc()}")
+        # Don't exit immediately - log the error and wait a bit
+        logger.error("Waiting 5 seconds before exiting...")
+        time.sleep(5)
         raise
 

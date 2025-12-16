@@ -1,0 +1,176 @@
+version: '3.8'
+
+services:
+  auth-service:
+    build: ./services/auth-service
+    container_name: auth-service
+    ports:
+      - "5001:5001"
+    environment:
+      - SECRET_KEY=${SECRET_KEY}
+      - JWT_SECRET=${JWT_SECRET:-${SECRET_KEY}}
+      - SSO_CLIENT_ID=${SSO_CLIENT_ID}
+      - SSO_CLIENT_SECRET=${SSO_CLIENT_SECRET}
+      - SSO_AUTH_URL=${SSO_AUTH_URL:-https://sso.cfu.ac.ir/oauth2/authorize}
+      - SSO_TOKEN_URL=${SSO_TOKEN_URL:-https://sso.cfu.ac.ir/oauth2/token}
+      - SSO_REDIRECT_URI=${SSO_REDIRECT_URI:-https://bi.cfu.ac.ir/auth/authorized}
+      - ADMIN_USERS=${ADMIN_USERS}
+    volumes:
+      - ./shared/databases:/app/databases
+      - ./shared/flask_session:/app/flask_session
+    networks:
+      - microservices-network
+    restart: unless-stopped
+
+  admin-service:
+    build: ./services/admin-service
+    container_name: admin-service
+    ports:
+      - "5002:5002"
+    environment:
+      - SECRET_KEY=${SECRET_KEY}
+      - AUTH_SERVICE_URL=http://auth-service:5001
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+    volumes:
+      - ./shared/databases:/app/databases
+    depends_on:
+      - auth-service
+      - redis
+    networks:
+      - microservices-network
+    restart: unless-stopped
+
+  survey-service:
+    build: ./services/survey-service
+    container_name: survey-service
+    ports:
+      - "5003:5003"
+    environment:
+      - SECRET_KEY=${SECRET_KEY}
+      - AUTH_SERVICE_URL=http://auth-service:5001
+      - DATABASE_URL=sqlite:///databases/survey.db
+    volumes:
+      - ./shared/databases:/app/databases
+    depends_on:
+      - auth-service
+    networks:
+      - microservices-network
+    restart: unless-stopped
+
+  dashboard-service:
+    build: ./services/dashboard-service
+    container_name: dashboard-service
+    ports:
+      - "5004:5004"
+    environment:
+      - SECRET_KEY=${SECRET_KEY}
+      - AUTH_SERVICE_URL=http://auth-service:5001
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+    volumes:
+      - ./shared/databases:/app/databases
+      - ./app/fetch_data:/app/data
+    depends_on:
+      - auth-service
+      - redis
+    networks:
+      - microservices-network
+    restart: unless-stopped
+
+  kanban-service:
+    build: ./services/kanban-service
+    container_name: kanban-service
+    ports:
+      - "5005:5005"
+    environment:
+      - SECRET_KEY=${SECRET_KEY}
+      - AUTH_SERVICE_URL=http://auth-service:5001
+    volumes:
+      - ./shared/databases:/app/databases
+    depends_on:
+      - auth-service
+    networks:
+      - microservices-network
+    restart: unless-stopped
+
+  knowledge-management-service:
+    build: ./services/knowledge-management-service
+    container_name: knowledge-management-service
+    ports:
+      - "5008:5008"
+    environment:
+      - SECRET_KEY=${SECRET_KEY}
+      - AUTH_SERVICE_URL=http://auth-service:5001
+      - DATABASE_URL=sqlite:///databases/knowledge.db
+    volumes:
+      - ./shared/databases:/app/databases
+    depends_on:
+      - auth-service
+    networks:
+      - microservices-network
+    restart: unless-stopped
+
+  gateway-service:
+    build: ./services/gateway-service
+    container_name: gateway-service
+    ports:
+      - "5000:5000"
+    environment:
+      - AUTH_SERVICE_URL=http://auth-service:5001
+      - ADMIN_SERVICE_URL=http://admin-service:5002
+      - SURVEY_SERVICE_URL=http://survey-service:5003
+      - DASHBOARD_SERVICE_URL=http://dashboard-service:5004
+      - KANBAN_SERVICE_URL=http://kanban-service:5005
+      - KNOWLEDGE_SERVICE_URL=http://knowledge-management-service:5008
+    depends_on:
+      - auth-service
+      - admin-service
+      - survey-service
+      - dashboard-service
+      - kanban-service
+      - knowledge-management-service
+    networks:
+      - microservices-network
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    container_name: redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    networks:
+      - microservices-network
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+
+  nginx:
+    image: nginx:alpine
+    container_name: nginx-gateway
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./ssl:/etc/nginx/ssl:ro
+    depends_on:
+      - auth-service
+      - admin-service
+      - survey-service
+      - dashboard-service
+      - kanban-service
+      - knowledge-management-service
+      - gateway-service
+    networks:
+      - microservices-network
+    restart: unless-stopped
+
+networks:
+  microservices-network:
+    driver: bridge
+
+volumes:
+  redis-data:
+

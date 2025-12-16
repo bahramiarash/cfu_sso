@@ -20,6 +20,7 @@ if (-not $env:ADMIN_SERVICE_URL) { $env:ADMIN_SERVICE_URL = "http://localhost:50
 if (-not $env:SURVEY_SERVICE_URL) { $env:SURVEY_SERVICE_URL = "http://localhost:5003" }
 if (-not $env:DASHBOARD_SERVICE_URL) { $env:DASHBOARD_SERVICE_URL = "http://localhost:5004" }
 if (-not $env:KANBAN_SERVICE_URL) { $env:KANBAN_SERVICE_URL = "http://localhost:5005" }
+if (-not $env:KNOWLEDGE_SERVICE_URL) { $env:KNOWLEDGE_SERVICE_URL = "http://localhost:5008" }
 if (-not $env:REDIS_HOST) { $env:REDIS_HOST = "localhost" }
 if (-not $env:REDIS_PORT) { $env:REDIS_PORT = "6379" }
 if (-not $env:SSO_CLIENT_ID) { $env:SSO_CLIENT_ID = "bicfu" }
@@ -53,6 +54,11 @@ Write-Host "Starting Kanban Service..." -ForegroundColor Yellow
 Start-Process powershell -ArgumentList "-NoExit", "-Command", "cd services\kanban-service; `$env:SECRET_KEY='$env:SECRET_KEY'; `$env:AUTH_SERVICE_URL='$env:AUTH_SERVICE_URL'; python app.py" -WindowStyle Normal
 Start-Sleep -Seconds 2
 
+# Start Knowledge Management Service
+Write-Host "Starting Knowledge Management Service..." -ForegroundColor Yellow
+Start-Process powershell -ArgumentList "-NoExit", "-Command", "cd services\knowledge-management-service; `$env:SECRET_KEY='$env:SECRET_KEY'; `$env:AUTH_SERVICE_URL='$env:AUTH_SERVICE_URL'; python app.py" -WindowStyle Normal
+Start-Sleep -Seconds 2
+
 # Start Gateway Service
 Write-Host "Starting Gateway Service..." -ForegroundColor Yellow
 Start-Process powershell -ArgumentList "-NoExit", "-Command", "cd services\gateway-service; `$env:AUTH_SERVICE_URL='$env:AUTH_SERVICE_URL'; `$env:SECRET_KEY='$env:SECRET_KEY'; python app.py" -WindowStyle Normal
@@ -74,6 +80,7 @@ Write-Host "Admin Service: http://localhost:5002" -ForegroundColor Cyan
 Write-Host "Survey Service: http://localhost:5003" -ForegroundColor Cyan
 Write-Host "Dashboard Service: http://localhost:5004" -ForegroundColor Cyan
 Write-Host "Kanban Service: http://localhost:5005" -ForegroundColor Cyan
+Write-Host "Knowledge Management Service: http://localhost:5008" -ForegroundColor Cyan
 Write-Host "Gateway Service: http://localhost:5000" -ForegroundColor Cyan
 Write-Host "Monolithic App: http://localhost:5006" -ForegroundColor Cyan
 Write-Host "Metrics Service (Zabbix): http://localhost:6000" -ForegroundColor Cyan

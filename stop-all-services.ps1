@@ -2,7 +2,7 @@
 Write-Host "Stopping all microservices..." -ForegroundColor Yellow
 
 # Find and kill Python processes running services
-$services = @("auth-service", "admin-service", "survey-service", "dashboard-service", "kanban-service", "gateway-service")
+$services = @("auth-service", "admin-service", "survey-service", "dashboard-service", "kanban-service", "knowledge-management-service", "gateway-service")
 
 foreach ($service in $services) {
     $processes = Get-Process python -ErrorAction SilentlyContinue | Where-Object {
@@ -13,6 +13,39 @@ foreach ($service in $services) {
         Write-Host "Stopping $service..." -ForegroundColor Yellow
         $processes | Stop-Process -Force
     }
+}
+
+# Stop Knowledge Management Service (running on port 5008)
+Write-Host "Stopping Knowledge Management Service..." -ForegroundColor Yellow
+try {
+    # Try to find process using port 5008
+    $port5008 = Get-NetTCPConnection -LocalPort 5008 -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess -Unique
+    if ($port5008) {
+        foreach ($pid in $port5008) {
+            $proc = Get-Process -Id $pid -ErrorAction SilentlyContinue
+            if ($proc -and $proc.Path -like "*cert2*") {
+                Write-Host "Stopping process on port 5008 (PID: $pid)..." -ForegroundColor Yellow
+                Stop-Process -Id $pid -Force -ErrorAction SilentlyContinue
+            }
+        }
+        Write-Host "Knowledge Management Service stopped." -ForegroundColor Green
+    } else {
+        Write-Host "Knowledge Management Service not running." -ForegroundColor Gray
+    }
+    
+    # Also try to find by command line (using WMI)
+    $knowledgeProcesses = Get-WmiObject Win32_Process -Filter "name='python.exe'" -ErrorAction SilentlyContinue | Where-Object {
+        $_.CommandLine -like "*cert2*" -and $_.CommandLine -like "*knowledge-management-service*"
+    }
+    
+    if ($knowledgeProcesses) {
+        foreach ($proc in $knowledgeProcesses) {
+            Write-Host "Stopping Knowledge Management Service (PID: $($proc.ProcessId))..." -ForegroundColor Yellow
+            Stop-Process -Id $proc.ProcessId -Force -ErrorAction SilentlyContinue
+        }
+    }
+} catch {
+    Write-Host "Could not check for Knowledge Management Service: $_" -ForegroundColor Yellow
 }
 
 # Stop Monolithic App (running on port 5006)
