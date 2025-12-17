@@ -1,0 +1,232 @@
+{% extends "admin/base.html" %}
+
+{% block title %}مدیریت مقالات دانش{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h1><i class="bi bi-file-text"></i> مدیریت مقالات دانش</h1>
+        <a href="{{ url_for('admin.knowledge_articles_create') }}" class="btn btn-primary">
+            <i class="bi bi-plus-circle"></i> مقاله جدید
+        </a>
+    </div>
+
+    <!-- Search and Filter -->
+    <div class="card mb-3">
+        <div class="card-body">
+            <form method="GET" class="row g-3">
+                <div class="col-md-3">
+                    <input type="text" class="form-control" name="search" placeholder="جستجو در عنوان و محتوا..." value="{{ search }}">
+                </div>
+                <div class="col-md-2">
+                    <select class="form-select" name="status">
+                        <option value="">همه وضعیت‌ها</option>
+                        <option value="draft" {% if status == 'draft' %}selected{% endif %}>پیش‌نویس</option>
+                        <option value="published" {% if status == 'published' %}selected{% endif %}>منتشر شده</option>
+                        <option value="archived" {% if status == 'archived' %}selected{% endif %}>بایگانی</option>
+                    </select>
+                </div>
+                <div class="col-md-2">
+                    <select class="form-select" name="tag">
+                        <option value="">همه تگ‌ها</option>
+                        {% for tag in user_tags %}
+                        <option value="{{ tag }}" {% if tag_filter == tag %}selected{% endif %}>{{ tag }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-md-2">
+                    <input type="text" class="form-control" id="date_from" name="date_from" 
+                           placeholder="از تاریخ (شمسی)" value="{{ date_from }}">
+                </div>
+                <div class="col-md-2">
+                    <input type="text" class="form-control" id="date_to" name="date_to" 
+                           placeholder="تا تاریخ (شمسی)" value="{{ date_to }}">
+                </div>
+                <div class="col-md-1">
+                    <button type="submit" class="btn btn-primary w-100">
+                        <i class="bi bi-search"></i> جستجو
+                    </button>
+                </div>
+            </form>
+            <div class="mt-2">
+                <a href="{{ url_for('admin.knowledge_articles_list') }}" class="btn btn-sm btn-secondary">
+                    <i class="bi bi-arrow-clockwise"></i> پاک کردن فیلترها
+                </a>
+            </div>
+        </div>
+    </div>
+
+    <!-- Articles Table -->
+    <div class="card">
+        <div class="card-body">
+            <div class="table-responsive">
+                <table class="table table-hover">
+                    <thead>
+                        <tr>
+                            <th>عنوان</th>
+                            <th>دسته‌بندی</th>
+                            <th>نویسنده</th>
+                            <th>وضعیت</th>
+                            <th>بازدید</th>
+                            <th>لایک</th>
+                            <th>تاریخ ایجاد</th>
+                            <th>عملیات</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for article in articles %}
+                        <tr>
+                            <td>
+                                <strong>{{ article.title }}</strong>
+                                {% if article.summary %}
+                                <br><small class="text-muted">{{ article.summary[:100] }}{% if article.summary|length > 100 %}...{% endif %}</small>
+                                {% endif %}
+                            </td>
+                            <td>{{ article.category_name or '-' }}</td>
+                            <td>{{ article.author_name }}</td>
+                            <td>
+                                {% if article.status == 'published' %}
+                                    <span class="badge bg-success">منتشر شده</span>
+                                {% elif article.status == 'draft' %}
+                                    <span class="badge bg-warning">پیش‌نویس</span>
+                                {% else %}
+                                    <span class="badge bg-secondary">بایگانی</span>
+                                {% endif %}
+                            </td>
+                            <td>{{ article.views_count }}</td>
+                            <td>{{ article.likes_count }}</td>
+                            <td>
+                                {% if article.created_at %}
+                                    {{ article.created_at[:10] }}
+                                {% else %}
+                                    -
+                                {% endif %}
+                            </td>
+                            <td>
+                                <a href="{{ url_for('admin.knowledge_articles_view', article_id=article.id) }}" class="btn btn-sm btn-info">
+                                    <i class="bi bi-eye"></i> مشاهده
+                                </a>
+                                <a href="{{ url_for('admin.knowledge_articles_edit', article_id=article.id) }}" class="btn btn-sm btn-primary">
+                                    <i class="bi bi-pencil"></i> ویرایش
+                                </a>
+                                <button class="btn btn-sm btn-danger delete-article" data-article-id="{{ article.id }}">
+                                    <i class="bi bi-trash"></i> حذف
+                                </button>
+                            </td>
+                        </tr>
+                        {% else %}
+                        <tr>
+                            <td colspan="8" class="text-center text-muted">مقاله‌ای یافت نشد</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+
+            <!-- Pagination -->
+            {% if total_pages > 1 %}
+            <nav aria-label="Page navigation" class="mt-4">
+                <ul class="pagination justify-content-center">
+                    {% if page > 1 %}
+                    <li class="page-item">
+                        <a class="page-link" href="?page={{ page - 1 }}&search={{ search }}&status={{ status }}&tag={{ tag_filter }}&date_from={{ date_from }}&date_to={{ date_to }}">قبلی</a>
+                    </li>
+                    {% endif %}
+                    
+                    {% for p in range(1, total_pages + 1) %}
+                        {% if p == page %}
+                        <li class="page-item active">
+                            <span class="page-link">{{ p }}</span>
+                        </li>
+                        {% elif p <= 3 or p > total_pages - 3 or (p >= page - 1 and p <= page + 1) %}
+                        <li class="page-item">
+                            <a class="page-link" href="?page={{ p }}&search={{ search }}&status={{ status }}&tag={{ tag_filter }}&date_from={{ date_from }}&date_to={{ date_to }}">{{ p }}</a>
+                        </li>
+                        {% elif p == 4 or p == total_pages - 3 %}
+                        <li class="page-item disabled">
+                            <span class="page-link">...</span>
+                        </li>
+                        {% endif %}
+                    {% endfor %}
+                    
+                    {% if page < total_pages %}
+                    <li class="page-item">
+                        <a class="page-link" href="?page={{ page + 1 }}&search={{ search }}&status={{ status }}&tag={{ tag_filter }}&date_from={{ date_from }}&date_to={{ date_to }}">بعدی</a>
+                    </li>
+                    {% endif %}
+                </ul>
+            </nav>
+            {% endif %}
+        </div>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block extra_js %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // Initialize KamaDatepicker for Persian calendar
+    if (typeof kamaDatepicker !== 'undefined') {
+        kamaDatepicker('date_from', {
+            buttonsColor: "blue",
+            forceFarsiDigits: true,
+            markToday: true,
+            markHolidays: true,
+            gotoToday: true
+        });
+        
+        kamaDatepicker('date_to', {
+            buttonsColor: "blue",
+            forceFarsiDigits: true,
+            markToday: true,
+            markHolidays: true,
+            gotoToday: true
+        });
+    }
+    
+    // Delete article
+    document.querySelectorAll('.delete-article').forEach(btn => {
+        btn.addEventListener('click', function() {
+            const articleId = this.dataset.articleId;
+            
+            if (confirm('آیا مطمئن هستید که می‌خواهید این مقاله را حذف کنید؟')) {
+                const basePath = '/admin/knowledge/articles';
+                const url = `${basePath}/${articleId}/delete`;
+                
+                fetch(url, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({}),
+                    credentials: 'same-origin'
+                })
+                .then(response => {
+                    if (!response.ok) {
+                        return response.json().then(data => {
+                            throw new Error(data.message || 'خطا در حذف');
+                        });
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    if (data.success) {
+                        alert('مقاله با موفقیت حذف شد');
+                        location.reload();
+                    } else {
+                        alert('خطا: ' + (data.message || 'خطای نامشخص'));
+                    }
+                })
+                .catch(error => {
+                    console.error('Error:', error);
+                    alert('خطا در حذف مقاله: ' + error.message);
+                });
+            }
+        });
+    });
+});
+</script>
+{% endblock %}
+
+
