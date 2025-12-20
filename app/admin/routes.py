@@ -2521,15 +2521,27 @@ def knowledge_articles_list():
             timeout=5
         )
         categories = categories_response.json().get('categories', []) if categories_response.ok else []
-    except:
+    except Exception as e:
+        logger.warning(f"Error fetching categories: {e}")
         categories = []
     
     # Get user types for filtering by "مسئول مدیریت دانش"
-    user_types = UserType.query.filter_by(name='مسئول مدیریت دانش').all()
-    knowledge_manager_type_id = user_types[0].id if user_types else None
+    knowledge_manager_type_id = None
+    try:
+        user_types = UserType.query.filter_by(name='مسئول مدیریت دانش').all()
+        knowledge_manager_type_id = user_types[0].id if user_types else None
+    except Exception as e:
+        logger.warning(f"Error fetching user types: {e}")
+        knowledge_manager_type_id = None
     
     # Get all users for author lookup
-    all_users = {u.id: u for u in User.query.all()}
+    all_users = {}
+    try:
+        users = User.query.all()
+        all_users = {u.id: u for u in users}
+    except Exception as e:
+        logger.error(f"Error fetching users: {e}", exc_info=True)
+        all_users = {}
     
     # Build API request
     api_url = f"{os.getenv('KNOWLEDGE_SERVICE_URL', 'http://localhost:5008')}/api/knowledge/articles"
