@@ -1,0 +1,185 @@
+{% extends "admin/base.html" %}
+
+{% block title %}تخصیص انواع کاربری{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <h1 class="mb-4"><i class="bi bi-person-check"></i> تخصیص انواع کاربری به کاربر</h1>
+
+    <!-- Search Section -->
+    <div class="card mb-4">
+        <div class="card-body">
+            <h5 class="card-title">جستجوی کاربر</h5>
+            <form method="GET" class="row g-3">
+                <div class="col-md-8">
+                    <input type="text" name="search" class="form-control" 
+                           placeholder="جستجو بر اساس نام، SSO ID یا ایمیل" 
+                           value="{{ search_query }}" required>
+                </div>
+                <div class="col-md-4">
+                    <button type="submit" class="btn btn-primary w-100">
+                        <i class="bi bi-search"></i> جستجو
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    {% if user %}
+    <!-- User Info and Assignment Form -->
+    <div class="card">
+        <div class="card-body">
+            <h5 class="card-title mb-4">اطلاعات کاربر</h5>
+            
+            <div class="row mb-4">
+                <div class="col-md-6">
+                    <table class="table table-bordered">
+                        <tr>
+                            <th width="40%">نام:</th>
+                            <td>{{ user.name }}</td>
+                        </tr>
+                        <tr>
+                            <th>SSO ID:</th>
+                            <td>{{ user.sso_id }}</td>
+                        </tr>
+                        <tr>
+                            <th>ایمیل:</th>
+                            <td>{{ user.email or '-' }}</td>
+                        </tr>
+                        <tr>
+                            <th>انواع کاربری فعلی:</th>
+                            <td>
+                                {% if user.user_types %}
+                                    {% for user_type in user.user_types %}
+                                        <span class="badge bg-info me-1">{{ user_type.name }}</span>
+                                    {% endfor %}
+                                {% else %}
+                                    <span class="text-muted">هیچ نوع کاربری تخصیص داده نشده</span>
+                                {% endif %}
+                            </td>
+                        </tr>
+                    </table>
+                </div>
+            </div>
+
+            <form method="POST" id="assignForm" action="{{ url_for('admin.assign_user_types') }}">
+                <input type="hidden" name="user_id" value="{{ user.id }}">
+                
+                <div class="mb-3">
+                    <label for="selected_user_types" class="form-label">
+                        <h5 class="mb-2">انتخاب انواع کاربری</h5>
+                    </label>
+                    <small class="text-muted d-block mb-2">
+                        <i class="bi bi-info-circle"></i> برای انتخاب چندگانه، کلید Ctrl (یا Cmd در Mac) را نگه دارید و روی گزینه‌ها کلیک کنید
+                    </small>
+                    {% set user_type_ids = user.user_types|map(attribute='id')|list if user.user_types else [] %}
+                    <select name="selected_user_types" id="selected_user_types" class="form-select" multiple size="10" required>
+                        {% for user_type in user_types %}
+                        <option value="{{ user_type.id }}" 
+                                {% if user_type.id in user_type_ids %}selected{% endif %}
+                                title="{% if user_type.description %}{{ user_type.description }}{% endif %}">
+                            {{ user_type.name }}{% if user_type.description %} - {{ user_type.description }}{% endif %}
+                        </option>
+                        {% else %}
+                        <option disabled>هیچ نوع کاربری تعریف نشده است. 
+                            <a href="{{ url_for('admin.user_types_list') }}">ایجاد نوع کاربری</a>
+                        </option>
+                        {% endfor %}
+                    </select>
+                    <small class="form-text text-muted mt-2">
+                        <i class="bi bi-info-circle"></i> برای انتخاب چندگانه: Ctrl+Click (Windows/Linux) یا Cmd+Click (Mac)
+                    </small>
+                </div>
+
+                <div class="mt-4 d-flex justify-content-between">
+                    <a href="{{ url_for('admin.users_list') }}" class="btn btn-secondary">
+                        <i class="bi bi-arrow-right"></i> بازگشت به لیست کاربران
+                    </a>
+                    <button type="submit" class="btn btn-primary">
+                        <i class="bi bi-check-circle"></i> ذخیره تغییرات
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+    {% elif search_query %}
+    <!-- User Not Found -->
+    <div class="alert alert-warning">
+        <i class="bi bi-exclamation-triangle"></i> 
+        کاربری با مشخصات "{{ search_query }}" یافت نشد.
+    </div>
+    {% else %}
+    <!-- Initial State -->
+    <div class="alert alert-info">
+        <i class="bi bi-info-circle"></i> 
+        لطفاً برای شروع، کاربر مورد نظر را جستجو کنید.
+    </div>
+    {% endif %}
+</div>
+
+<script>
+// Handle form submission for multiple select
+document.getElementById('assignForm')?.addEventListener('submit', function(e) {
+    e.preventDefault(); // Prevent default submission
+    
+    const select = document.getElementById('selected_user_types');
+    const selectedOptions = Array.from(select.selectedOptions);
+    const selectedValues = selectedOptions.map(opt => opt.value);
+    
+    console.log('Selected user types:', selectedValues);
+    console.log('Number of selected options:', selectedValues.length);
+    
+    if (selectedOptions.length === 0) {
+        if (!confirm('هیچ نوع کاربری انتخاب نشده است. آیا می‌خواهید همه انواع کاربری این کاربر را حذف کنید؟')) {
+            return false;
+        }
+    }
+    
+    // Create URLSearchParams for application/x-www-form-urlencoded
+    // This ensures Flask's request.form.getlist() works correctly
+    const params = new URLSearchParams();
+    params.append('user_id', document.querySelector('input[name="user_id"]').value);
+    
+    // Add each selected value separately - this is the key for multiple values
+    selectedValues.forEach(value => {
+        params.append('selected_user_types', value);
+        console.log('Added to params: selected_user_types =', value);
+    });
+    
+    console.log('URLSearchParams entries:');
+    for (let [key, value] of params.entries()) {
+        console.log(key, ':', value);
+    }
+    console.log('URLSearchParams string:', params.toString());
+    
+    // Submit using fetch with application/x-www-form-urlencoded
+    fetch('{{ url_for("admin.assign_user_types") }}', {
+        method: 'POST',
+        body: params.toString(),
+        headers: {
+            'Content-Type': 'application/x-www-form-urlencoded',
+            'X-Requested-With': 'XMLHttpRequest'
+        }
+    })
+    .then(response => {
+        console.log('Response status:', response.status);
+        if (response.redirected) {
+            window.location.href = response.url;
+        } else {
+            return response.text().then(text => {
+                console.log('Response text:', text);
+                // Reload page to show updated data
+                window.location.reload();
+            });
+        }
+    })
+    .catch(error => {
+        console.error('Error submitting form:', error);
+        alert('خطا در ارسال فرم. لطفاً دوباره تلاش کنید.');
+    });
+    
+    return false;
+});
+</script>
+{% endblock %}
+

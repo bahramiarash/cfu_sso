@@ -7,9 +7,9 @@ from flask_login import login_required, current_user
 from . import admin_bp
 from .utils import admin_required, log_action, get_user_org_context
 from models import User, AccessLevel as AccessLevelModel, UserType
-from admin_models import DashboardAccess, AccessLog, DataSync, DashboardConfig, ChartConfig, TemplateVersion
+from admin_models import DashboardAccess, AccessLog, DataSync, DashboardConfig, ChartConfig, TemplateVersion, SMSLog
 from extensions import db
-from sqlalchemy import or_, func
+from sqlalchemy import or_, func, delete, insert, text
 from dashboards.registry import DashboardRegistry
 from datetime import datetime, timedelta
 from jdatetime import datetime as jdatetime
@@ -2084,6 +2084,224 @@ def admin_500_error(e):
     return Response(error_html, status=500, mimetype='text/html; charset=utf-8')
 
 
+@admin_bp.route('/sms-logs')
+@login_required
+@admin_required
+def sms_logs():
+    """SMS logs management page"""
+    try:
+        log_action('view_sms_logs', 'sms_log', None)
+        return render_template('admin/sms_logs/index.html')
+    except Exception as e:
+        logger.error(f"Error displaying SMS logs page: {e}", exc_info=True)
+        flash('خطا در نمایش سوابق پیامک', 'error')
+        return redirect(url_for('admin.index'))
+
+
+@admin_bp.route('/api/sms-logs', methods=['GET'])
+@login_required
+@admin_required
+def api_sms_logs():
+    """API endpoint for SMS logs with filtering"""
+    try:
+        # Get filter parameters
+        page = request.args.get('page', 1, type=int)
+        per_page = request.args.get('per_page', 50, type=int)
+        status = request.args.get('status', None)  # 'sent', 'failed', 'pending'
+        recipient = request.args.get('recipient', None)
+        alert_key = request.args.get('alert_key', None)
+        zone_url = request.args.get('zone_url', None)
+        date_from = request.args.get('date_from', None)  # Format: YYYY-MM-DD or YYYY/MM/DD (Jalali)
+        date_to = request.args.get('date_to', None)  # Format: YYYY-MM-DD or YYYY/MM/DD (Jalali)
+        
+        # Build query
+        query = SMSLog.query
+        
+        # Apply filters
+        if status:
+            query = query.filter(SMSLog.status == status)
+        if recipient:
+            query = query.filter(SMSLog.recipient.like(f'%{recipient}%'))
+        if alert_key:
+            query = query.filter(SMSLog.alert_key == alert_key)
+        if zone_url:
+            query = query.filter(SMSLog.zone_url == zone_url)
+        if date_from:
+            try:
+                # Check if it's Jalali format (YYYY/MM/DD) or Gregorian (YYYY-MM-DD)
+                if '/' in date_from:
+                    # Jalali format - convert to Gregorian
+                    from jdatetime import datetime as jdatetime
+                    parts = [int(p) for p in date_from.split('/')]
+                    jalali_date = jdatetime(parts[0], parts[1], parts[2])
+                    date_from_obj = jalali_date.togregorian()
+                else:
+                    # Gregorian format
+                    date_from_obj = datetime.strptime(date_from, '%Y-%m-%d')
+                query = query.filter(SMSLog.created_at >= date_from_obj)
+            except (ValueError, Exception) as e:
+                logger.warning(f"Error parsing date_from '{date_from}': {e}")
+                pass
+        if date_to:
+            try:
+                # Check if it's Jalali format (YYYY/MM/DD) or Gregorian (YYYY-MM-DD)
+                if '/' in date_to:
+                    # Jalali format - convert to Gregorian
+                    from jdatetime import datetime as jdatetime
+                    parts = [int(p) for p in date_to.split('/')]
+                    jalali_date = jdatetime(parts[0], parts[1], parts[2])
+                    date_to_obj = jalali_date.togregorian() + timedelta(days=1)
+                else:
+                    # Gregorian format
+                    date_to_obj = datetime.strptime(date_to, '%Y-%m-%d') + timedelta(days=1)
+                query = query.filter(SMSLog.created_at < date_to_obj)
+            except (ValueError, Exception) as e:
+                logger.warning(f"Error parsing date_to '{date_to}': {e}")
+                pass
+        
+        # Get total count before pagination
+        total = query.count()
+        
+        # Order by created_at descending (newest first)
+        query = query.order_by(SMSLog.created_at.desc())
+        
+        # Paginate
+        pagination = query.paginate(page=page, per_page=per_page, error_out=False)
+        logs = pagination.items
+        
+        # Convert to dict
+        logs_data = [log.to_dict() for log in logs]
+        
+        # Get statistics
+        stats_query = SMSLog.query
+        if date_from:
+            try:
+                # Check if it's Jalali format (YYYY/MM/DD) or Gregorian (YYYY-MM-DD)
+                if '/' in date_from:
+                    from jdatetime import datetime as jdatetime
+                    parts = [int(p) for p in date_from.split('/')]
+                    jalali_date = jdatetime(parts[0], parts[1], parts[2])
+                    date_from_obj = jalali_date.togregorian()
+                else:
+                    date_from_obj = datetime.strptime(date_from, '%Y-%m-%d')
+                stats_query = stats_query.filter(SMSLog.created_at >= date_from_obj)
+            except (ValueError, Exception):
+                pass
+        if date_to:
+            try:
+                # Check if it's Jalali format (YYYY/MM/DD) or Gregorian (YYYY-MM-DD)
+                if '/' in date_to:
+                    from jdatetime import datetime as jdatetime
+                    parts = [int(p) for p in date_to.split('/')]
+                    jalali_date = jdatetime(parts[0], parts[1], parts[2])
+                    date_to_obj = jalali_date.togregorian() + timedelta(days=1)
+                else:
+                    date_to_obj = datetime.strptime(date_to, '%Y-%m-%d') + timedelta(days=1)
+                stats_query = stats_query.filter(SMSLog.created_at < date_to_obj)
+            except (ValueError, Exception):
+                pass
+        
+        stats = {
+            'total': stats_query.count(),
+            'sent': stats_query.filter(SMSLog.status == 'sent').count(),
+            'failed': stats_query.filter(SMSLog.status == 'failed').count(),
+            'pending': stats_query.filter(SMSLog.status == 'pending').count(),
+        }
+        
+        # Get chart data (group by date)
+        chart_data = db.session.query(
+            func.date(SMSLog.created_at).label('date'),
+            SMSLog.status,
+            func.count(SMSLog.id).label('count')
+        ).group_by(
+            func.date(SMSLog.created_at),
+            SMSLog.status
+        )
+        
+        if date_from:
+            try:
+                # Check if it's Jalali format (YYYY/MM/DD) or Gregorian (YYYY-MM-DD)
+                if '/' in date_from:
+                    from jdatetime import datetime as jdatetime
+                    parts = [int(p) for p in date_from.split('/')]
+                    jalali_date = jdatetime(parts[0], parts[1], parts[2])
+                    date_from_obj = jalali_date.togregorian()
+                else:
+                    date_from_obj = datetime.strptime(date_from, '%Y-%m-%d')
+                chart_data = chart_data.filter(SMSLog.created_at >= date_from_obj)
+            except (ValueError, Exception):
+                pass
+        if date_to:
+            try:
+                # Check if it's Jalali format (YYYY/MM/DD) or Gregorian (YYYY-MM-DD)
+                if '/' in date_to:
+                    from jdatetime import datetime as jdatetime
+                    parts = [int(p) for p in date_to.split('/')]
+                    jalali_date = jdatetime(parts[0], parts[1], parts[2])
+                    date_to_obj = jalali_date.togregorian() + timedelta(days=1)
+                else:
+                    date_to_obj = datetime.strptime(date_to, '%Y-%m-%d') + timedelta(days=1)
+                chart_data = chart_data.filter(SMSLog.created_at < date_to_obj)
+            except (ValueError, Exception):
+                pass
+        
+        chart_data = chart_data.order_by(func.date(SMSLog.created_at).desc()).limit(30).all()
+        
+        # Format chart data
+        chart_by_date = {}
+        for date, status, count in chart_data:
+            date_str = date.strftime('%Y-%m-%d')
+            if date_str not in chart_by_date:
+                chart_by_date[date_str] = {'sent': 0, 'failed': 0, 'pending': 0}
+            chart_by_date[date_str][status] = count
+        
+        return jsonify({
+            'success': True,
+            'data': logs_data,
+            'pagination': {
+                'page': page,
+                'per_page': per_page,
+                'total': total,
+                'pages': pagination.pages
+            },
+            'stats': stats,
+            'chart_data': chart_by_date
+        })
+        
+    except Exception as e:
+        logger.error(f"Error fetching SMS logs: {e}", exc_info=True)
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
+@admin_bp.route('/api/sms-logs/filters', methods=['GET'])
+@login_required
+@admin_required
+def api_sms_logs_filters():
+    """Get available filter options for SMS logs"""
+    try:
+        # Get unique values for filters
+        recipients = db.session.query(SMSLog.recipient).distinct().all()
+        alert_keys = db.session.query(SMSLog.alert_key).distinct().filter(SMSLog.alert_key.isnot(None)).all()
+        zone_urls = db.session.query(SMSLog.zone_url).distinct().filter(SMSLog.zone_url.isnot(None)).all()
+        
+        return jsonify({
+            'success': True,
+            'recipients': [r[0] for r in recipients],
+            'alert_keys': [a[0] for a in alert_keys],
+            'zone_urls': [z[0] for z in zone_urls],
+            'statuses': ['sent', 'failed', 'pending']
+        })
+    except Exception as e:
+        logger.error(f"Error fetching SMS logs filters: {e}", exc_info=True)
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
 @admin_bp.route('/')
 @login_required
 @admin_required
@@ -2266,6 +2484,7 @@ def users_list():
     page = request.args.get('page', 1, type=int)
     per_page = request.args.get('per_page', 20, type=int)
     search = request.args.get('search', '')
+    user_type_id = request.args.get('user_type', type=int)
     
     query = User.query
     
@@ -2278,9 +2497,20 @@ def users_list():
             )
         )
     
+    # Filter by user type if specified
+    if user_type_id:
+        query = query.join(User.user_types).filter(UserType.id == user_type_id).distinct()
+    
     users = query.paginate(page=page, per_page=per_page, error_out=False)
     
-    return render_template('admin/users/list.html', users=users, search=search)
+    # Get all user types for filter dropdown
+    user_types = UserType.query.order_by(UserType.name).all()
+    
+    return render_template('admin/users/list.html', 
+                         users=users, 
+                         search=search,
+                         user_type_id=user_type_id,
+                         user_types=user_types)
 
 
 @admin_bp.route('/users/<int:user_id>')
@@ -2288,7 +2518,10 @@ def users_list():
 @admin_required
 def user_detail(user_id):
     """View user details"""
-    user = User.query.get_or_404(user_id)
+    from sqlalchemy.orm import joinedload
+    user = User.query.options(joinedload(User.user_types)).get_or_404(user_id)
+    # Force load the relationship
+    _ = user.user_types  # This triggers the eager load
     log_action('view_user', 'user', user_id)
     
     # Get user's dashboard accesses
@@ -2308,12 +2541,183 @@ def user_detail(user_id):
                          org_context=org_context)
 
 
+@admin_bp.route('/users/assign-user-types', methods=['GET', 'POST'])
+@login_required
+@admin_required
+def assign_user_types():
+    """Assign user types to a user - separate page for this functionality"""
+    from sqlalchemy.orm import joinedload
+    
+    user = None
+    user_id = None
+    search_query = request.args.get('search', '').strip()
+    
+    if request.method == 'POST':
+        # Debug logging
+        logger.info("=" * 80)
+        logger.info("ASSIGN USER TYPES - POST REQUEST")
+        logger.info("=" * 80)
+        logger.info(f"Content-Type: {request.content_type}")
+        logger.info(f"All form keys: {list(request.form.keys())}")
+        logger.info(f"All form data: {dict(request.form)}")
+        logger.info(f"All form items: {list(request.form.items())}")
+        
+        # Handle form submission
+        user_id = request.form.get('user_id', type=int)
+        # Get all selected_user_types - using unique name to avoid conflicts
+        user_type_ids = request.form.getlist('selected_user_types')
+        
+        logger.info(f"user_id from form: {user_id}")
+        logger.info(f"user_type_ids from getlist('selected_user_types'): {user_type_ids}")
+        logger.info(f"user_type_ids type: {type(user_type_ids)}, length: {len(user_type_ids)}")
+        
+        # Also try alternative methods
+        all_items = list(request.form.items())
+        user_types_from_items = [v for k, v in all_items if k == 'selected_user_types']
+        logger.info(f"user_types from items(): {user_types_from_items}")
+        
+        # Check request.values as well
+        user_types_from_values = request.values.getlist('selected_user_types')
+        logger.info(f"user_types from values.getlist(): {user_types_from_values}")
+        
+        if not user_id:
+            flash('لطفاً کاربر را انتخاب کنید', 'error')
+            return redirect(url_for('admin.assign_user_types'))
+        
+        user = User.query.get_or_404(user_id)
+        
+        # If getlist returned empty, try alternative method
+        if not user_type_ids or len(user_type_ids) == 0:
+            logger.warning("getlist returned empty, trying alternative methods...")
+            # Try from items
+            all_items = list(request.form.items())
+            user_type_ids = [v for k, v in all_items if k == 'selected_user_types']
+            logger.info(f"After trying items(): {user_type_ids}")
+            
+            # If still empty, try values
+            if not user_type_ids:
+                user_type_ids = request.values.getlist('selected_user_types')
+                logger.info(f"After trying values.getlist(): {user_type_ids}")
+        
+        logger.info(f"Final user_type_ids to process: {user_type_ids}")
+        
+        # Convert to integers and filter out empty values
+        valid_user_type_ids = []
+        for user_type_id in user_type_ids:
+            if user_type_id and str(user_type_id).strip():
+                try:
+                    valid_user_type_ids.append(int(user_type_id))
+                except (ValueError, TypeError) as e:
+                    logger.warning(f"Invalid user_type_id: {user_type_id}, error: {e}")
+                    continue
+        
+        logger.info(f"Valid user_type_ids after processing: {valid_user_type_ids} (count: {len(valid_user_type_ids)})")
+        
+        # Delete all existing user_type associations for this user using raw SQL
+        from models import user_user_types
+        from sqlalchemy import text
+        
+        # First, check what exists before deletion
+        check_before_sql = text("SELECT user_type_id FROM user_user_types WHERE user_id = :user_id")
+        before_result = db.session.execute(check_before_sql, {"user_id": user.id}).fetchall()
+        before_ids = [row[0] for row in before_result]
+        logger.info(f"BEFORE DELETE: User {user.id} has {len(before_ids)} user types: {before_ids}")
+        
+        # Delete using raw SQL
+        delete_sql = text("DELETE FROM user_user_types WHERE user_id = :user_id")
+        result = db.session.execute(delete_sql, {"user_id": user.id})
+        db.session.flush()
+        logger.info(f"Deleted {result.rowcount} existing user type associations")
+        
+        # Insert new associations using raw SQL
+        if valid_user_type_ids:
+            now = datetime.utcnow()
+            inserted_count = 0
+            for ut_id in valid_user_type_ids:
+                try:
+                    insert_sql = text("""
+                        INSERT INTO user_user_types (user_id, user_type_id, created_at) 
+                        VALUES (:user_id, :user_type_id, :created_at)
+                    """)
+                    db.session.execute(insert_sql, {
+                        "user_id": user.id,
+                        "user_type_id": ut_id,
+                        "created_at": now
+                    })
+                    inserted_count += 1
+                except Exception as e:
+                    logger.error(f"Error inserting user_type_id {ut_id}: {e}", exc_info=True)
+                    continue
+            
+            db.session.flush()
+            logger.info(f"Inserted {inserted_count} new user type associations")
+        
+        # Commit all changes
+        try:
+            db.session.commit()
+            logger.info(f"Successfully committed. User {user.id} now has {len(valid_user_type_ids)} user types")
+            
+            # Verify by querying database directly
+            verify_sql = text("SELECT COUNT(*) as count FROM user_user_types WHERE user_id = :user_id")
+            verify_result = db.session.execute(verify_sql, {"user_id": user.id}).fetchone()
+            logger.info(f"Database verification: User {user.id} has {verify_result[0]} user types in database")
+            
+            # Also get the actual IDs
+            ids_sql = text("SELECT user_type_id FROM user_user_types WHERE user_id = :user_id ORDER BY user_type_id")
+            ids_result = db.session.execute(ids_sql, {"user_id": user.id}).fetchall()
+            actual_ids = [row[0] for row in ids_result]
+            logger.info(f"Database verification: Actual user_type_ids in database: {actual_ids}")
+            
+            flash(f'انواع کاربری با موفقیت به کاربر "{user.name}" تخصیص داده شد ({len(valid_user_type_ids)} نوع)', 'success')
+            log_action('assign_user_types', 'user', user_id, {'user_type_ids': valid_user_type_ids})
+            
+            # Redirect to show the same user
+            return redirect(url_for('admin.assign_user_types', search=user.sso_id))
+            
+        except Exception as e:
+            db.session.rollback()
+            logger.error(f"Error committing user types: {e}", exc_info=True)
+            flash('خطا در ذخیره انواع کاربری', 'error')
+    
+    # GET request or after POST redirect
+    # Search for user if search query provided
+    if search_query:
+        # Search by SSO ID, name, or email
+        user = User.query.filter(
+            or_(
+                User.sso_id.ilike(f'%{search_query}%'),
+                User.name.ilike(f'%{search_query}%'),
+                User.email.ilike(f'%{search_query}%')
+            )
+        ).first()
+        
+        if user:
+            user_id = user.id
+            # Load user types with eager loading
+            user = User.query.options(joinedload(User.user_types)).get(user_id)
+            _ = user.user_types  # Force load
+    
+    # Get all user types for the form
+    user_types = UserType.query.order_by(UserType.name).all()
+    
+    return render_template('admin/users/assign_user_types.html', 
+                         user=user, 
+                         user_id=user_id,
+                         user_types=user_types,
+                         search_query=search_query)
+
+
 @admin_bp.route('/users/<int:user_id>/edit', methods=['GET', 'POST'])
 @login_required
 @admin_required
 def user_edit(user_id):
     """Edit user"""
-    user = User.query.get_or_404(user_id)
+    from sqlalchemy.orm import joinedload
+    # Use eager loading to ensure user_types are loaded
+    user = User.query.options(joinedload(User.user_types)).get_or_404(user_id)
+    # Force load user_types relationship
+    _ = user.user_types  # This triggers the eager load
+    logger.info(f"Loading edit page for user {user.id}, user has {len(user.user_types)} user types: {[ut.id for ut in user.user_types]}")
     # Get all user types for the form
     user_types = UserType.query.order_by(UserType.name).all()
     
@@ -2339,16 +2743,172 @@ def user_edit(user_id):
                 access = AccessLevelModel(level=level, user_id=user.id)
                 db.session.add(access)
         
-        # Update user types
-        user_type_ids = request.form.getlist('user_types')
-        user.user_types = []
-        for user_type_id in user_type_ids:
-            if user_type_id:
-                user_type = UserType.query.get(int(user_type_id))
-                if user_type:
-                    user.user_types.append(user_type)
+        # Update user types - Use direct SQL to ensure all are saved correctly
+        # Create detailed log file for debugging
+        BASE_DIR = os.path.abspath(os.path.dirname(os.path.dirname(__file__)))
+        log_file_path = os.path.join(BASE_DIR, 'app', 'user_edit_debug.log')
         
-        db.session.commit()
+        # Create debug logger
+        debug_logger = logging.getLogger('user_edit_debug')
+        debug_logger.setLevel(logging.DEBUG)
+        # Remove existing handlers to avoid duplicates
+        debug_logger.handlers = []
+        # Create file handler
+        try:
+            file_handler = logging.FileHandler(log_file_path, encoding='utf-8', mode='a')
+            file_handler.setLevel(logging.DEBUG)
+            formatter = logging.Formatter('%(asctime)s [%(levelname)s] %(message)s')
+            file_handler.setFormatter(formatter)
+            debug_logger.addHandler(file_handler)
+            debug_logger.propagate = False  # Prevent propagation to root logger
+        except Exception as e:
+            logger.error(f"Failed to create debug log file: {e}", exc_info=True)
+        
+        # Debug: Log all form data related to user_types
+        debug_logger.info("=" * 80)
+        debug_logger.info(f"USER EDIT DEBUG - User ID: {user.id}, Time: {datetime.now()}")
+        debug_logger.info("=" * 80)
+        debug_logger.info(f"All form keys: {list(request.form.keys())}")
+        debug_logger.info(f"All form data: {dict(request.form)}")
+        debug_logger.info(f"Form method: {request.method}")
+        debug_logger.info(f"Form content type: {request.content_type}")
+        
+        user_type_ids = request.form.getlist('user_types')
+        debug_logger.info(f"request.form.getlist('user_types'): {user_type_ids}")
+        debug_logger.info(f"Type: {type(user_type_ids)}, Length: {len(user_type_ids)}")
+        
+        # Also try alternative method to get all user_types values
+        all_form_items = list(request.form.items())
+        user_types_from_items = [v for k, v in all_form_items if k == 'user_types']
+        debug_logger.info(f"From request.form.items(): {user_types_from_items}")
+        
+        # Also check request.values
+        user_types_from_values = request.values.getlist('user_types')
+        debug_logger.info(f"From request.values.getlist('user_types'): {user_types_from_values}")
+        
+        logger.info(f"DEBUG: All form keys: {list(request.form.keys())}")
+        logger.info(f"DEBUG: All form data: {dict(request.form)}")
+        logger.info(f"Received user_type_ids from form: {user_type_ids} (type: {type(user_type_ids)}, length: {len(user_type_ids)})")
+        logger.info(f"DEBUG: user_types from items(): {user_types_from_items}")
+        
+        # Convert to integers and filter out empty values
+        valid_user_type_ids = []
+        for user_type_id in user_type_ids:
+            if user_type_id and str(user_type_id).strip():
+                try:
+                    valid_user_type_ids.append(int(user_type_id))
+                except (ValueError, TypeError) as e:
+                    logger.warning(f"Invalid user_type_id: {user_type_id}, error: {e}")
+                    continue
+        
+        logger.info(f"Valid user_type_ids: {valid_user_type_ids}")
+        
+        # Delete all existing user_type associations for this user using raw SQL
+        from models import user_user_types
+        
+        # First, check what exists before deletion
+        check_before_sql = text("SELECT user_type_id FROM user_user_types WHERE user_id = :user_id")
+        before_result = db.session.execute(check_before_sql, {"user_id": user.id}).fetchall()
+        before_ids = [row[0] for row in before_result]
+        debug_logger.info(f"BEFORE DELETE: User {user.id} has {len(before_ids)} user types: {before_ids}")
+        
+        # Delete using raw SQL to ensure it works
+        delete_sql = text("DELETE FROM user_user_types WHERE user_id = :user_id")
+        result = db.session.execute(delete_sql, {"user_id": user.id})
+        db.session.flush()  # Flush to ensure delete is applied
+        debug_logger.info(f"DELETE executed, rowcount: {result.rowcount}")
+        logger.info(f"Deleted {result.rowcount} existing user type associations")
+        
+        # Verify deletion
+        check_after_sql = text("SELECT COUNT(*) as count FROM user_user_types WHERE user_id = :user_id")
+        after_result = db.session.execute(check_after_sql, {"user_id": user.id}).fetchone()
+        debug_logger.info(f"AFTER DELETE: User {user.id} has {after_result[0]} user types in database")
+        
+        logger.info(f"Deleted all existing user types for user {user.id}")
+        
+        # Insert new associations using raw SQL
+        if valid_user_type_ids:
+            debug_logger.info(f"Starting INSERT for {len(valid_user_type_ids)} user types: {valid_user_type_ids}")
+            # Use raw SQL INSERT for each user type to ensure all are saved
+            now = datetime.utcnow()
+            inserted_count = 0
+            for ut_id in valid_user_type_ids:
+                try:
+                    debug_logger.info(f"Attempting INSERT for user_type_id: {ut_id}")
+                    # Use text() with explicit parameter binding
+                    insert_sql = text("""
+                        INSERT INTO user_user_types (user_id, user_type_id, created_at) 
+                        VALUES (:user_id, :user_type_id, :created_at)
+                    """)
+                    params = {
+                        "user_id": user.id,
+                        "user_type_id": ut_id,
+                        "created_at": now
+                    }
+                    debug_logger.info(f"INSERT params: {params}")
+                    result = db.session.execute(insert_sql, params)
+                    inserted_count += 1
+                    debug_logger.info(f"INSERT successful for user_type_id: {ut_id}, rowcount: {result.rowcount}")
+                    logger.info(f"Executed INSERT for user_type_id: {ut_id}, rowcount: {result.rowcount}")
+                except Exception as e:
+                    debug_logger.error(f"Error inserting user_type_id {ut_id}: {e}", exc_info=True)
+                    logger.error(f"Error inserting user_type_id {ut_id}: {e}", exc_info=True)
+                    continue
+            
+            debug_logger.info(f"Before FLUSH: Inserted {inserted_count} out of {len(valid_user_type_ids)} requested")
+            # Flush once after all inserts to ensure all are applied
+            db.session.flush()
+            debug_logger.info(f"After FLUSH: Flushed {inserted_count} new user type associations")
+            
+            # Verify after flush
+            check_after_flush_sql = text("SELECT user_type_id FROM user_user_types WHERE user_id = :user_id")
+            after_flush_result = db.session.execute(check_after_flush_sql, {"user_id": user.id}).fetchall()
+            after_flush_ids = [row[0] for row in after_flush_result]
+            debug_logger.info(f"AFTER FLUSH: User {user.id} has {len(after_flush_ids)} user types in database: {after_flush_ids}")
+            
+            logger.info(f"Flushed {inserted_count} new user type associations out of {len(valid_user_type_ids)} requested: {valid_user_type_ids}")
+        
+        # Commit all changes together
+        try:
+            debug_logger.info(f"Before COMMIT: About to commit {len(valid_user_type_ids)} user types")
+            db.session.commit()
+            debug_logger.info(f"COMMIT successful")
+            logger.info(f"Successfully committed. User {user.id} should now have {len(valid_user_type_ids)} user types")
+            
+            # Verify by querying database directly
+            verify_sql = text("SELECT COUNT(*) as count FROM user_user_types WHERE user_id = :user_id")
+            verify_result = db.session.execute(verify_sql, {"user_id": user.id}).fetchone()
+            debug_logger.info(f"AFTER COMMIT - Count query: User {user.id} has {verify_result[0]} user types in database")
+            logger.info(f"Database verification: User {user.id} has {verify_result[0]} user types in database")
+            
+            # Also get the actual IDs
+            ids_sql = text("SELECT user_type_id FROM user_user_types WHERE user_id = :user_id ORDER BY user_type_id")
+            ids_result = db.session.execute(ids_sql, {"user_id": user.id}).fetchall()
+            actual_ids = [row[0] for row in ids_result]
+            debug_logger.info(f"AFTER COMMIT - IDs query: Actual user_type_ids in database: {actual_ids}")
+            logger.info(f"Database verification: Actual user_type_ids in database: {actual_ids}")
+            
+            debug_logger.info(f"Expected: {valid_user_type_ids}, Actual in DB: {actual_ids}")
+            if set(valid_user_type_ids) != set(actual_ids):
+                debug_logger.error(f"MISMATCH! Expected {valid_user_type_ids} but got {actual_ids}")
+            
+        except Exception as e:
+            db.session.rollback()
+            debug_logger.error(f"COMMIT FAILED: {e}", exc_info=True)
+            logger.error(f"Error committing user types: {e}", exc_info=True)
+            flash('خطا در ذخیره انواع کاربری', 'error')
+            return render_template('admin/users/edit.html', user=user, user_types=user_types)
+        
+        # Re-query user to ensure relationships are loaded correctly
+        db.session.expire_all()  # Expire all objects in session
+        user = User.query.get_or_404(user_id)  # Re-query to get fresh data
+        
+        # Force load the relationship
+        _ = user.user_types  # This triggers the lazy load
+        
+        logger.info(f"After re-query, User {user.id} has {len(user.user_types)} user types: {[ut.name for ut in user.user_types]}")
+        logger.info(f"After re-query, User {user.id} has user_type_ids: {[ut.id for ut in user.user_types]}")
+        
         log_action('modify_user', 'user', user_id, {'changes': request.form.to_dict()})
         flash('کاربر با موفقیت به‌روزرسانی شد', 'success')
         return redirect(url_for('admin.user_detail', user_id=user_id))
@@ -2392,13 +2952,35 @@ def user_create():
                 access = AccessLevelModel(level=level, user_id=user.id)
                 db.session.add(access)
         
-        # Add user types
+        # Add user types using direct SQL to ensure all are saved correctly
         user_type_ids = request.form.getlist('user_types')
+        logger.info(f"Received user_type_ids from form: {user_type_ids}")
+        
+        # Convert to integers and filter out empty values
+        valid_user_type_ids = []
         for user_type_id in user_type_ids:
-            if user_type_id:
-                user_type = UserType.query.get(int(user_type_id))
-                if user_type:
-                    user.user_types.append(user_type)
+            if user_type_id and str(user_type_id).strip():
+                try:
+                    valid_user_type_ids.append(int(user_type_id))
+                except (ValueError, TypeError) as e:
+                    logger.warning(f"Invalid user_type_id: {user_type_id}, error: {e}")
+                    continue
+        
+        logger.info(f"Valid user_type_ids: {valid_user_type_ids}")
+        
+        # Insert user type associations using raw SQL
+        if valid_user_type_ids:
+            from models import user_user_types
+            # Use raw SQL INSERT for each user type to ensure all are saved
+            for ut_id in valid_user_type_ids:
+                insert_sql = text("INSERT INTO user_user_types (user_id, user_type_id, created_at) VALUES (:user_id, :user_type_id, :created_at)")
+                db.session.execute(insert_sql, {
+                    "user_id": user.id,
+                    "user_type_id": ut_id,
+                    "created_at": datetime.utcnow()
+                })
+            db.session.flush()  # Flush to ensure inserts are applied
+            logger.info(f"Inserted {len(valid_user_type_ids)} user type associations: {valid_user_type_ids}")
         
         db.session.commit()
         log_action('create_user', 'user', user.id)
@@ -2698,7 +3280,15 @@ def knowledge_article_create():
                 'tags': [t.strip() for t in request.form.get('tags', '').split(',') if t.strip()],
                 'publish_start_date': request.form.get('publish_start_date') or None,
                 'publish_end_date': request.form.get('publish_end_date') or None,
-                'allowed_user_types': [int(ut_id) for ut_id in request.form.getlist('allowed_user_types') if ut_id]
+                'allowed_user_types': [int(ut_id) for ut_id in request.form.getlist('allowed_user_types') if ut_id],
+                # New fields
+                'initial_problem': request.form.get('initial_problem') or None,
+                'results_achieved': request.form.get('results_achieved') or None,
+                'future_suggestions': request.form.get('future_suggestions') or None,
+                'confidentiality_level': request.form.get('confidentiality_level', 'public'),
+                'requires_approval': request.form.get('requires_approval', 'false').lower() == 'true',
+                'approver_id': request.form.get('approver_id', type=int) or None,
+                'related_process_project': request.form.get('related_process_project') or None
             }
             
             # Get current user ID
@@ -2749,7 +3339,10 @@ def knowledge_article_create():
     # Get user types for access control
     user_types = UserType.query.order_by(UserType.name).all()
     
-    return render_template('admin/knowledge/articles/create.html', categories=categories, user_types=user_types)
+    # Get users for approver dropdown
+    users = User.query.order_by(User.name).all()
+    
+    return render_template('admin/knowledge/articles/create.html', categories=categories, user_types=user_types, users=users)
 
 
 @admin_bp.route('/knowledge/articles/<int:article_id>/edit', methods=['GET', 'POST'])
@@ -2776,7 +3369,15 @@ def knowledge_article_edit(article_id):
                 'tags': [t.strip() for t in request.form.get('tags', '').split(',') if t.strip()],
                 'publish_start_date': request.form.get('publish_start_date') or None,
                 'publish_end_date': request.form.get('publish_end_date') or None,
-                'allowed_user_types': [int(ut_id) for ut_id in request.form.getlist('allowed_user_types') if ut_id]
+                'allowed_user_types': [int(ut_id) for ut_id in request.form.getlist('allowed_user_types') if ut_id],
+                # New fields
+                'initial_problem': request.form.get('initial_problem') or None,
+                'results_achieved': request.form.get('results_achieved') or None,
+                'future_suggestions': request.form.get('future_suggestions') or None,
+                'confidentiality_level': request.form.get('confidentiality_level', 'public'),
+                'requires_approval': request.form.get('requires_approval', 'false').lower() == 'true',
+                'approver_id': request.form.get('approver_id', type=int) or None,
+                'related_process_project': request.form.get('related_process_project') or None
             }
             
             response = requests.put(api_url, json=data, headers=headers, timeout=10)
@@ -2827,7 +3428,10 @@ def knowledge_article_edit(article_id):
             # Get user types for access control
             user_types = UserType.query.order_by(UserType.name).all()
             
-            return render_template('admin/knowledge/articles/edit.html', article=article, categories=categories, user_types=user_types)
+            # Get users for approver dropdown
+            users = User.query.order_by(User.name).all()
+            
+            return render_template('admin/knowledge/articles/edit.html', article=article, categories=categories, user_types=user_types, users=users)
         else:
             flash('مقاله یافت نشد', 'error')
             return redirect(url_for('admin.knowledge_articles_list'))
