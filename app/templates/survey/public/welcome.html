@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+
+{% block title %}شروع نظرسنجی{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <div class="row justify-content-center">
+        <div class="col-md-8">
+            <div class="card text-center">
+                <div class="card-body">
+                    {% if survey and survey.logo_path %}
+                    <img src="{{ survey.logo_path }}" alt="Logo" class="mb-3" style="max-height: 150px;">
+                    {% endif %}
+                    <h2 class="card-title">{{ survey.title if survey else 'نظرسنجی' }}</h2>
+                    {% if survey and survey.welcome_message %}
+                    <p class="card-text mt-3">{{ survey.welcome_message }}</p>
+                    {% endif %}
+                    {% if hash_param %}
+                    <a href="{{ url_for('survey.survey_questions', survey_id=survey.id, hash=hash_param) }}" class="btn btn-primary btn-lg mt-4">
+                        {{ survey.welcome_button_text if survey and survey.welcome_button_text else 'شروع نظرسنجی' }}
+                    </a>
+                    {% else %}
+                    <a href="{{ url_for('survey.survey_questions', survey_id=survey.id) }}" class="btn btn-primary btn-lg mt-4">
+                        {{ survey.welcome_button_text if survey and survey.welcome_button_text else 'شروع نظرسنجی' }}
+                    </a>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
