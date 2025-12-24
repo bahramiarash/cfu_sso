@@ -385,16 +385,20 @@ def knowledge_proxy(path):
                 request_kwargs['json'] = request.json
             else:
                 request_kwargs['data'] = request.form
-                if request.files:
-                    request_kwargs['files'] = request.files
+                # Only forward files that actually have a filename (not empty file uploads)
+                valid_files = filter_valid_files(request.files)
+                if valid_files:
+                    request_kwargs['files'] = valid_files
             resp = session_obj.post(target_url, **request_kwargs)
         elif request.method in ["PUT", "PATCH"]:
             if request.is_json:
                 request_kwargs['json'] = request.json
             else:
                 request_kwargs['data'] = request.form
-                if request.files:
-                    request_kwargs['files'] = request.files
+                # Only forward files that actually have a filename (not empty file uploads)
+                valid_files = filter_valid_files(request.files)
+                if valid_files:
+                    request_kwargs['files'] = valid_files
             resp = session_obj.request(request.method, target_url, **request_kwargs)
         elif request.method == "DELETE":
             resp = session_obj.delete(target_url, **request_kwargs)
@@ -558,6 +562,20 @@ def tools():
                          has_dashboard_access=has_dashboard_access,
                          is_survey_manager=is_survey_manager)
 
+
+def filter_valid_files(files_dict):
+    """Filter out empty file uploads (files with empty or no filename)"""
+    if not files_dict:
+        return None
+    valid_files = {}
+    for key, file_obj in files_dict.items():
+        filename = getattr(file_obj, 'filename', None) or ''
+        filename = filename.strip() if filename else ''
+        if filename:  # Only include files with actual filenames
+            valid_files[key] = file_obj
+    return valid_files if valid_files else None
+
+
 @app.route("/survey", defaults={"path": ""}, methods=['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS', 'HEAD'])
 @app.route("/survey/", defaults={"path": ""}, methods=['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS', 'HEAD'])
 @app.route("/survey/<path:path>", methods=['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS', 'HEAD'])
@@ -565,10 +583,27 @@ def survey_proxy(path):
     """Proxy survey requests to Survey Service or monolithic app"""
     import requests
     
-    token = get_auth_token()
-    if not token:
-        redirect_uri = request.url_root.rstrip('/')
-        return redirect(f"/auth/login?redirect_uri={redirect_uri}")
+    # Check if this is an anonymous survey access (with hash parameter)
+    # For anonymous surveys, authentication is not required
+    hash_param = request.args.get('hash')
+    is_anonymous_access = False
+    
+    # Check if path is /start or /<survey_id>/start and hash is provided
+    if hash_param and ('/start' in path or path.endswith('/start') or path == 'start'):
+        # This might be an anonymous survey - allow access without authentication
+        # The monolithic app will verify the hash and survey access type
+        is_anonymous_access = True
+        logger.info(f"Anonymous survey access detected: path={path}, hash={hash_param[:8]}...")
+    
+    # Only require authentication for non-anonymous survey routes
+    if not is_anonymous_access:
+        token = get_auth_token()
+        if not token:
+            redirect_uri = request.url_root.rstrip('/')
+            return redirect(f"/auth/login?redirect_uri={redirect_uri}")
+    else:
+        # For anonymous access, token is optional
+        token = get_auth_token()
     
     # For now, proxy to monolithic app (Survey Service only has API endpoints, no HTML)
     # Monolithic app runs on port 5006 to avoid conflict with Gateway Service (port 5000)
@@ -588,18 +623,16 @@ def survey_proxy(path):
     if request.query_string:
         target_url += f"?{request.query_string.decode()}"
     
-    logger.info(f"Proxying survey request to: {target_url}")
+    logger.info(f"Proxying survey request to: {target_url} (anonymous_access={is_anonymous_access})")
     
     try:
         # Forward request with cookies and headers
         # Monolithic app uses Flask session, so we need to forward all cookies
-        headers = {
-            "Authorization": f"Bearer {token}",
-        }
+        headers = {}
         
-        # CRITICAL: Add auth_token to headers so monolithic app can sync session
-        # This ensures auth_token is available even if cookies don't work
+        # Only add Authorization header if token exists (not required for anonymous access)
         if token:
+            headers["Authorization"] = f"Bearer {token}"
             headers["X-Auth-Token"] = token
         
         # Create a session to maintain cookies
@@ -615,10 +648,11 @@ def survey_proxy(path):
         
         # Forward the request (don't follow redirects automatically)
         # Handle different HTTP methods
+        # Increased timeout for survey operations that may involve file uploads or complex processing
         request_kwargs = {
             'headers': headers,
             'allow_redirects': False,
-            'timeout': 30
+            'timeout': 120  # Increased from 30 to 120 seconds for survey operations
         }
         
         if request.method == "GET":
@@ -628,18 +662,59 @@ def survey_proxy(path):
             if request.is_json:
                 request_kwargs['json'] = request.json
             else:
-                request_kwargs['data'] = request.form
-                if request.files:
-                    request_kwargs['files'] = request.files
+                # For form data, preserve multiple values for the same key
+                # This is critical for multi-value fields like parameter_name[], parameter_values[], etc.
+                if request.content_type and 'multipart/form-data' in request.content_type:
+                    # For multipart/form-data, use getlist() to preserve all values
+                    form_data = []
+                    for key in request.form:
+                        values = request.form.getlist(key)
+                        for value in values:
+                            form_data.append((key, value))
+                    request_kwargs['data'] = form_data
+                else:
+                    request_kwargs['data'] = request.form
+                
+                # Only forward files that actually have a filename (not empty file uploads)
+                valid_files = filter_valid_files(request.files)
+                if valid_files:
+                    request_kwargs['files'] = valid_files
             resp = session_obj.post(target_url, **request_kwargs)
         elif request.method in ["PUT", "PATCH"]:
             # Handle both form data and JSON
             if request.is_json:
                 request_kwargs['json'] = request.json
             else:
-                request_kwargs['data'] = request.form
-                if request.files:
-                    request_kwargs['files'] = request.files
+                # For form data, preserve multiple values for the same key
+                # This is critical for multi-value fields like parameter_name[], parameter_values[], etc.
+                if request.content_type and 'multipart/form-data' in request.content_type:
+                    # For multipart/form-data, use getlist() to preserve all values
+                    # Build form_data as list of tuples to preserve multiple values for same key
+                    form_data = []
+                    for key in request.form:
+                        values = request.form.getlist(key)
+                        for value in values:
+                            form_data.append((key, value))
+                    
+                    # Only forward files that actually have a filename (not empty file uploads)
+                    valid_files = filter_valid_files(request.files)
+                    
+                    # When we have files, we need to combine form_data and files properly
+                    if valid_files:
+                        # For multipart with files, requests library handles this automatically
+                        # when we pass both data (as list of tuples) and files
+                        request_kwargs['data'] = form_data
+                        request_kwargs['files'] = valid_files
+                    else:
+                        # No files, just form data
+                        request_kwargs['data'] = form_data
+                else:
+                    # application/x-www-form-urlencoded
+                    request_kwargs['data'] = request.form
+                    # Files are not typically sent with urlencoded forms, but check anyway
+                    valid_files = filter_valid_files(request.files)
+                    if valid_files:
+                        request_kwargs['files'] = valid_files
             resp = session_obj.request(request.method, target_url, **request_kwargs)
         elif request.method == "DELETE":
             resp = session_obj.delete(target_url, **request_kwargs)
@@ -963,30 +1038,58 @@ def admin_proxy(path):
                 # This is critical for multi-select fields like selected_user_types
                 logger.info(f"Gateway POST: content-type={request.content_type}, method={request.method}")
                 
-                # CRITICAL: Flask's request.form.getlist() should work, but let's also check raw data
+                # CRITICAL: Flask's request.form.getlist() may ignore fields with value "0"
+                # So we need to parse raw data to ensure all fields are included
                 raw_data = request.get_data(as_text=True)
                 logger.info(f"Gateway POST: Raw request data (first 500 chars): {raw_data[:500]}")
                 logger.info(f"Gateway POST: request.form keys: {list(request.form.keys())}")
                 logger.info(f"Gateway POST: request.form dict: {dict(request.form)}")
                 
-                # Parse raw form data to get ALL values
-                # Flask's request.form.getlist() should work, but let's verify
+                # Parse form data - handle both application/x-www-form-urlencoded and multipart/form-data
                 form_data = []
-                for key in request.form:
-                    # Use getlist() to get ALL values for this key
-                    values = request.form.getlist(key)
-                    logger.info(f"Gateway POST: Key '{key}' - getlist() returned {len(values)} values: {values}")
-                    if len(values) == 0:
-                        # Fallback: try to parse from raw data
-                        logger.warning(f"Gateway POST: getlist() returned empty for key '{key}', trying raw data parse")
-                        # Parse manually from raw_data
-                        from urllib.parse import parse_qs
-                        parsed = parse_qs(raw_data)
-                        if key in parsed:
-                            values = parsed[key]
-                            logger.info(f"Gateway POST: Parsed from raw data: {key} = {values}")
-                    for value in values:
-                        form_data.append((key, value))
+                
+                if request.content_type and 'multipart/form-data' in request.content_type:
+                    # For multipart/form-data, Flask's request.form.getlist() should work
+                    # But it may ignore fields with value "0", so we need to ensure all fields are included
+                    # Collect all keys first
+                    all_keys = set()
+                    for key in request.form:
+                        all_keys.add(key)
+                        values = request.form.getlist(key)
+                        # Special logging for parameter fields
+                        if 'parameter' in key.lower():
+                            logger.info(f"Gateway POST: Parameter field '{key}' - getlist() returned {len(values)} values: {values}")
+                        for value in values:
+                            form_data.append((key, value))
+                    
+                    # For multipart, we can't easily parse raw data due to boundary encoding
+                    # But we can check if we're missing parameter fields by looking at the pattern
+                    # If we have parameter_name[] but fewer parameter_id[] values, we might be missing "0" values
+                    param_name_count = len([k for k in all_keys if 'parameter_name[]' == k])
+                    param_id_count = len([k for k in all_keys if 'parameter_id[]' == k])
+                    if param_name_count > 0 and param_id_count < param_name_count:
+                        logger.warning(f"Gateway POST: Mismatch detected - {param_name_count} parameter names but only {param_id_count} parameter IDs. Some '0' values may be missing.")
+                else:
+                    # For application/x-www-form-urlencoded, parse raw data directly
+                    from urllib.parse import parse_qs
+                    parsed_raw = parse_qs(raw_data, keep_blank_values=True)
+                    
+                    # Build form_data from parsed raw data to ensure all values are included
+                    for key in parsed_raw:
+                        values = parsed_raw[key]
+                        # Special logging for parameter fields
+                        if 'parameter' in key.lower():
+                            logger.info(f"Gateway POST: Parameter field '{key}' - parsed from raw data: {len(values)} values: {values}")
+                        else:
+                            logger.info(f"Gateway POST: Key '{key}' - parsed from raw data: {len(values)} values")
+                        for value in values:
+                            form_data.append((key, value))
+                    
+                    # Also verify with request.form.getlist() for comparison
+                    for key in request.form:
+                        values = request.form.getlist(key)
+                        if 'parameter' in key.lower():
+                            logger.info(f"Gateway POST: Parameter field '{key}' - getlist() returned {len(values)} values: {values}")
                 
                 logger.info(f"Gateway POST: Final form_data has {len(form_data)} entries")
                 if len(form_data) <= 5:
@@ -995,11 +1098,12 @@ def admin_proxy(path):
                     logger.info(f"Gateway POST: form_data first 5 entries: {form_data[:5]}")
                 
                 if request.content_type and 'multipart/form-data' in request.content_type:
-                    # Also add files if any
-                    if request.files:
+                    # Also add files if any (only valid files with filenames)
+                    valid_files = filter_valid_files(request.files)
+                    if valid_files:
                         files_data = []
-                        for key in request.files:
-                            files_data.append((key, (request.files[key].filename, request.files[key].read(), request.files[key].content_type)))
+                        for key in valid_files:
+                            files_data.append((key, (valid_files[key].filename, valid_files[key].read(), valid_files[key].content_type)))
                         request_kwargs['files'] = files_data
                 
                 request_kwargs['data'] = form_data
@@ -1010,8 +1114,10 @@ def admin_proxy(path):
                 request_kwargs['json'] = request.json
             else:
                 request_kwargs['data'] = request.form
-                if request.files:
-                    request_kwargs['files'] = request.files
+                # Only forward files that actually have a filename (not empty file uploads)
+                valid_files = filter_valid_files(request.files)
+                if valid_files:
+                    request_kwargs['files'] = valid_files
             resp = session_obj.request(request.method, target_url, **request_kwargs)
         elif request.method == "DELETE":
             resp = session_obj.delete(target_url, **request_kwargs)
@@ -1555,8 +1661,10 @@ def dashboard_proxy(path):
                 request_kwargs['json'] = request.json
             else:
                 request_kwargs['data'] = request.form
-                if request.files:
-                    request_kwargs['files'] = request.files
+                # Only forward files that actually have a filename (not empty file uploads)
+                valid_files = filter_valid_files(request.files)
+                if valid_files:
+                    request_kwargs['files'] = valid_files
             resp = session_obj.post(target_url, **request_kwargs)
         elif request.method in ["PUT", "PATCH"]:
             # Handle both form data and JSON
@@ -1564,8 +1672,10 @@ def dashboard_proxy(path):
                 request_kwargs['json'] = request.json
             else:
                 request_kwargs['data'] = request.form
-                if request.files:
-                    request_kwargs['files'] = request.files
+                # Only forward files that actually have a filename (not empty file uploads)
+                valid_files = filter_valid_files(request.files)
+                if valid_files:
+                    request_kwargs['files'] = valid_files
             resp = session_obj.request(request.method, target_url, **request_kwargs)
         elif request.method == "DELETE":
             resp = session_obj.delete(target_url, **request_kwargs)

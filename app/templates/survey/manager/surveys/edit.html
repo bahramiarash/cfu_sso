@@ -1,0 +1,464 @@
+{% if is_admin %}
+{% extends "admin/base.html" %}
+{% else %}
+{% extends "survey/manager/base.html" %}
+{% endif %}
+
+{% block title %}ویرایش پرسشنامه{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <div class="row">
+        <div class="col-md-10">
+            <div class="card">
+                <div class="card-header">
+                    <h5><i class="bi bi-pencil"></i> ویرایش پرسشنامه: {{ survey.title }}</h5>
+                </div>
+                <div class="card-body">
+                    <form method="POST" enctype="multipart/form-data">
+                        <div class="mb-3">
+                            <label for="title" class="form-label">عنوان پرسشنامه <span class="text-danger">*</span></label>
+                            <input type="text" class="form-control" id="title" name="title" value="{{ survey.title }}" required>
+                        </div>
+                        
+                        <div class="mb-3">
+                            <label for="description" class="form-label">توضیحات</label>
+                            <textarea class="form-control" id="description" name="description" rows="3">{{ survey.description or '' }}</textarea>
+                        </div>
+                        
+                        <div class="row">
+                            <div class="col-md-6">
+                                <div class="mb-3">
+                                    <label for="start_date" class="form-label">تاریخ شروع</label>
+                                    <input type="text" class="form-control" id="start_date" name="start_date" 
+                                           value="{% if survey.start_date %}{{ survey.start_date|jalali_date }}{% endif %}" placeholder="YYYY/MM/DD">
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="mb-3">
+                                    <label for="end_date" class="form-label">تاریخ پایان</label>
+                                    <input type="text" class="form-control" id="end_date" name="end_date"
+                                           value="{% if survey.end_date %}{{ survey.end_date|jalali_date }}{% endif %}" placeholder="YYYY/MM/DD">
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="mb-3">
+                            <label for="status" class="form-label">وضعیت</label>
+                            <select class="form-select" id="status" name="status">
+                                <option value="active" {% if survey.status == 'active' %}selected{% endif %}>فعال</option>
+                                <option value="inactive" {% if survey.status == 'inactive' %}selected{% endif %}>غیرفعال</option>
+                            </select>
+                        </div>
+                        
+                        <div class="mb-3">
+                            <label for="access_type" class="form-label">نوع دسترسی</label>
+                            <select class="form-select" id="access_type" name="access_type" onchange="toggleAnonymousPassword()">
+                                <option value="public" {% if survey.access_type == 'public' %}selected{% endif %}>ورود از طریق SSO</option>
+                                <option value="anonymous" {% if survey.access_type == 'anonymous' %}selected{% endif %}>بدون احراز هویت (عمومی)</option>
+                                <option value="user_groups" {% if survey.access_type == 'user_groups' %}selected{% endif %}>گروه‌های کاربری</option>
+                                <option value="specific_users" {% if survey.access_type == 'specific_users' %}selected{% endif %}>کاربران مشخص (کد ملی)</option>
+                            </select>
+                        </div>
+                        
+                        <div class="mb-3" id="anonymousPasswordContainer" style="display: {% if survey.access_type == 'anonymous' %}block{% else %}none{% endif %};">
+                            <label for="anonymous_access_password" class="form-label">رمز دسترسی (اختیاری)</label>
+                            <input type="password" class="form-control" id="anonymous_access_password" name="anonymous_access_password" 
+                                   placeholder="در صورت خالی بودن، لینک بدون رمز خواهد بود">
+                            <small class="form-text text-muted">اگر رمز وارد شود، کاربران برای دسترسی به پرسشنامه باید این رمز را وارد کنند. در صورت خالی بودن، لینک بدون رمز خواهد بود.</small>
+                        </div>
+                        
+                        <div class="mb-3" id="anonymousAccessLinkContainer" style="display: {% if survey.access_type == 'anonymous' and anonymous_access_link %}block{% else %}none{% endif %};">
+                            <label class="form-label">لینک دسترسی مستقیم (بدون احراز هویت)</label>
+                            <div class="input-group">
+                                <input type="text" class="form-control" id="anonymousLink" value="{% if anonymous_access_link %}{{ anonymous_access_link }}{% endif %}" readonly>
+                                <button class="btn btn-outline-secondary" type="button" onclick="copyAnonymousLink()">
+                                    <i class="bi bi-clipboard"></i> کپی
+                                </button>
+                            </div>
+                            <small class="form-text text-muted">این لینک را می‌توانید برای دسترسی مستقیم به پرسشنامه بدون نیاز به احراز هویت به اشتراک بگذارید.</small>
+                        </div>
+                        
+                        <div class="mb-3" id="surveyParametersContainer" style="display: {% if survey.access_type == 'anonymous' %}block{% else %}none{% endif %};">
+                            <label class="form-label">پارامترهای URL (حداکثر 5 پارامتر)</label>
+                            <small class="form-text text-muted d-block mb-2">می‌توانید تا 5 پارامتر تعریف کنید که از طریق URL به پرسشنامه ارسال شوند. برای مثال: center و type</small>
+                            <div id="parametersList">
+                                {% if survey_parameters %}
+                                    {% for param in survey_parameters %}
+                                    <div class="parameter-item mb-3 p-3 border rounded" data-parameter-id="{{ param.id }}">
+                                        <div class="row">
+                                            <div class="col-md-4">
+                                                <label class="form-label">نام پارامتر</label>
+                                                <input type="text" class="form-control parameter-name" name="parameter_name[]" value="{{ param.parameter_name }}" placeholder="مثال: center" required>
+                                            </div>
+                                            <div class="col-md-6">
+                                                <label class="form-label">مقادیر ممکن (با کاما جدا کنید)</label>
+                                                <textarea class="form-control parameter-values" name="parameter_values[]" rows="3" placeholder="مثال: مرکز1, مرکز2, مرکز3" required>{{ param.parameter_values|join(', ') }}</textarea>
+                                            </div>
+                                            <div class="col-md-2">
+                                                <label class="form-label">&nbsp;</label>
+                                                <button type="button" class="btn btn-danger w-100 remove-parameter" onclick="removeParameter(this)">
+                                                    <i class="bi bi-trash"></i> حذف
+                                                </button>
+                                            </div>
+                                        </div>
+                                        <input type="hidden" name="parameter_id[]" value="{{ param.id }}">
+                                    </div>
+                                    {% endfor %}
+                                {% endif %}
+                            </div>
+                            <button type="button" class="btn btn-success" id="addParameterBtn" onclick="addParameter()">
+                                <i class="bi bi-plus-circle"></i> افزودن پارامتر
+                            </button>
+                            <small class="form-text text-muted d-block mt-2">مثال: اگر پارامتر "center" با مقادیر "مرکز1, مرکز2" تعریف شود، لینک به صورت <code>?hash=...&center=مرکز1</code> خواهد بود.</small>
+                        </div>
+                        
+                        <div class="row">
+                            <div class="col-md-6">
+                                <div class="mb-3">
+                                    <label for="max_completions_per_user" class="form-label">حداکثر تکمیل در هر بازه</label>
+                                    <input type="number" class="form-control" id="max_completions_per_user" 
+                                           name="max_completions_per_user" value="{{ survey.max_completions_per_user }}" min="1">
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="mb-3">
+                                    <label for="completion_period_type" class="form-label">نوع بازه زمانی</label>
+                                    <select class="form-select" id="completion_period_type" name="completion_period_type">
+                                        <option value="monthly" {% if survey.completion_period_type == 'monthly' %}selected{% endif %}>ماهانه</option>
+                                        <option value="quarterly" {% if survey.completion_period_type == 'quarterly' %}selected{% endif %}>فصلی</option>
+                                        <option value="semester" {% if survey.completion_period_type == 'semester' %}selected{% endif %}>ترمی</option>
+                                        <option value="yearly" {% if survey.completion_period_type == 'yearly' %}selected{% endif %}>سالیانه</option>
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="mb-3">
+                            <label for="welcome_message" class="form-label">پیام خوش‌آمدگویی</label>
+                            <textarea class="form-control" id="welcome_message" name="welcome_message" rows="3">{{ survey.welcome_message or '' }}</textarea>
+                        </div>
+                        
+                        <div class="mb-3">
+                            <label for="welcome_button_text" class="form-label">متن دکمه شروع</label>
+                            <input type="text" class="form-control" id="welcome_button_text" 
+                                   name="welcome_button_text" value="{{ survey.welcome_button_text or 'شروع نظرسنجی' }}">
+                        </div>
+                        
+                        {% if survey.logo_path %}
+                        <div class="mb-3">
+                            <label class="form-label">لوگوی فعلی</label>
+                            <div class="d-flex align-items-center gap-3">
+                                <img src="{{ survey.logo_path }}" alt="Logo" style="max-height: 100px; border: 1px solid #ddd; border-radius: 4px; padding: 5px;">
+                                <div>
+                                    <button type="button" class="btn btn-danger btn-sm" onclick="deleteLogo()">
+                                        <i class="bi bi-trash"></i> حذف لوگو
+                                    </button>
+                                </div>
+                            </div>
+                            <input type="hidden" id="delete_logo" name="delete_logo" value="0">
+                        </div>
+                        {% endif %}
+                        
+                        <div class="mb-3">
+                            <label for="logo" class="form-label">تغییر لوگو (اختیاری)</label>
+                            <input type="file" class="form-control" id="logo" name="logo" accept="image/*" onchange="validateLogoFile(this)">
+                            <small class="form-text text-muted">حداکثر حجم: 2 مگابایت. فرمت‌های مجاز: BMP, GIF, JPEG, JPG, PNG, SVG, WEBP</small>
+                            <div id="fileError" class="text-danger mt-1" style="display: none;"></div>
+                        </div>
+                        
+                        <div class="mb-3">
+                            <label for="display_mode" class="form-label">حالت نمایش</label>
+                            <select class="form-select" id="display_mode" name="display_mode">
+                                <option value="multi_page" {% if survey.display_mode == 'multi_page' %}selected{% endif %}>صفحه به صفحه</option>
+                                <option value="single_page" {% if survey.display_mode == 'single_page' %}selected{% endif %}>یک صفحه</option>
+                            </select>
+                        </div>
+                        
+                        
+                        <div class="d-flex justify-content-between">
+                            {% if is_admin %}
+                            <a href="{{ url_for('admin.survey_surveys_list') }}" class="btn btn-secondary">
+                                <i class="bi bi-arrow-right"></i> بازگشت
+                            </a>
+                            {% else %}
+                            <a href="{{ url_for('survey.manager_surveys_list') }}" class="btn btn-secondary">
+                                <i class="bi bi-arrow-right"></i> بازگشت
+                            </a>
+                            {% endif %}
+                            <button type="submit" class="btn btn-primary">
+                                <i class="bi bi-check-circle"></i> ذخیره تغییرات
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+// Global variable to track file validation status
+let logoFileValid = true;
+
+function validateLogoFile(input) {
+    const maxSize = 2 * 1024 * 1024; // 2MB in bytes
+    const errorDiv = document.getElementById('fileError');
+    const allowedExtensions = ['bmp', 'gif', 'jpeg', 'jpg', 'png', 'svg', 'webp'];
+    const allowedMimeTypes = [
+        'image/bmp',
+        'image/gif',
+        'image/jpeg',
+        'image/jpg',
+        'image/png',
+        'image/svg+xml',
+        'image/webp'
+    ];
+    
+    logoFileValid = true;
+    errorDiv.style.display = 'none';
+    errorDiv.className = 'text-danger mt-1';
+    
+    if (input.files && input.files[0]) {
+        const file = input.files[0];
+        const fileName = file.name.toLowerCase();
+        const fileSize = file.size;
+        
+        // Check file extension
+        let fileExtension = '';
+        if (fileName.lastIndexOf('.') > 0) {
+            fileExtension = fileName.substring(fileName.lastIndexOf('.') + 1);
+        }
+        
+        // Validate file extension
+        if (!fileExtension || !allowedExtensions.includes(fileExtension)) {
+            errorDiv.textContent = 'خطا در آپلود لوگو: نوع فایل مجاز نیست. فایل‌های مجاز: BMP, GIF, JPEG, JPG, PNG, SVG, WEBP';
+            errorDiv.style.display = 'block';
+            input.value = ''; // Clear the input
+            logoFileValid = false;
+            return false;
+        }
+        
+        // Validate file size
+        if (fileSize > maxSize) {
+            errorDiv.textContent = 'خطا در آپلود لوگو: حجم فایل بیشتر از 2 مگابایت است. لطفاً تصویر را فشرده کنید.';
+            errorDiv.style.display = 'block';
+            input.value = ''; // Clear the input
+            logoFileValid = false;
+            return false;
+        }
+        
+        // Optional: Validate MIME type (additional check)
+        if (file.type && !allowedMimeTypes.includes(file.type)) {
+            errorDiv.textContent = 'خطا در آپلود لوگو: نوع فایل مجاز نیست. فایل‌های مجاز: BMP, GIF, JPEG, JPG, PNG, SVG, WEBP';
+            errorDiv.style.display = 'block';
+            input.value = ''; // Clear the input
+            logoFileValid = false;
+            return false;
+        }
+        
+        // File is valid
+        const sizeInMB = (fileSize / (1024 * 1024)).toFixed(2);
+        errorDiv.textContent = `حجم فایل: ${sizeInMB} مگابایت ✓`;
+        errorDiv.className = 'text-success mt-1';
+        errorDiv.style.display = 'block';
+        logoFileValid = true;
+    } else {
+        // No file selected - this is OK (optional field)
+        logoFileValid = true;
+    }
+    
+    return logoFileValid;
+}
+
+// Validate form before submission
+document.addEventListener('DOMContentLoaded', function() {
+    const form = document.querySelector('form[method="POST"]');
+    if (form) {
+        form.addEventListener('submit', function(e) {
+            const logoInput = document.getElementById('logo');
+            if (logoInput && logoInput.files && logoInput.files.length > 0) {
+                // Re-validate the file before submission
+                if (!validateLogoFile(logoInput)) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    
+                    // Scroll to error message
+                    const errorDiv = document.getElementById('fileError');
+                    if (errorDiv) {
+                        errorDiv.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    }
+                    
+                    return false;
+                }
+            }
+        });
+    }
+});
+
+// Initialize KamaDatepicker for Persian calendar
+(function() {
+    function initDatePickers() {
+        if (typeof kamaDatepicker !== 'undefined') {
+            try {
+                kamaDatepicker('start_date', {
+                    forceFarsiDigits: true,
+                    markToday: true,
+                    markHolidays: true,
+                    gotoToday: true,
+                    highlightSelectedDay: true,
+                    format: 'YYYY/MM/DD'
+                });
+                
+                kamaDatepicker('end_date', {
+                    forceFarsiDigits: true,
+                    markToday: true,
+                    markHolidays: true,
+                    gotoToday: true,
+                    highlightSelectedDay: true,
+                    format: 'YYYY/MM/DD'
+                });
+            } catch (error) {
+                console.error('Error initializing KamaDatepicker:', error);
+                setTimeout(initDatePickers, 500);
+            }
+        } else {
+            setTimeout(initDatePickers, 500);
+        }
+    }
+    initDatePickers();
+})();
+
+function toggleAnonymousPassword() {
+    const accessType = document.getElementById('access_type').value;
+    const passwordContainer = document.getElementById('anonymousPasswordContainer');
+    const linkContainer = document.getElementById('anonymousAccessLinkContainer');
+    const parametersContainer = document.getElementById('surveyParametersContainer');
+    
+    if (accessType === 'anonymous') {
+        passwordContainer.style.display = 'block';
+        if (parametersContainer) {
+            parametersContainer.style.display = 'block';
+        }
+        // لینک فقط در صورت وجود مقدار نمایش داده می‌شود
+        if (linkContainer) {
+            const linkInput = document.getElementById('anonymousLink');
+            if (linkInput && linkInput.value && linkInput.value.trim() !== '') {
+                linkContainer.style.display = 'block';
+            } else {
+                linkContainer.style.display = 'none';
+            }
+        }
+    } else {
+        passwordContainer.style.display = 'none';
+        if (linkContainer) {
+            linkContainer.style.display = 'none';
+        }
+        if (parametersContainer) {
+            parametersContainer.style.display = 'none';
+        }
+        // پاک کردن رمز در صورت تغییر نوع دسترسی
+        const passwordInput = document.getElementById('anonymous_access_password');
+        if (passwordInput) {
+            passwordInput.value = '';
+        }
+    }
+}
+
+let parameterCounter = 0;
+
+function addParameter() {
+    const parametersList = document.getElementById('parametersList');
+    const existingParameters = parametersList.querySelectorAll('.parameter-item').length;
+    
+    if (existingParameters >= 5) {
+        alert('حداکثر 5 پارامتر می‌توانید تعریف کنید.');
+        return;
+    }
+    
+    parameterCounter++;
+    const parameterHtml = `
+        <div class="parameter-item mb-3 p-3 border rounded" data-parameter-counter="${parameterCounter}">
+            <div class="row">
+                <div class="col-md-4">
+                    <label class="form-label">نام پارامتر</label>
+                    <input type="text" class="form-control parameter-name" name="parameter_name[]" placeholder="مثال: center" required>
+                </div>
+                <div class="col-md-6">
+                    <label class="form-label">مقادیر ممکن (با کاما جدا کنید)</label>
+                    <textarea class="form-control parameter-values" name="parameter_values[]" rows="3" placeholder="مثال: مرکز1, مرکز2, مرکز3" required></textarea>
+                </div>
+                <div class="col-md-2">
+                    <label class="form-label">&nbsp;</label>
+                    <button type="button" class="btn btn-danger w-100 remove-parameter" onclick="removeParameter(this)">
+                        <i class="bi bi-trash"></i> حذف
+                    </button>
+                </div>
+            </div>
+            <input type="hidden" name="parameter_id[]" value="999999">
+        </div>
+    `;
+    
+    parametersList.insertAdjacentHTML('beforeend', parameterHtml);
+}
+
+function removeParameter(button) {
+    const parameterItem = button.closest('.parameter-item');
+    parameterItem.remove();
+}
+
+// فراخوانی تابع در بارگذاری صفحه
+document.addEventListener('DOMContentLoaded', function() {
+    toggleAnonymousPassword();
+});
+
+function copyAnonymousLink() {
+    const linkInput = document.getElementById('anonymousLink');
+    if (linkInput) {
+        linkInput.select();
+        linkInput.setSelectionRange(0, 99999); // For mobile devices
+        document.execCommand('copy');
+        
+        // Show feedback
+        const button = event.target.closest('button');
+        const originalText = button.innerHTML;
+        button.innerHTML = '<i class="bi bi-check"></i> کپی شد';
+        button.classList.add('btn-success');
+        button.classList.remove('btn-outline-secondary');
+        
+        setTimeout(() => {
+            button.innerHTML = originalText;
+            button.classList.remove('btn-success');
+            button.classList.add('btn-outline-secondary');
+        }, 2000);
+    }
+}
+
+function deleteLogo() {
+    if (confirm('آیا از حذف لوگوی فعلی اطمینان دارید؟')) {
+        const deleteLogoInput = document.getElementById('delete_logo');
+        if (deleteLogoInput) {
+            deleteLogoInput.value = '1';
+        }
+        
+        // Hide the logo display section
+        const logoSection = event.target.closest('.mb-3');
+        if (logoSection) {
+            const logoImg = logoSection.querySelector('img');
+            const deleteBtn = logoSection.querySelector('button');
+            if (logoImg) {
+                logoImg.style.opacity = '0.5';
+                logoImg.style.textDecoration = 'line-through';
+            }
+            if (deleteBtn) {
+                deleteBtn.innerHTML = '<i class="bi bi-check"></i> لوگو حذف خواهد شد';
+                deleteBtn.classList.remove('btn-danger');
+                deleteBtn.classList.add('btn-warning');
+                deleteBtn.disabled = true;
+            }
+        }
+    }
+}
+</script>
+{% endblock %}
+
