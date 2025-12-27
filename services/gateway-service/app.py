@@ -77,6 +77,39 @@ def get_shared_session():
 # We handle static files manually via our custom route
 app = Flask(__name__, template_folder='templates', static_folder=None)
 
+# Configure Flask to use X-Forwarded headers when behind reverse proxy (nginx)
+# This ensures url_for() and request.url_root generate correct HTTPS URLs
+from werkzeug.middleware.proxy_fix import ProxyFix
+app.wsgi_app = ProxyFix(
+    app.wsgi_app,
+    x_for=1,      # Trust X-Forwarded-For header
+    x_proto=1,    # Trust X-Forwarded-Proto header (critical for HTTPS detection)
+    x_host=1,     # Trust X-Forwarded-Host header
+    x_port=1,     # Trust X-Forwarded-Port header
+    x_prefix=1    # Trust X-Forwarded-Prefix header
+)
+
+# Helper function to build secure redirect URI
+def get_secure_redirect_uri():
+    """
+    Build redirect URI using HTTPS scheme when behind reverse proxy.
+    ProxyFix ensures request.scheme is correctly set from X-Forwarded-Proto.
+    """
+    return request.url_root.rstrip('/')
+
+# Helper function to determine if cookies should be secure
+def should_use_secure_cookies():
+    """
+    Determine if cookies should use secure flag based on request scheme.
+    ProxyFix ensures request.scheme is correctly set from X-Forwarded-Proto.
+    Returns True for HTTPS, False for HTTP (localhost/testing).
+    """
+    # If we're on localhost or using HTTP, allow non-secure cookies
+    if request.host.startswith('localhost') or request.host.startswith('127.0.0.1') or request.scheme == 'http':
+        return False
+    # For HTTPS (production), use secure cookies
+    return request.scheme == 'https'
+
 # Global error handlers to prevent crashes
 @app.errorhandler(500)
 def internal_error(error):
@@ -290,7 +323,7 @@ def index():
     logger.info(f"Request to / - cookies: {list(request.cookies.keys())}, token: {'present' if token else 'missing'}")
     if not token:
         # Redirect to /auth/login (which will be proxied to Auth Service)
-        redirect_uri = request.url_root.rstrip('/')
+        redirect_uri = get_secure_redirect_uri()
         logger.info(f"No token found, redirecting to /auth/login")
         return redirect(f"/auth/login?redirect_uri={redirect_uri}")
     
@@ -299,7 +332,7 @@ def index():
     result = auth_client.validate_token(token)
     if "error" in result:
         logger.warning(f"Token validation failed: {result.get('error')}")
-        redirect_uri = request.url_root.rstrip('/')
+        redirect_uri = get_secure_redirect_uri()
         return redirect(f"/auth/login?redirect_uri={redirect_uri}")
     
     user = result.get("user", {})
@@ -314,6 +347,75 @@ def login_redirect():
     redirect_uri = request.args.get("next", request.args.get("redirect_uri", request.url_root.rstrip('/')))
     return redirect(f"/auth/login?redirect_uri={redirect_uri}")
 
+@app.route("/logout", methods=['GET', 'POST'])
+def logout_proxy():
+    """Proxy logout requests to monolithic app"""
+    import requests
+    
+    # Build target URL
+    if not MONOLITHIC_APP_URL:
+        logger.error("MONOLITHIC_APP_URL is not set")
+        return jsonify({"error": "Internal server error", "message": "خطای پیکربندی سرور"}), 500
+    
+    target_url = f"{MONOLITHIC_APP_URL}/logout"
+    
+    # Add query string if present
+    if request.query_string:
+        target_url += f"?{request.query_string.decode()}"
+    
+    logger.info(f"Proxying logout request to: {target_url}")
+    
+    try:
+        # Create a session to maintain cookies
+        session_obj = requests.Session()
+        
+        # Forward all cookies from the original request
+        for name, value in request.cookies.items():
+            session_obj.cookies.set(name, value, path='/')
+        
+        # Forward the request
+        request_kwargs = {
+            'allow_redirects': False,
+            'timeout': 10,
+            'cookies': session_obj.cookies
+        }
+        
+        if request.method == 'POST':
+            resp = session_obj.post(target_url, **request_kwargs)
+        else:
+            resp = session_obj.get(target_url, **request_kwargs)
+        
+        # Handle redirects
+        if resp.status_code in [301, 302, 303, 307, 308]:
+            location = resp.headers.get('Location', '')
+            logger.info(f"Logout redirect to: {location}")
+            return redirect(location)
+        
+        # Copy cookies from response
+        from flask import Response
+        response = Response(resp.content, status=resp.status_code, headers=dict(resp.headers))
+        
+        # Forward cookies from response
+        for cookie in session_obj.cookies:
+            response.set_cookie(
+                cookie.name,
+                cookie.value,
+                domain=None,
+                path=cookie.path if cookie.path else '/',
+                secure=should_use_secure_cookies(),
+                httponly=True,
+                samesite='Lax'
+            )
+        
+        return response
+        
+    except requests.exceptions.ConnectionError as e:
+        logger.error(f"Error proxying logout request: Cannot connect to Monolithic App at {MONOLITHIC_APP_URL}")
+        return jsonify({"error": "Service unavailable", "message": "سرویس در دسترس نیست"}), 503
+    except Exception as e:
+        logger.error(f"Error proxying logout request: {e}", exc_info=True)
+        return jsonify({"error": "Internal server error", "message": "خطای داخلی سرور"}), 500
+
 @app.route("/knowledge", defaults={"path": ""}, methods=['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS', 'HEAD'])
 @app.route("/knowledge/", defaults={"path": ""}, methods=['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS', 'HEAD'])
 @app.route("/knowledge/<path:path>", methods=['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS', 'HEAD'])
@@ -323,7 +425,7 @@ def knowledge_proxy(path):
     
     token = get_auth_token()
     if not token:
-        redirect_uri = request.url_root.rstrip('/')
+        redirect_uri = get_secure_redirect_uri()
         return redirect(f"/auth/login?redirect_uri={redirect_uri}")
     
     # Get KNOWLEDGE_SERVICE_URL from environment
@@ -428,7 +530,7 @@ def knowledge_proxy(path):
                         redirect_response.set_cookie(
                             cookie.name, cookie.value,
                             domain=None, path=cookie.path if cookie.path else '/',
-                            secure=False, httponly=True, samesite='Lax'
+                            secure=should_use_secure_cookies(), httponly=True, samesite='Lax'
                         )
                     return redirect_response
                 else:
@@ -454,7 +556,7 @@ def knowledge_proxy(path):
                     cookie.value,
                     domain=None,
                     path=cookie.path if cookie.path else '/',
-                    secure=False,
+                    secure=should_use_secure_cookies(),
                     httponly=True,
                     samesite='Lax'
                 )
@@ -494,7 +596,7 @@ def knowledge_proxy(path):
                 cookie.value,
                 domain=None,
                 path=cookie.path if cookie.path else '/',
-                secure=False,
+                secure=should_use_secure_cookies(),
                 httponly=True,
                 samesite='Lax'
             )
@@ -535,13 +637,13 @@ def tools():
     """Main tools page - similar to monolithic app"""
     token = get_auth_token()
     if not token:
-        redirect_uri = request.url_root.rstrip('/')
+        redirect_uri = get_secure_redirect_uri()
         return redirect(f"/auth/login?redirect_uri={redirect_uri}")
     
     # Validate token
     result = auth_client.validate_token(token)
     if "error" in result:
-        redirect_uri = request.url_root.rstrip('/')
+        redirect_uri = get_secure_redirect_uri()
         return redirect(f"/auth/login?redirect_uri={redirect_uri}")
     
     user_info = result.get("user", {})
@@ -583,7 +685,7 @@ def survey_proxy(path):
     if not is_anonymous_access:
         token = get_auth_token()
         if not token:
-            redirect_uri = request.url_root.rstrip('/')
+            redirect_uri = get_secure_redirect_uri()
             return redirect(f"/auth/login?redirect_uri={redirect_uri}")
     else:
         # For anonymous access, token is optional
@@ -608,6 +710,9 @@ def survey_proxy(path):
         target_url += f"?{request.query_string.decode()}"
     
     logger.info(f"Proxying survey request to: {target_url} (anonymous_access={is_anonymous_access})")
+    
+    # Increase timeout for survey requests (can be slow with many questions)
+    SURVEY_TIMEOUT = int(os.getenv("SURVEY_TIMEOUT", "60"))  # Default 60 seconds
     
     try:
         # Forward request with cookies and headers
@@ -635,7 +740,7 @@ def survey_proxy(path):
         request_kwargs = {
             'headers': headers,
             'allow_redirects': False,
-            'timeout': 30
+            'timeout': SURVEY_TIMEOUT
         }
         
         if request.method == "GET":
@@ -696,7 +801,7 @@ def survey_proxy(path):
                         redirect_response.set_cookie(
                             cookie.name, cookie.value,
                             domain=None, path=cookie.path if cookie.path else '/',
-                            secure=False, httponly=True, samesite='Lax'
+                            secure=should_use_secure_cookies(), httponly=True, samesite='Lax'
                         )
                     return redirect_response
                 else:
@@ -727,7 +832,7 @@ def survey_proxy(path):
                     cookie.value,
                     domain=None,
                     path=cookie.path if cookie.path else '/',
-                    secure=False,  # Will be set by nginx if HTTPS
+                    secure=should_use_secure_cookies(),
                     httponly=True,
                     samesite='Lax'
                 )
@@ -750,12 +855,66 @@ def survey_proxy(path):
                 cookie.value,
                 domain=None,
                 path=cookie.path if cookie.path else '/',
-                secure=False,
+                secure=should_use_secure_cookies(),
                 httponly=True,
                 samesite='Lax'
             )
         
         return response
+    except requests.exceptions.Timeout as e:
+        logger.error(f"Error proxying survey request: Timeout connecting to monolithic app at {MONOLITHIC_APP_URL} (timeout={SURVEY_TIMEOUT}s)")
+        error_msg = f"""<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>خطا در اتصال</title>
+    <style>
+        body {{ font-family: Tahoma, Arial, sans-serif; padding: 20px; background: #f5f5f5; direction: rtl; }}
+        .container {{ max-width: 600px; margin: 50px auto; background: white; padding: 30px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); text-align: center; }}
+        h1 {{ color: #d32f2f; font-size: 28px; margin-bottom: 20px; }}
+        .error-message {{
+            color: #333;
+            font-size: 18px;
+            line-height: 1.8;
+            margin: 20px 0;
+            padding: 20px;
+            background-color: #fff3cd;
+            border-right: 4px solid #ffc107;
+            border-radius: 4px;
+        }}
+        .back-link {{
+            margin-top: 30px;
+        }}
+        .back-link a {{
+            color: #007bff;
+            text-decoration: none;
+            font-size: 16px;
+            padding: 10px 20px;
+            border: 1px solid #007bff;
+            border-radius: 4px;
+            display: inline-block;
+            transition: background-color 0.3s;
+        }}
+        .back-link a:hover {{
+            background-color: #007bff;
+            color: white;
+        }}
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>⚠️ خطا در اتصال</h1>
+        <div class="error-message">
+            کاربر گرامی، با عرض پوزش در حال حاضر امکان دسترسی به سرویس نظرسنجی میسر نیست. لطفا بعدا مراجعه نمایید.
+        </div>
+        <div class="back-link">
+            <a href="/tools">بازگشت به صفحه ابزارها</a>
+        </div>
+    </div>
+</body>
+</html>"""
+        return error_msg, 503
     except requests.exceptions.ConnectionError as e:
         logger.error(f"Error proxying survey request: Cannot connect to monolithic app at {MONOLITHIC_APP_URL}")
         logger.error(f"Make sure the monolithic app is running. Start it with: python start-monolithic-app.ps1")
@@ -766,17 +925,47 @@ def survey_proxy(path):
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>سرویس در دسترس نیست</title>
     <style>
-        body {{ font-family: Tahoma, Arial, sans-serif; padding: 20px; background: #f5f5f5; }}
-        .container {{ max-width: 600px; margin: 50px auto; background: white; padding: 30px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }}
-        h1 {{ color: #d32f2f; }}
-        code {{ background: #f5f5f5; padding: 2px 6px; border-radius: 3px; }}
+        body {{ font-family: Tahoma, Arial, sans-serif; padding: 20px; background: #f5f5f5; direction: rtl; }}
+        .container {{ max-width: 600px; margin: 50px auto; background: white; padding: 30px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); text-align: center; }}
+        h1 {{ color: #d32f2f; font-size: 28px; margin-bottom: 20px; }}
+        .error-message {{
+            color: #333;
+            font-size: 18px;
+            line-height: 1.8;
+            margin: 20px 0;
+            padding: 20px;
+            background-color: #fff3cd;
+            border-right: 4px solid #ffc107;
+            border-radius: 4px;
+        }}
+        .back-link {{
+            margin-top: 30px;
+        }}
+        .back-link a {{
+            color: #007bff;
+            text-decoration: none;
+            font-size: 16px;
+            padding: 10px 20px;
+            border: 1px solid #007bff;
+            border-radius: 4px;
+            display: inline-block;
+            transition: background-color 0.3s;
+        }}
+        .back-link a:hover {{
+            background-color: #007bff;
+            color: white;
+        }}
     </style>
 </head>
 <body>
     <div class="container">
-        <h1>سرویس در دسترس نیست</h1>
-        <p>سرویس نظرسنجی در حال حاضر در دسترس نیست. لطفاً با مدیر سیستم تماس بگیرید.</p>
-        <p><small>جزئیات خطا: {str(e)}</small></p>
+        <h1>⚠️ سرویس در دسترس نیست</h1>
+        <div class="error-message">
+            کاربر گرامی، با عرض پوزش در حال حاضر امکان دسترسی به سرویس نظرسنجی میسر نیست. لطفا بعدا مراجعه نمایید.
+        </div>
+        <div class="back-link">
+            <a href="/tools">بازگشت به صفحه ابزارها</a>
+        </div>
     </div>
 </body>
 </html>"""
@@ -789,7 +978,61 @@ def survey_proxy(path):
         error_traceback = traceback.format_exc()
         logger.error(f"Error proxying survey request: {e}", exc_info=True)
         logger.error(f"Full traceback: {error_traceback}")
-        return f"Error connecting to survey service: {str(e)}", 500
+        error_msg = """<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>خطا</title>
+    <style>
+        body { font-family: Tahoma, Arial, sans-serif; padding: 20px; background: #f5f5f5; direction: rtl; }
+        .container { max-width: 600px; margin: 50px auto; background: white; padding: 30px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); text-align: center; }
+        h1 { color: #d32f2f; font-size: 28px; margin-bottom: 20px; }
+        .error-message {
+            color: #333;
+            font-size: 18px;
+            line-height: 1.8;
+            margin: 20px 0;
+            padding: 20px;
+            background-color: #fff3cd;
+            border-right: 4px solid #ffc107;
+            border-radius: 4px;
+        }
+        .back-link {
+            margin-top: 30px;
+        }
+        .back-link a {
+            color: #007bff;
+            text-decoration: none;
+            font-size: 16px;
+            padding: 10px 20px;
+            border: 1px solid #007bff;
+            border-radius: 4px;
+            display: inline-block;
+            transition: background-color 0.3s;
+        }
+        .back-link a:hover {
+            background-color: #007bff;
+            color: white;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>⚠️ خطا</h1>
+        <div class="error-message">
+            کاربر گرامی، با عرض پوزش در حال حاضر امکان دسترسی به سرویس نظرسنجی میسر نیست. لطفا بعدا مراجعه نمایید.
+        </div>
+        <div class="back-link">
+            <a href="/tools">بازگشت به صفحه ابزارها</a>
+        </div>
+    </div>
+</body>
+</html>"""
+        from flask import make_response
+        response = make_response(error_msg, 500)
+        response.headers['Content-Type'] = 'text/html; charset=utf-8'
+        return response
 
 @app.route("/admin", defaults={"path": ""}, methods=['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS', 'HEAD'])
 @app.route("/admin/", defaults={"path": ""}, methods=['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS', 'HEAD'])
@@ -844,7 +1087,7 @@ def admin_proxy(path):
     # #endregion
     
     if not token:
-        redirect_uri = request.url_root.rstrip('/')
+        redirect_uri = get_secure_redirect_uri()
         return redirect(f"/auth/login?redirect_uri={redirect_uri}")
     
     # For now, proxy to monolithic app (Admin Service only has API endpoints, no HTML)
@@ -1027,7 +1270,7 @@ def admin_proxy(path):
                         redirect_response.set_cookie(
                             cookie.name, cookie.value,
                             domain=None, path=cookie.path if cookie.path else '/',
-                            secure=False, httponly=True, samesite='Lax'
+                            secure=should_use_secure_cookies(), httponly=True, samesite='Lax'
                         )
                     return redirect_response
                 else:
@@ -1058,7 +1301,7 @@ def admin_proxy(path):
                     cookie.value,
                     domain=None,
                     path=cookie.path if cookie.path else '/',
-                    secure=False,  # Will be set by nginx if HTTPS
+                    secure=should_use_secure_cookies(),
                     httponly=True,
                     samesite='Lax'
                 )
@@ -1081,7 +1324,7 @@ def admin_proxy(path):
                 cookie.value,
                 domain=None,
                 path=cookie.path if cookie.path else '/',
-                secure=False,
+                secure=should_use_secure_cookies(),
                 httponly=True,
                 samesite='Lax'
             )
@@ -1148,7 +1391,7 @@ def charts_data_proxy():
     
     token = get_auth_token()
     if not token:
-        redirect_uri = request.url_root.rstrip('/')
+        redirect_uri = get_secure_redirect_uri()
         return redirect(f"/auth/login?redirect_uri={redirect_uri}")
     
     # Build target URL
@@ -1216,7 +1459,7 @@ def charts_data_proxy():
                 cookie.value,
                 domain=None,
                 path=cookie.path if cookie.path else '/',
-                secure=False,
+                secure=should_use_secure_cookies(),
                 httponly=True,
                 samesite='Lax'
             )
@@ -1233,7 +1476,7 @@ def tables_data_proxy():
     
     token = get_auth_token()
     if not token:
-        redirect_uri = request.url_root.rstrip('/')
+        redirect_uri = get_secure_redirect_uri()
         return redirect(f"/auth/login?redirect_uri={redirect_uri}")
     
     # Build target URL
@@ -1301,7 +1544,7 @@ def tables_data_proxy():
                 cookie.value,
                 domain=None,
                 path=cookie.path if cookie.path else '/',
-                secure=False,
+                secure=should_use_secure_cookies(),
                 httponly=True,
                 samesite='Lax'
             )
@@ -1431,7 +1674,7 @@ def dashboard_api_proxy(path):
                 cookie.value,
                 domain=None,
                 path=cookie.path if cookie.path else '/',
-                secure=False,
+                secure=should_use_secure_cookies(),
                 httponly=True,
                 samesite='Lax'
             )
@@ -1467,7 +1710,7 @@ def dashboard_proxy(path):
     
     token = get_auth_token()
     if not token:
-        redirect_uri = request.url_root.rstrip('/')
+        redirect_uri = get_secure_redirect_uri()
         return redirect(f"/auth/login?redirect_uri={redirect_uri}")
     
     # For now, proxy to monolithic app (Dashboard Service only has API endpoints, no HTML)
@@ -1592,7 +1835,7 @@ def dashboard_proxy(path):
                                     cookie.value,
                                     domain=None,
                                     path=cookie.path if cookie.path else '/',
-                                    secure=False,
+                                    secure=should_use_secure_cookies(),
                                     httponly=True,
                                     samesite='Lax'
                                 )
@@ -1625,7 +1868,7 @@ def dashboard_proxy(path):
                         redirect_response.set_cookie(
                             cookie.name, cookie.value,
                             domain=None, path=cookie.path if cookie.path else '/',
-                            secure=False, httponly=True, samesite='Lax'
+                            secure=should_use_secure_cookies(), httponly=True, samesite='Lax'
                         )
                     return redirect_response
                 else:
@@ -1667,7 +1910,7 @@ def dashboard_proxy(path):
                     cookie.value,
                     domain=None,
                     path=cookie.path if cookie.path else '/',
-                    secure=False,  # Will be set by nginx if HTTPS
+                    secure=should_use_secure_cookies(),
                     httponly=True,
                     samesite='Lax'
                 )
@@ -1690,7 +1933,7 @@ def dashboard_proxy(path):
                 cookie.value,
                 domain=None,
                 path=cookie.path if cookie.path else '/',
-                secure=False,
+                secure=should_use_secure_cookies(),
                 httponly=True,
                 samesite='Lax'
             )
@@ -1888,9 +2131,8 @@ def auth_authorized():
             cookie_secure = cookie.secure if hasattr(cookie, 'secure') else True
             
             # Adjust cookie settings for Gateway
-            # If we're on localhost or using HTTP, make cookie non-secure
-            if request.host.startswith('localhost') or request.host.startswith('127.0.0.1') or request.scheme == 'http':
-                cookie_secure = False  # Allow HTTP cookies for localhost
+            # Use helper function to determine if cookies should be secure
+            cookie_secure = should_use_secure_cookies()
             
             response.set_cookie(
                 cookie.name,
@@ -2064,9 +2306,8 @@ def auth_proxy(path):
                                         pass
                             
                             # Adjust cookie settings for Gateway
-                            # If we're on localhost or using HTTP, make cookie non-secure
-                            if request.host.startswith('localhost') or request.host.startswith('127.0.0.1') or request.scheme == 'http':
-                                cookie_secure = False  # Allow HTTP cookies for localhost
+                            # Use helper function to determine if cookies should be secure
+                            cookie_secure = should_use_secure_cookies()
                             # For HTTPS on bi.cfu.ac.ir, keep secure=True
                             # CRITICAL: For redirects to SSO, we need to set cookies with domain=None or domain='bi.cfu.ac.ir'
                             # so they're available when the browser comes back from SSO
